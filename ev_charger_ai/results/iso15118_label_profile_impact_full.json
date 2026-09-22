@@ -1,0 +1,193 @@
+{
+  "schema_version": 2,
+  "sessions_dir": "G:\\ev_charger_ai_data\\sessions",
+  "source_hashes": {
+    "published": "ea308864d0274709ce79b85c2dc6abae1d498e41b4bbedcd26956f910c9a6d6e",
+    "reviewed_all": "a48108274f13f3d3d2bf4521c107b0f60efbfee206de1110f22e46345b786ace",
+    "reviewed_scoring": "58eef22599a4d4cf6ef586c5026f3f8a341f081de541aa52e1f451140ca537e0"
+  },
+  "published_index_entries": 40542,
+  "evaluated_sessions": 40542,
+  "scoring_sessions": 39142,
+  "censored_sessions": 1400,
+  "distribution": {
+    "published_on_evaluated": {
+      "clean": 36308,
+      "EV_ERROR": 433,
+      "SESSION_ABORT": 1019,
+      "PROTOCOL_FAILED": 1400,
+      "SLAC_FAILURE": 1092,
+      "EVSE_FAULT": 270,
+      "COMM_FREEZE": 20
+    },
+    "reviewed_all": {
+      "clean": 33250,
+      "EV_ERROR": 430,
+      "SESSION_ABORT": 705,
+      "PROTOCOL_FAILED": 1389,
+      "NO_POWER_DELIVERED": 1694,
+      "SLAC_FAILURE": 914,
+      "censored": 1400,
+      "COMM_FREEZE": 462,
+      "EVSE_FAULT": 270,
+      "ISOLATION_FAULT": 17,
+      "EVSE_PROCESSING_STALL": 11
+    },
+    "published_on_scoring_cohort": {
+      "clean": 35281,
+      "EV_ERROR": 433,
+      "SLAC_FAILURE": 914,
+      "SESSION_ABORT": 824,
+      "PROTOCOL_FAILED": 1400,
+      "EVSE_FAULT": 270,
+      "COMM_FREEZE": 20
+    },
+    "reviewed_scoring": {
+      "clean": 33250,
+      "EV_ERROR": 430,
+      "SESSION_ABORT": 705,
+      "PROTOCOL_FAILED": 1389,
+      "NO_POWER_DELIVERED": 1694,
+      "SLAC_FAILURE": 914,
+      "COMM_FREEZE": 462,
+      "EVSE_FAULT": 270,
+      "ISOLATION_FAULT": 17,
+      "EVSE_PROCESSING_STALL": 11
+    }
+  },
+  "transitions": [
+    {
+      "from": "clean",
+      "to": "clean",
+      "sessions": 33244
+    },
+    {
+      "from": "clean",
+      "to": "NO_POWER_DELIVERED",
+      "sessions": 1694
+    },
+    {
+      "from": "PROTOCOL_FAILED",
+      "to": "PROTOCOL_FAILED",
+      "sessions": 1347
+    },
+    {
+      "from": "clean",
+      "to": "censored",
+      "sessions": 1027
+    },
+    {
+      "from": "SLAC_FAILURE",
+      "to": "SLAC_FAILURE",
+      "sessions": 914
+    },
+    {
+      "from": "SESSION_ABORT",
+      "to": "SESSION_ABORT",
+      "sessions": 698
+    },
+    {
+      "from": "EV_ERROR",
+      "to": "EV_ERROR",
+      "sessions": 430
+    },
+    {
+      "from": "clean",
+      "to": "COMM_FREEZE",
+      "sessions": 326
+    },
+    {
+      "from": "EVSE_FAULT",
+      "to": "EVSE_FAULT",
+      "sessions": 270
+    },
+    {
+      "from": "SESSION_ABORT",
+      "to": "censored",
+      "sessions": 195
+    },
+    {
+      "from": "SLAC_FAILURE",
+      "to": "censored",
+      "sessions": 178
+    },
+    {
+      "from": "SESSION_ABORT",
+      "to": "COMM_FREEZE",
+      "sessions": 75
+    },
+    {
+      "from": "PROTOCOL_FAILED",
+      "to": "COMM_FREEZE",
+      "sessions": 53
+    },
+    {
+      "from": "SESSION_ABORT",
+      "to": "PROTOCOL_FAILED",
+      "sessions": 41
+    },
+    {
+      "from": "clean",
+      "to": "ISOLATION_FAULT",
+      "sessions": 16
+    },
+    {
+      "from": "SESSION_ABORT",
+      "to": "EVSE_PROCESSING_STALL",
+      "sessions": 10
+    },
+    {
+      "from": "COMM_FREEZE",
+      "to": "COMM_FREEZE",
+      "sessions": 8
+    },
+    {
+      "from": "COMM_FREEZE",
+      "to": "clean",
+      "sessions": 6
+    },
+    {
+      "from": "COMM_FREEZE",
+      "to": "SESSION_ABORT",
+      "sessions": 4
+    },
+    {
+      "from": "EV_ERROR",
+      "to": "SESSION_ABORT",
+      "sessions": 3
+    },
+    {
+      "from": "clean",
+      "to": "EVSE_PROCESSING_STALL",
+      "sessions": 1
+    },
+    {
+      "from": "COMM_FREEZE",
+      "to": "PROTOCOL_FAILED",
+      "sessions": 1
+    },
+    {
+      "from": "COMM_FREEZE",
+      "to": "ISOLATION_FAULT",
+      "sessions": 1
+    }
+  ],
+  "transition_basis": "published_to_reviewed",
+  "censor_reasons": {
+    "non-graceful end without positive fault evidence": 1138,
+    "shared-PLC SLAC could not be attributed": 46,
+    "capture ended before 20s setup budget": 132,
+    "normal stop evidence present but SessionStopRes was not observable": 84
+  },
+  "quality_flags": {
+    "DECODE_ERROR": 1
+  },
+  "new_faults_on_published_clean": 2037,
+  "published_faults_now_clean": 6,
+  "fault_anchor_delta_s": {
+    "sessions": 922,
+    "median": -40.932000160217285,
+    "min": -8610.129999995232,
+    "max": -1.2890000343322754
+  }
+}

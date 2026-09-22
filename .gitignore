@@ -1,0 +1,28 @@
+# data and derived arrays never belong in the repo (tens of GB)
+ev_charger_ai/data/
+ev_charger_ai/logs/
+*.npy
+*.npz.tmp
+*.pcap
+*.pcapng
+
+# python / node / build caches
+__pycache__/
+*.pyc
+node_modules/
+.next/
+.next-desktop/
+.desktop-build/
+dist-desktop/
+
+# installers are distributed through GitHub Releases, not git
+*.exe
+*.nsis.7z
+*.blockmap
+
+# local state
+*.log
+*.tmp
+.env
+.env.*
+!.env.example

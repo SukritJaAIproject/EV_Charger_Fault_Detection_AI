@@ -1,0 +1,385 @@
+{
+  "schema_version": 2,
+  "sessions_dir": "C:\\ev_fleet\\sessions",
+  "source_hashes": {
+    "published": "ea308864d0274709ce79b85c2dc6abae1d498e41b4bbedcd26956f910c9a6d6e",
+    "reviewed_all": "098b7a546c4e07262b7a2da16f859741d6727d7976567e8e3204533b9677dcb0",
+    "reviewed_scoring": "af0330b51286c0e5f0355c56ca91f2f97762b2fc85149f50b6ab6db1347a9ecf",
+    "pre_review_strict": "325a94aa68b42ad3215dfbecf90d507d70b640badf3f2e7b92f0e560d62bc608",
+    "pre_continuation_strict": "5728b988972cc03be4dc73726f82d7c3dfbc0002d61d6752da2e11db2ff49703"
+  },
+  "published_index_entries": 40542,
+  "evaluated_sessions": 8820,
+  "scoring_sessions": 8525,
+  "censored_sessions": 295,
+  "distribution": {
+    "published_on_evaluated": {
+      "clean": 7863,
+      "PROTOCOL_FAILED": 310,
+      "SESSION_ABORT": 234,
+      "SLAC_FAILURE": 224,
+      "EVSE_FAULT": 93,
+      "EV_ERROR": 91,
+      "COMM_FREEZE": 5
+    },
+    "reviewed_all": {
+      "clean": 7208,
+      "PROTOCOL_FAILED": 314,
+      "COMM_FREEZE": 100,
+      "SESSION_ABORT": 166,
+      "SLAC_FAILURE": 185,
+      "EVSE_FAULT": 93,
+      "NO_POWER_DELIVERED": 360,
+      "censored": 295,
+      "EV_ERROR": 91,
+      "ISOLATION_FAULT": 5,
+      "EVSE_PROCESSING_STALL": 3
+    },
+    "published_on_scoring_cohort": {
+      "SLAC_FAILURE": 185,
+      "clean": 7647,
+      "EVSE_FAULT": 93,
+      "PROTOCOL_FAILED": 310,
+      "SESSION_ABORT": 194,
+      "EV_ERROR": 91,
+      "COMM_FREEZE": 5
+    },
+    "reviewed_scoring": {
+      "clean": 7208,
+      "PROTOCOL_FAILED": 314,
+      "COMM_FREEZE": 100,
+      "SESSION_ABORT": 166,
+      "SLAC_FAILURE": 185,
+      "EVSE_FAULT": 93,
+      "NO_POWER_DELIVERED": 360,
+      "EV_ERROR": 91,
+      "ISOLATION_FAULT": 5,
+      "EVSE_PROCESSING_STALL": 3
+    },
+    "pre_review_strict_all": {
+      "clean": 7494,
+      "PROTOCOL_FAILED": 310,
+      "SESSION_ABORT": 230,
+      "SLAC_FAILURE": 237,
+      "EVSE_FAULT": 93,
+      "NO_POWER_DELIVERED": 360,
+      "EV_ERROR": 91,
+      "COMM_FREEZE": 5
+    },
+    "pre_review_strict_on_scoring_cohort": {
+      "SLAC_FAILURE": 198,
+      "clean": 7278,
+      "EVSE_FAULT": 93,
+      "PROTOCOL_FAILED": 310,
+      "SESSION_ABORT": 190,
+      "NO_POWER_DELIVERED": 360,
+      "EV_ERROR": 91,
+      "COMM_FREEZE": 5
+    }
+  },
+  "transitions": [
+    {
+      "from": "clean",
+      "to": "clean",
+      "sessions": 7207
+    },
+    {
+      "from": "clean",
+      "to": "NO_POWER_DELIVERED",
+      "sessions": 360
+    },
+    {
+      "from": "PROTOCOL_FAILED",
+      "to": "PROTOCOL_FAILED",
+      "sessions": 304
+    },
+    {
+      "from": "clean",
+      "to": "censored",
+      "sessions": 216
+    },
+    {
+      "from": "SLAC_FAILURE",
+      "to": "SLAC_FAILURE",
+      "sessions": 185
+    },
+    {
+      "from": "SESSION_ABORT",
+      "to": "SESSION_ABORT",
+      "sessions": 165
+    },
+    {
+      "from": "EVSE_FAULT",
+      "to": "EVSE_FAULT",
+      "sessions": 93
+    },
+    {
+      "from": "EV_ERROR",
+      "to": "EV_ERROR",
+      "sessions": 91
+    },
+    {
+      "from": "clean",
+      "to": "COMM_FREEZE",
+      "sessions": 75
+    },
+    {
+      "from": "SESSION_ABORT",
+      "to": "censored",
+      "sessions": 40
+    },
+    {
+      "from": "SLAC_FAILURE",
+      "to": "censored",
+      "sessions": 39
+    },
+    {
+      "from": "SESSION_ABORT",
+      "to": "COMM_FREEZE",
+      "sessions": 16
+    },
+    {
+      "from": "SESSION_ABORT",
+      "to": "PROTOCOL_FAILED",
+      "sessions": 10
+    },
+    {
+      "from": "PROTOCOL_FAILED",
+      "to": "COMM_FREEZE",
+      "sessions": 6
+    },
+    {
+      "from": "clean",
+      "to": "ISOLATION_FAULT",
+      "sessions": 5
+    },
+    {
+      "from": "SESSION_ABORT",
+      "to": "EVSE_PROCESSING_STALL",
+      "sessions": 3
+    },
+    {
+      "from": "COMM_FREEZE",
+      "to": "COMM_FREEZE",
+      "sessions": 3
+    },
+    {
+      "from": "COMM_FREEZE",
+      "to": "clean",
+      "sessions": 1
+    },
+    {
+      "from": "COMM_FREEZE",
+      "to": "SESSION_ABORT",
+      "sessions": 1
+    }
+  ],
+  "transition_basis": "published_to_reviewed",
+  "censor_reasons": {
+    "non-graceful end without positive fault evidence": 244,
+    "shared-PLC SLAC could not be attributed": 13,
+    "capture ended before 20s setup budget": 26,
+    "normal stop evidence present but SessionStopRes was not observable": 12
+  },
+  "quality_flags": {
+    "DECODE_ERROR": 1
+  },
+  "new_faults_on_published_clean": 440,
+  "published_faults_now_clean": 1,
+  "fault_anchor_delta_s": {
+    "sessions": 188,
+    "median": -40.91499996185303,
+    "min": -151.29000008106232,
+    "max": -2.694000005722046
+  },
+  "pre_review_strict": {
+    "index": "index_strict_pre_review.json",
+    "sessions": 8820,
+    "published_to_strict_transitions": [
+      {
+        "from": "clean",
+        "to": "clean",
+        "sessions": 7494
+      },
+      {
+        "from": "clean",
+        "to": "NO_POWER_DELIVERED",
+        "sessions": 360
+      },
+      {
+        "from": "PROTOCOL_FAILED",
+        "to": "PROTOCOL_FAILED",
+        "sessions": 310
+      },
+      {
+        "from": "SESSION_ABORT",
+        "to": "SESSION_ABORT",
+        "sessions": 230
+      },
+      {
+        "from": "SLAC_FAILURE",
+        "to": "SLAC_FAILURE",
+        "sessions": 224
+      },
+      {
+        "from": "EVSE_FAULT",
+        "to": "EVSE_FAULT",
+        "sessions": 93
+      },
+      {
+        "from": "EV_ERROR",
+        "to": "EV_ERROR",
+        "sessions": 91
+      },
+      {
+        "from": "clean",
+        "to": "SLAC_FAILURE",
+        "sessions": 9
+      },
+      {
+        "from": "COMM_FREEZE",
+        "to": "COMM_FREEZE",
+        "sessions": 5
+      },
+      {
+        "from": "SESSION_ABORT",
+        "to": "SLAC_FAILURE",
+        "sessions": 4
+      }
+    ],
+    "strict_to_reviewed_transitions": [
+      {
+        "from": "clean",
+        "to": "clean",
+        "sessions": 7198
+      },
+      {
+        "from": "NO_POWER_DELIVERED",
+        "to": "NO_POWER_DELIVERED",
+        "sessions": 360
+      },
+      {
+        "from": "PROTOCOL_FAILED",
+        "to": "PROTOCOL_FAILED",
+        "sessions": 304
+      },
+      {
+        "from": "clean",
+        "to": "censored",
+        "sessions": 216
+      },
+      {
+        "from": "SLAC_FAILURE",
+        "to": "SLAC_FAILURE",
+        "sessions": 185
+      },
+      {
+        "from": "SESSION_ABORT",
+        "to": "SESSION_ABORT",
+        "sessions": 161
+      },
+      {
+        "from": "EVSE_FAULT",
+        "to": "EVSE_FAULT",
+        "sessions": 93
+      },
+      {
+        "from": "EV_ERROR",
+        "to": "EV_ERROR",
+        "sessions": 91
+      },
+      {
+        "from": "clean",
+        "to": "COMM_FREEZE",
+        "sessions": 75
+      },
+      {
+        "from": "SESSION_ABORT",
+        "to": "censored",
+        "sessions": 40
+      },
+      {
+        "from": "SLAC_FAILURE",
+        "to": "censored",
+        "sessions": 39
+      },
+      {
+        "from": "SESSION_ABORT",
+        "to": "COMM_FREEZE",
+        "sessions": 16
+      },
+      {
+        "from": "SESSION_ABORT",
+        "to": "PROTOCOL_FAILED",
+        "sessions": 10
+      },
+      {
+        "from": "SLAC_FAILURE",
+        "to": "clean",
+        "sessions": 9
+      },
+      {
+        "from": "PROTOCOL_FAILED",
+        "to": "COMM_FREEZE",
+        "sessions": 6
+      },
+      {
+        "from": "clean",
+        "to": "ISOLATION_FAULT",
+        "sessions": 5
+      },
+      {
+        "from": "SLAC_FAILURE",
+        "to": "SESSION_ABORT",
+        "sessions": 4
+      },
+      {
+        "from": "SESSION_ABORT",
+        "to": "EVSE_PROCESSING_STALL",
+        "sessions": 3
+      },
+      {
+        "from": "COMM_FREEZE",
+        "to": "COMM_FREEZE",
+        "sessions": 3
+      },
+      {
+        "from": "COMM_FREEZE",
+        "to": "clean",
+        "sessions": 1
+      },
+      {
+        "from": "COMM_FREEZE",
+        "to": "SESSION_ABORT",
+        "sessions": 1
+      }
+    ],
+    "new_faults_on_strict_clean": 80,
+    "strict_faults_now_reviewed_clean": 10,
+    "fault_anchor_delta_s": {
+      "published_to_strict": {
+        "sessions": 0,
+        "median": null,
+        "min": null,
+        "max": null
+      },
+      "strict_to_reviewed": {
+        "sessions": 188,
+        "median": -40.91499996185303,
+        "min": -151.29000008106232,
+        "max": -2.694000005722046
+      }
+    },
+    "pre_continuation_compatibility": {
+      "index": "index_strict_pre_continuation.json",
+      "compared_sessions": 8820,
+      "core_fields": [
+        "faults",
+        "graceful_close",
+        "reached_current_demand"
+      ],
+      "key_differences": 0,
+      "core_field_differences": 0
+    }
+  }
+}

@@ -1,0 +1,150 @@
+{
+  "name": "material-tailwind-dashboard-nextjs-pro",
+  "version": "1.2.0",
+  "description": "Offline Windows desktop application for EV charger fault detection and PCAP analysis.",
+  "author": "iMPS Project",
+  "private": true,
+  "main": "desktop/electron/main.cjs",
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "build:pdf-css": "tailwindcss -i ./backend/pdf/templates/tw.css -o ./backend/pdf/static/css/pmreport.css --minify",
+    "watch:pdf-css": "tailwindcss -i ./backend/pdf/templates/tw.css -o ./backend/pdf/static/css/pmreport.css --watch",
+    "desktop:prepare": "node desktop/scripts/prepare-desktop.mjs",
+    "desktop:run": "electron .",
+    "desktop:package:offline": "node desktop/scripts/build-installers.mjs --kind offline",
+    "desktop:package:online": "node desktop/scripts/build-installers.mjs --kind online",
+    "desktop:package:installers": "node desktop/scripts/build-installers.mjs --kind both",
+    "desktop:build:offline": "npm run desktop:prepare && npm run desktop:package:offline",
+    "desktop:build:online": "npm run desktop:prepare && npm run desktop:package:online",
+    "desktop:build": "npm run desktop:prepare && npm run desktop:package:installers"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.0.1",
+    "@fullcalendar/core": "6.1.10",
+    "@fullcalendar/daygrid": "6.1.10",
+    "@fullcalendar/react": "6.1.10",
+    "@heroicons/react": "^2.2.0",
+    "@hookform/resolvers": "3.3.4",
+    "@material-tailwind/react": "^2.1.10",
+    "@phosphor-icons/react": "^2.1.10",
+    "@react-jvectormap/core": "1.0.4",
+    "@react-jvectormap/world": "1.1.2",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@tanstack/react-table": "8.11.7",
+    "apexcharts": "3.45.2",
+    "cors": "^2.8.5",
+    "creditcardutils": "1.0.0",
+    "date-fns": "3.3.1",
+    "deepmerge": "4.3.1",
+    "event-source-polyfill": "^1.0.31",
+    "idb-keyval": "^6.2.2",
+    "jwt-decode": "^4.0.0",
+    "loader-utils": "3.2.1",
+    "lodash": "^4.17.21",
+    "lucide-react": "^0.544.0",
+    "mangle-css-class-webpack-plugin": "5.1.0",
+    "next": "^14.2.32",
+    "openai": "^6.25.0",
+    "phosphor-react": "^1.4.1",
+    "react": "18.3.1",
+    "react-apexcharts": "1.4.1",
+    "react-calendar": "4.8.0",
+    "react-datepicker": "5.1.0",
+    "react-day-picker": "8.10.0",
+    "react-dom": "18.3.1",
+    "react-dropzone": "14.2.3",
+    "react-hook-form": "7.49.3",
+    "react-router-dom": "6.21.3",
+    "react-select": "^5.10.2",
+    "recharts": "^3.8.0",
+    "tesseract.js": "^7.0.0",
+    "usehooks-ts": "2.10.0",
+    "zod": "^3.25.76",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.20",
+    "@types/node": "20",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitest/ui": "^4.1.9",
+    "autoprefixer": "10.4.17",
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3",
+    "eslint": "8.56.0",
+    "eslint-config-next": "14.1.0",
+    "postcss": "8.4.33",
+    "tailwindcss": "3.4.1",
+    "typescript": "5.3.3",
+    "vitest": "^4.1.9"
+  },
+  "build": {
+    "appId": "th.co.imps.faultdetection",
+    "productName": "iMPS Fault Detection",
+    "asar": true,
+    "compression": "maximum",
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "desktop/electron/main.cjs",
+      "package.json",
+      "!node_modules{,/**/*}"
+    ],
+    "extraResources": [
+      {
+        "from": ".next-desktop/standalone",
+        "to": "app"
+      },
+      {
+        "from": ".desktop-build/summary.json",
+        "to": "data/summary.json"
+      },
+      {
+        "from": ".desktop-build/runtime",
+        "to": "runtime"
+      },
+      {
+        "from": ".desktop-build/models",
+        "to": "models"
+      },
+      {
+        "from": "desktop/licenses",
+        "to": "licenses"
+      },
+      {
+        "from": "public/img/AI-icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/img/AI-icon.png",
+      "artifactName": "iMPS-Fault-Detection-Full-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "iMPS Fault Detection",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+ "n_faulty": 0,
+ "n_clean": 2,
+ "detectors": {
+  "TraditionalAI": {
+   "recall": 0.0,
+   "far": 1.0,
+   "earliness": 0.0,
+   "score": 0.0,
+   "tp": 0,
+   "late": 0,
+   "miss": 0,
+   "fp": 2,
+   "median_lead_s": 0.0,
+   "mean_lead_s": 0.0,
+   "wins": 0.0,
+   "by_family": {}
+  },
+  "RL": {
+   "recall": 0.0,
+   "far": 0.0,
+   "earliness": 0.0,
+   "score": 30.0,
+   "tp": 0,
+   "late": 0,
+   "miss": 0,
+   "fp": 0,
+   "median_lead_s": 0.0,
+   "mean_lead_s": 0.0,
+   "wins": 0.0,
+   "by_family": {}
+  },
+  "AIAgent": {
+   "recall": 0.0,
+   "far": 1.0,
+   "earliness": 0.0,
+   "score": 0.0,
+   "tp": 0,
+   "late": 0,
+   "miss": 0,
+   "fp": 2,
+   "median_lead_s": 0.0,
+   "mean_lead_s": 0.0,
+   "wins": 0.0,
+   "by_family": {}
+  },
+  "AgenticAI": {
+   "recall": 0.0,
+   "far": 1.0,
+   "earliness": 0.0,
+   "score": 0.0,
+   "tp": 0,
+   "late": 0,
+   "miss": 0,
+   "fp": 2,
+   "median_lead_s": 0.0,
+   "mean_lead_s": 0.0,
+   "wins": 0.0,
+   "by_family": {}
+  },
+  "MultiAgent": {
+   "recall": 0.0,
+   "far": 1.0,
+   "earliness": 0.0,
+   "score": 0.0,
+   "tp": 0,
+   "late": 0,
+   "miss": 0,
+   "fp": 2,
+   "median_lead_s": 0.0,
+   "mean_lead_s": 0.0,
+   "wins": 0.0,
+   "by_family": {}
+  }
+ },
+ "wall_seconds": {
+  "TraditionalAI": 10.1,
+  "RL": 0.9,
+  "AIAgent": 7.0,
+  "AgenticAI": 6.5,
+  "MultiAgent": 0.3
+ },
+ "split": "test"
+}

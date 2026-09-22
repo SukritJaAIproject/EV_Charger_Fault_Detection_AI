@@ -1,0 +1,239 @@
+{
+ "n_faulty": 957,
+ "n_clean": 7863,
+ "detectors": {
+  "TraditionalAI": {
+   "recall": 0.7669801462904912,
+   "far": 0.2661833905633982,
+   "earliness": 0.3825291710364282,
+   "score": 68.01408901835117,
+   "tp": 734,
+   "late": 24,
+   "miss": 199,
+   "fp": 2093,
+   "median_lead_s": 57.461000084877014,
+   "mean_lead_s": 583.9593147186389,
+   "wins": 368.1,
+   "by_family": {
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 310,
+     "n": 310
+    },
+    "SESSION_ABORT": {
+     "recall": 0.8076923076923077,
+     "tp": 189,
+     "n": 234
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.20535714285714285,
+     "tp": 46,
+     "n": 224
+    },
+    "EVSE_FAULT": {
+     "recall": 1.0,
+     "tp": 93,
+     "n": 93
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 91,
+     "n": 91
+    },
+    "COMM_FREEZE": {
+     "recall": 1.0,
+     "tp": 5,
+     "n": 5
+    }
+   }
+  },
+  "RL": {
+   "recall": 0.3448275862068966,
+   "far": 0.05392343889100852,
+   "earliness": 0.19380059213598438,
+   "score": 49.499687986334266,
+   "tp": 330,
+   "late": 32,
+   "miss": 595,
+   "fp": 424,
+   "median_lead_s": 60.771000027656555,
+   "mean_lead_s": 700.2669636433775,
+   "wins": 74.43,
+   "by_family": {
+    "PROTOCOL_FAILED": {
+     "recall": 0.5387096774193548,
+     "tp": 167,
+     "n": 310
+    },
+    "SESSION_ABORT": {
+     "recall": 0.5128205128205128,
+     "tp": 120,
+     "n": 234
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.11607142857142858,
+     "tp": 26,
+     "n": 224
+    },
+    "EVSE_FAULT": {
+     "recall": 0.053763440860215055,
+     "tp": 5,
+     "n": 93
+    },
+    "EV_ERROR": {
+     "recall": 0.08791208791208792,
+     "tp": 8,
+     "n": 91
+    },
+    "COMM_FREEZE": {
+     "recall": 0.8,
+     "tp": 4,
+     "n": 5
+    }
+   }
+  },
+  "AIAgent": {
+   "recall": 0.5903866248693835,
+   "far": 0.3928526007885031,
+   "earliness": 0.2235169714386145,
+   "score": 52.204092648586375,
+   "tp": 565,
+   "late": 33,
+   "miss": 359,
+   "fp": 3089,
+   "median_lead_s": 0.0,
+   "mean_lead_s": 565.8868530995023,
+   "wins": 97.1,
+   "by_family": {
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 310,
+     "n": 310
+    },
+    "SESSION_ABORT": {
+     "recall": 0.2905982905982906,
+     "tp": 68,
+     "n": 234
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.0,
+     "tp": 0,
+     "n": 224
+    },
+    "EVSE_FAULT": {
+     "recall": 1.0,
+     "tp": 93,
+     "n": 93
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 91,
+     "n": 91
+    },
+    "COMM_FREEZE": {
+     "recall": 0.6,
+     "tp": 3,
+     "n": 5
+    }
+   }
+  },
+  "AgenticAI": {
+   "recall": 0.9070010449320794,
+   "far": 0.34808597227521304,
+   "earliness": 0.2517936520425003,
+   "score": 69.94334611919759,
+   "tp": 868,
+   "late": 35,
+   "miss": 54,
+   "fp": 2737,
+   "median_lead_s": 16.832000017166138,
+   "mean_lead_s": 211.79772696123803,
+   "wins": 258.6,
+   "by_family": {
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 310,
+     "n": 310
+    },
+    "SESSION_ABORT": {
+     "recall": 0.7393162393162394,
+     "tp": 173,
+     "n": 234
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.875,
+     "tp": 196,
+     "n": 224
+    },
+    "EVSE_FAULT": {
+     "recall": 1.0,
+     "tp": 93,
+     "n": 93
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 91,
+     "n": 91
+    },
+    "COMM_FREEZE": {
+     "recall": 1.0,
+     "tp": 5,
+     "n": 5
+    }
+   }
+  },
+  "MultiAgent": {
+   "recall": 0.625914315569488,
+   "far": 0.2832252320997075,
+   "earliness": 0.17613778300076913,
+   "score": 56.32171447549856,
+   "tp": 599,
+   "late": 48,
+   "miss": 310,
+   "fp": 2227,
+   "median_lead_s": 0.0,
+   "mean_lead_s": 382.0578981640932,
+   "wins": 108.77,
+   "by_family": {
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 310,
+     "n": 310
+    },
+    "SESSION_ABORT": {
+     "recall": 0.358974358974359,
+     "tp": 84,
+     "n": 234
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.07142857142857142,
+     "tp": 16,
+     "n": 224
+    },
+    "EVSE_FAULT": {
+     "recall": 1.0,
+     "tp": 93,
+     "n": 93
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 91,
+     "n": 91
+    },
+    "COMM_FREEZE": {
+     "recall": 1.0,
+     "tp": 5,
+     "n": 5
+    }
+   }
+  }
+ },
+ "wall_seconds": {
+  "TraditionalAI": 37080.6,
+  "RL": 16544.0,
+  "AIAgent": 121411.5,
+  "AgenticAI": 120242.3,
+  "MultiAgent": 6160.2
+ },
+ "split": "test"
+}

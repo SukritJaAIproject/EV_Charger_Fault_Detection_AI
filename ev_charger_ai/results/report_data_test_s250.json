@@ -1,0 +1,1223 @@
+{
+ "split": "test_s250",
+ "arms": {
+  "baseline": {
+   "n_faulty": 222,
+   "n_clean": 250,
+   "wall_seconds": {
+    "TraditionalAI": 3611.3,
+    "RL": 438.3,
+    "AIAgent": 2910.4,
+    "AgenticAI": 2835.3,
+    "MultiAgent": 160.5
+   },
+   "detectors": {
+    "TraditionalAI": {
+     "recall": 0.7342342342342343,
+     "far": 0.22,
+     "earliness": 0.3930865990954476,
+     "score": 67.97344369362067,
+     "tp": 163,
+     "late": 2,
+     "miss": 57,
+     "fp": 55,
+     "median_lead_s": 60.1599999666214,
+     "mean_lead_s": 657.3208220897277,
+     "wins": 91.78,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.6923076923076923,
+       "tp": 54,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.20454545454545456,
+       "tp": 9,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    },
+    "RL": {
+     "recall": 0.17567567567567569,
+     "far": 0.036,
+     "earliness": 0.12544376875187183,
+     "score": 40.21265915882122,
+     "tp": 39,
+     "late": 5,
+     "miss": 178,
+     "fp": 9,
+     "median_lead_s": 289.6080000400543,
+     "mean_lead_s": 937.5837435936317,
+     "wins": 4.2,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.1282051282051282,
+       "tp": 10,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 0.4057971014492754,
+       "tp": 28,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.0,
+       "tp": 0,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 0.03225806451612903,
+       "tp": 1,
+       "n": 31
+      }
+     }
+    },
+    "AIAgent": {
+     "recall": 0.6216216216216216,
+     "far": 0.396,
+     "earliness": 0.2276091591552929,
+     "score": 53.753264264186946,
+     "tp": 138,
+     "late": 3,
+     "miss": 81,
+     "fp": 99,
+     "median_lead_s": 0.7070000171661377,
+     "mean_lead_s": 550.0898478273033,
+     "wins": 31.28,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.48717948717948717,
+       "tp": 38,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.0,
+       "tp": 0,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    },
+    "AgenticAI": {
+     "recall": 0.8108108108108109,
+     "far": 0.252,
+     "earliness": 0.26056148647456556,
+     "score": 68.19177027003185,
+     "tp": 180,
+     "late": 4,
+     "miss": 38,
+     "fp": 63,
+     "median_lead_s": 20.36799991130829,
+     "mean_lead_s": 263.33556110858916,
+     "wins": 46.45,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.5897435897435898,
+       "tp": 46,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.7727272727272727,
+       "tp": 34,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    },
+    "MultiAgent": {
+     "recall": 0.5630630630630631,
+     "far": 0.208,
+     "earliness": 0.16405469220769298,
+     "score": 55.19424699730702,
+     "tp": 125,
+     "late": 5,
+     "miss": 92,
+     "fp": 52,
+     "median_lead_s": 0.0,
+     "mean_lead_s": 404.39802400779723,
+     "wins": 22.28,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.2948717948717949,
+       "tp": 23,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.045454545454545456,
+       "tp": 2,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    }
+   }
+  },
+  "iso_rules": {
+   "n_faulty": 222,
+   "n_clean": 250,
+   "wall_seconds": {
+    "TraditionalAI": 12693.0,
+    "RL": 420.1,
+    "AIAgent": 2835.3,
+    "AgenticAI": 11861.0,
+    "MultiAgent": 160.8
+   },
+   "detectors": {
+    "TraditionalAI": {
+     "recall": 0.7432432432432432,
+     "far": 0.22,
+     "earliness": 0.39456084834652255,
+     "score": 68.45337912909262,
+     "tp": 165,
+     "late": 2,
+     "miss": 55,
+     "fp": 55,
+     "median_lead_s": 59.17199993133545,
+     "mean_lead_s": 649.5913212162076,
+     "wins": 90.7,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.717948717948718,
+       "tp": 56,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.20454545454545456,
+       "tp": 9,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    },
+    "RL": {
+     "recall": 0.17567567567567569,
+     "far": 0.036,
+     "earliness": 0.12544376875187183,
+     "score": 40.21265915882122,
+     "tp": 39,
+     "late": 5,
+     "miss": 178,
+     "fp": 9,
+     "median_lead_s": 289.6080000400543,
+     "mean_lead_s": 937.5837435936317,
+     "wins": 4.2,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.1282051282051282,
+       "tp": 10,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 0.4057971014492754,
+       "tp": 28,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.0,
+       "tp": 0,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 0.03225806451612903,
+       "tp": 1,
+       "n": 31
+      }
+     }
+    },
+    "AIAgent": {
+     "recall": 0.7162162162162162,
+     "far": 0.42,
+     "earliness": 0.26866677924766913,
+     "score": 58.58414639576419,
+     "tp": 159,
+     "late": 3,
+     "miss": 60,
+     "fp": 105,
+     "median_lead_s": 5.682999968528748,
+     "mean_lead_s": 487.90379244876357,
+     "wins": 33.2,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.7564102564102564,
+       "tp": 59,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.0,
+       "tp": 0,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    },
+    "AgenticAI": {
+     "recall": 0.8108108108108109,
+     "far": 0.272,
+     "earliness": 0.26235503003493443,
+     "score": 67.62764114123922,
+     "tp": 180,
+     "late": 5,
+     "miss": 37,
+     "fp": 68,
+     "median_lead_s": 21.93499994277954,
+     "mean_lead_s": 263.6010055555238,
+     "wins": 45.7,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.5897435897435898,
+       "tp": 46,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.7727272727272727,
+       "tp": 34,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    },
+    "MultiAgent": {
+     "recall": 0.6891891891891891,
+     "far": 0.212,
+     "earliness": 0.20737811563251254,
+     "score": 62.24702177210971,
+     "tp": 153,
+     "late": 4,
+     "miss": 65,
+     "fp": 53,
+     "median_lead_s": 0.00800013542175293,
+     "mean_lead_s": 344.19758824195736,
+     "wins": 24.2,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.6538461538461539,
+       "tp": 51,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.045454545454545456,
+       "tp": 2,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    }
+   }
+  },
+  "iso": {
+   "n_faulty": 222,
+   "n_clean": 250,
+   "wall_seconds": {
+    "TraditionalAI": 10996.8,
+    "RL": 465.3,
+    "AIAgent": 6600.8,
+    "AgenticAI": 6541.5,
+    "MultiAgent": 168.8
+   },
+   "detectors": {
+    "TraditionalAI": {
+     "recall": 0.7657657657657657,
+     "far": 0.236,
+     "earliness": 0.39018254506068895,
+     "score": 69.01193918950207,
+     "tp": 170,
+     "late": 2,
+     "miss": 50,
+     "fp": 59,
+     "median_lead_s": 55.78399991989136,
+     "mean_lead_s": 630.6998529497315,
+     "wins": 71.47,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.782051282051282,
+       "tp": 61,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.20454545454545456,
+       "tp": 9,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    },
+    "RL": {
+     "recall": 0.3108108108108108,
+     "far": 0.052,
+     "earliness": 0.22367488738742322,
+     "score": 48.454038288289,
+     "tp": 69,
+     "late": 3,
+     "miss": 150,
+     "fp": 13,
+     "median_lead_s": 848.7740001678467,
+     "mean_lead_s": 968.4000000072563,
+     "wins": 28.8,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.32051282051282054,
+       "tp": 25,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 0.5652173913043478,
+       "tp": 39,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.0,
+       "tp": 0,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 0.16129032258064516,
+       "tp": 5,
+       "n": 31
+      }
+     }
+    },
+    "AIAgent": {
+     "recall": 0.7162162162162162,
+     "far": 0.46,
+     "earliness": 0.2721570570413415,
+     "score": 57.45395195163765,
+     "tp": 159,
+     "late": 3,
+     "miss": 60,
+     "fp": 115,
+     "median_lead_s": 5.688999891281128,
+     "mean_lead_s": 500.366660373016,
+     "wins": 32.97,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.7564102564102564,
+       "tp": 59,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.0,
+       "tp": 0,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    },
+    "AgenticAI": {
+     "recall": 0.8108108108108109,
+     "far": 0.268,
+     "earliness": 0.29845180179890207,
+     "score": 68.46957657651858,
+     "tp": 180,
+     "late": 5,
+     "miss": 37,
+     "fp": 67,
+     "median_lead_s": 25.49899983406067,
+     "mean_lead_s": 360.50841111010976,
+     "wins": 46.8,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.5897435897435898,
+       "tp": 46,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.7727272727272727,
+       "tp": 34,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    },
+    "MultiAgent": {
+     "recall": 0.6891891891891891,
+     "far": 0.212,
+     "earliness": 0.20737811563251254,
+     "score": 62.24702177210971,
+     "tp": 153,
+     "late": 4,
+     "miss": 65,
+     "fp": 53,
+     "median_lead_s": 0.00800013542175293,
+     "mean_lead_s": 344.19758824195736,
+     "wins": 22.97,
+     "by_family": {
+      "SESSION_ABORT": {
+       "recall": 0.6538461538461539,
+       "tp": 51,
+       "n": 78
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 69,
+       "n": 69
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.045454545454545456,
+       "tp": 2,
+       "n": 44
+      },
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 31,
+       "n": 31
+      }
+     }
+    }
+   }
+  }
+ },
+ "present": [
+  "baseline",
+  "iso_rules",
+  "iso"
+ ],
+ "missing": [],
+ "ab": {
+  "split": "test_s250",
+  "n_faulty": 222,
+  "n_clean": 250,
+  "arms": [
+   "baseline",
+   "iso_rules",
+   "iso"
+  ],
+  "detectors": {
+   "TraditionalAI": {
+    "score": {
+     "baseline": 67.97344369362067,
+     "iso_rules": 68.45337912909262,
+     "iso": 69.01193918950207
+    },
+    "recall": {
+     "baseline": 0.7342342342342343,
+     "iso_rules": 0.7432432432432432,
+     "iso": 0.7657657657657657
+    },
+    "far": {
+     "baseline": 0.22,
+     "iso_rules": 0.22,
+     "iso": 0.236
+    },
+    "earliness": {
+     "baseline": 0.3930865990954476,
+     "iso_rules": 0.39456084834652255,
+     "iso": 0.39018254506068895
+    },
+    "median_lead_s": {
+     "baseline": 60.1599999666214,
+     "iso_rules": 59.17199993133545,
+     "iso": 55.78399991989136
+    },
+    "wins": {
+     "baseline": 91.78,
+     "iso_rules": 90.7,
+     "iso": 71.47
+    }
+   },
+   "AgenticAI": {
+    "score": {
+     "baseline": 68.19177027003185,
+     "iso_rules": 67.62764114123922,
+     "iso": 68.46957657651858
+    },
+    "recall": {
+     "baseline": 0.8108108108108109,
+     "iso_rules": 0.8108108108108109,
+     "iso": 0.8108108108108109
+    },
+    "far": {
+     "baseline": 0.252,
+     "iso_rules": 0.272,
+     "iso": 0.268
+    },
+    "earliness": {
+     "baseline": 0.26056148647456556,
+     "iso_rules": 0.26235503003493443,
+     "iso": 0.29845180179890207
+    },
+    "median_lead_s": {
+     "baseline": 20.36799991130829,
+     "iso_rules": 21.93499994277954,
+     "iso": 25.49899983406067
+    },
+    "wins": {
+     "baseline": 46.45,
+     "iso_rules": 45.7,
+     "iso": 46.8
+    }
+   },
+   "MultiAgent": {
+    "score": {
+     "baseline": 55.19424699730702,
+     "iso_rules": 62.24702177210971,
+     "iso": 62.24702177210971
+    },
+    "recall": {
+     "baseline": 0.5630630630630631,
+     "iso_rules": 0.6891891891891891,
+     "iso": 0.6891891891891891
+    },
+    "far": {
+     "baseline": 0.208,
+     "iso_rules": 0.212,
+     "iso": 0.212
+    },
+    "earliness": {
+     "baseline": 0.16405469220769298,
+     "iso_rules": 0.20737811563251254,
+     "iso": 0.20737811563251254
+    },
+    "median_lead_s": {
+     "baseline": 0.0,
+     "iso_rules": 0.00800013542175293,
+     "iso": 0.00800013542175293
+    },
+    "wins": {
+     "baseline": 22.28,
+     "iso_rules": 24.2,
+     "iso": 22.97
+    }
+   },
+   "AIAgent": {
+    "score": {
+     "baseline": 53.753264264186946,
+     "iso_rules": 58.58414639576419,
+     "iso": 57.45395195163765
+    },
+    "recall": {
+     "baseline": 0.6216216216216216,
+     "iso_rules": 0.7162162162162162,
+     "iso": 0.7162162162162162
+    },
+    "far": {
+     "baseline": 0.396,
+     "iso_rules": 0.42,
+     "iso": 0.46
+    },
+    "earliness": {
+     "baseline": 0.2276091591552929,
+     "iso_rules": 0.26866677924766913,
+     "iso": 0.2721570570413415
+    },
+    "median_lead_s": {
+     "baseline": 0.7070000171661377,
+     "iso_rules": 5.682999968528748,
+     "iso": 5.688999891281128
+    },
+    "wins": {
+     "baseline": 31.28,
+     "iso_rules": 33.2,
+     "iso": 32.97
+    }
+   },
+   "RL": {
+    "score": {
+     "baseline": 40.21265915882122,
+     "iso_rules": 40.21265915882122,
+     "iso": 48.454038288289
+    },
+    "recall": {
+     "baseline": 0.17567567567567569,
+     "iso_rules": 0.17567567567567569,
+     "iso": 0.3108108108108108
+    },
+    "far": {
+     "baseline": 0.036,
+     "iso_rules": 0.036,
+     "iso": 0.052
+    },
+    "earliness": {
+     "baseline": 0.12544376875187183,
+     "iso_rules": 0.12544376875187183,
+     "iso": 0.22367488738742322
+    },
+    "median_lead_s": {
+     "baseline": 289.6080000400543,
+     "iso_rules": 289.6080000400543,
+     "iso": 848.7740001678467
+    },
+    "wins": {
+     "baseline": 4.2,
+     "iso_rules": 4.2,
+     "iso": 28.8
+    }
+   }
+  }
+ },
+ "attribution": {
+  "iso": {
+   "TraditionalAI": {
+    "on-time|baseline rule: PLC/SLAC/TCP": 69,
+    "FALSE ALARM|baseline rule: PLC/SLAC/TCP": 32,
+    "FALSE ALARM|learned: xgboost": 14,
+    "on-time|learned: xgboost": 37,
+    "on-time|ISO response/status semantics": 34,
+    "on-time|baseline rule: dialog gap": 16,
+    "on-time|ISO Ongoing timer [V2G2-711/713]": 5,
+    "late|ISO comm setup [V2G2-448]": 1,
+    "on-time|learned: isolation forest": 6,
+    "on-time|ISO comm setup [V2G2-448]": 1,
+    "FALSE ALARM|learned: isolation forest": 9,
+    "FALSE ALARM|baseline rule: dialog gap": 4,
+    "on-time|ISO sequence timer [V2G2-443]": 1,
+    "late|baseline rule: PLC/SLAC/TCP": 1,
+    "on-time|ISO message timeout [Table 109]": 1
+   },
+   "AIAgent": {
+    "on-time|ISO sequence timer [V2G2-443]": 9,
+    "FALSE ALARM|baseline rule: dialog gap": 33,
+    "on-time|baseline rule: ResponseCode": 26,
+    "FALSE ALARM|baseline rule: PLC/SLAC/TCP": 57,
+    "on-time|baseline rule: dialog gap": 29,
+    "on-time|baseline rule: PLC/SLAC/TCP": 43,
+    "on-time|baseline rule: EV error": 20,
+    "on-time|ISO sequence legality [Fig.102]": 4,
+    "FALSE ALARM|baseline rule: electrical": 11,
+    "on-time|ISO Ongoing timer [V2G2-711/713]": 22,
+    "late|ISO sequence timer [V2G2-443]": 2,
+    "on-time|learned: autoencoder / forecast": 4,
+    "FALSE ALARM|learned: autoencoder / forecast": 9,
+    "FALSE ALARM|ISO Ongoing timer [V2G2-711/713]": 2,
+    "FALSE ALARM|ISO sequence legality [Fig.102]": 2,
+    "on-time|agent: belief fusion": 1,
+    "FALSE ALARM|baseline rule: cablecheck 40s": 1,
+    "on-time|baseline rule: cablecheck 40s": 1,
+    "late|ISO Ongoing timer [V2G2-711/713]": 1
+   },
+   "MultiAgent": {
+    "on-time|ISO sequence timer [V2G2-443]": 7,
+    "FALSE ALARM|baseline rule: PLC/SLAC/TCP": 32,
+    "on-time|baseline rule: ResponseCode": 28,
+    "FALSE ALARM|baseline rule: dialog gap": 8,
+    "on-time|ISO sequence legality [Fig.102]": 4,
+    "on-time|baseline rule: EV error": 27,
+    "on-time|other": 5,
+    "on-time|baseline rule: dialog gap": 22,
+    "on-time|ISO message timeout [Table 109]": 14,
+    "on-time|ISO Ongoing timer [V2G2-711/713]": 19,
+    "on-time|ISO CableCheck [V2G2-702]": 1,
+    "late|ISO comm setup [V2G2-448]": 1,
+    "on-time|ISO PreCharge [V2G2-706]": 6,
+    "on-time|baseline rule: PLC/SLAC/TCP": 16,
+    "on-time|ISO comm setup [V2G2-448]": 1,
+    "FALSE ALARM|ISO PreCharge [V2G2-706]": 9,
+    "FALSE ALARM|other": 3,
+    "on-time|baseline rule: EVSE status": 2,
+    "late|ISO sequence timer [V2G2-443]": 2,
+    "late|baseline rule: PLC/SLAC/TCP": 1,
+    "FALSE ALARM|ISO CableCheck [V2G2-702]": 1,
+    "on-time|baseline rule: cablecheck 40s": 1
+   },
+   "AgenticAI": {
+    "FALSE ALARM|baseline rule: PLC/SLAC/TCP": 46,
+    "on-time|agent: goal failure": 56,
+    "on-time|agent: investigation": 63,
+    "on-time|baseline rule: PLC/SLAC/TCP": 51,
+    "FALSE ALARM|agent: investigation": 17,
+    "on-time|ISO Ongoing timer [V2G2-711/713]": 7,
+    "late|ISO comm setup [V2G2-448]": 1,
+    "on-time|baseline rule: isolation": 2,
+    "FALSE ALARM|baseline rule: isolation": 4,
+    "late|agent: investigation": 3,
+    "on-time|ISO comm setup [V2G2-448]": 1,
+    "late|ISO sequence timer [V2G2-443]": 1
+   },
+   "RL": {
+    "on-time|learned: RL policy": 69,
+    "FALSE ALARM|learned: RL policy": 13,
+    "late|learned: RL policy": 3
+   }
+  }
+ },
+ "iso_evidence": {
+  "n": {
+   "clean": 500,
+   "faulty": 500
+  },
+  "criteria": {
+   "MSG_PERF:CurrentDemandRes": {
+    "clean_pct": 28.4,
+    "faulty_pct": 21.6,
+    "verdict": "USELESS (fires on healthy)"
+   },
+   "ONGOING_PERF_55s": {
+    "clean_pct": 0.0,
+    "faulty_pct": 8.4,
+    "verdict": "separates cleanly"
+   },
+   "ONGOING_TIMEOUT_60s": {
+    "clean_pct": 0.0,
+    "faulty_pct": 8.0,
+    "verdict": "separates cleanly"
+   },
+   "SEQ_PERF_40s": {
+    "clean_pct": 0.0,
+    "faulty_pct": 1.4,
+    "verdict": "separates cleanly"
+   },
+   "SEQ_TIMEOUT_60s": {
+    "clean_pct": 0.0,
+    "faulty_pct": 1.0,
+    "verdict": "separates cleanly"
+   }
+  },
+  "latency": {
+   "clean": {
+    "supportedAppProtocolReq": {
+     "n": 381,
+     "p50": 0.023000001907348633,
+     "p99": 0.6710000038146973,
+     "max": 0.8289999961853027,
+     "iso_timeout_s": 2.0
+    },
+    "SessionSetupReq": {
+     "n": 381,
+     "p50": 0.009999990463256836,
+     "p99": 0.021000146865844727,
+     "max": 0.023000001907348633,
+     "iso_timeout_s": 2.0
+    },
+    "SessionStopReq": {
+     "n": 500,
+     "p50": 0.01199960708618164,
+     "p99": 0.020000219345092773,
+     "max": 0.02200007438659668,
+     "iso_timeout_s": 2.0
+    },
+    "ServiceDiscoveryReq": {
+     "n": 346,
+     "p50": 0.009000062942504883,
+     "p99": 0.021000027656555176,
+     "max": 0.024000048637390137,
+     "iso_timeout_s": 2.0
+    },
+    "ServicePaymentSelectionReq": {
+     "n": 346,
+     "p50": 0.00800013542175293,
+     "p99": 0.019999980926513672,
+     "max": 0.021000146865844727,
+     "iso_timeout_s": 2.0
+    },
+    "ContractAuthenticationReq": {
+     "n": 384,
+     "p50": 0.008000016212463379,
+     "p99": 0.01699995994567871,
+     "max": 0.021000027656555176,
+     "iso_timeout_s": 2.0
+    },
+    "ChargeParameterDiscoveryReq": {
+     "n": 682,
+     "p50": 0.013000011444091797,
+     "p99": 0.020999908447265625,
+     "max": 0.023000001907348633,
+     "iso_timeout_s": 2.0
+    },
+    "CableCheckReq": {
+     "n": 31772,
+     "p50": 0.009000062942504883,
+     "p99": 0.034999966621398926,
+     "max": 0.043000221252441406,
+     "iso_timeout_s": 2.0
+    },
+    "PreChargeReq": {
+     "n": 7424,
+     "p50": 0.009000062942504883,
+     "p99": 0.019999980926513672,
+     "max": 0.02799999713897705,
+     "iso_timeout_s": 2.0
+    },
+    "PowerDeliveryReq": {
+     "n": 771,
+     "p50": 0.008000016212463379,
+     "p99": 0.019999980926513672,
+     "max": 0.02200007438659668,
+     "iso_timeout_s": 5.0
+    },
+    "CurrentDemandReq": {
+     "n": 2660371,
+     "p50": 0.009999990463256836,
+     "p99": 0.021000027656555176,
+     "max": 0.03699994087219238,
+     "iso_timeout_s": 0.25
+    },
+    "WeldingDetectionReq": {
+     "n": 881,
+     "p50": 0.008999824523925781,
+     "p99": 0.01900005340576172,
+     "max": 0.02200007438659668,
+     "iso_timeout_s": 2.0
+    }
+   },
+   "faulty": {
+    "supportedAppProtocolReq": {
+     "n": 356,
+     "p50": 0.015000104904174805,
+     "p99": 0.5319998264312744,
+     "max": 0.659000039100647,
+     "iso_timeout_s": 2.0
+    },
+    "SessionSetupReq": {
+     "n": 322,
+     "p50": 0.012999892234802246,
+     "p99": 0.021000146865844727,
+     "max": 0.026999950408935547,
+     "iso_timeout_s": 2.0
+    },
+    "ServiceDiscoveryReq": {
+     "n": 314,
+     "p50": 0.009000062942504883,
+     "p99": 0.021000027656555176,
+     "max": 0.02200007438659668,
+     "iso_timeout_s": 2.0
+    },
+    "ServicePaymentSelectionReq": {
+     "n": 314,
+     "p50": 0.00800013542175293,
+     "p99": 0.020999908447265625,
+     "max": 0.023000001907348633,
+     "iso_timeout_s": 2.0
+    },
+    "ContractAuthenticationReq": {
+     "n": 45677,
+     "p50": 0.009000062942504883,
+     "p99": 0.019999980926513672,
+     "max": 0.02799999713897705,
+     "iso_timeout_s": 2.0
+    },
+    "ChargeParameterDiscoveryReq": {
+     "n": 464,
+     "p50": 0.013000011444091797,
+     "p99": 0.021999835968017578,
+     "max": 0.023999929428100586,
+     "iso_timeout_s": 2.0
+    },
+    "CableCheckReq": {
+     "n": 25567,
+     "p50": 0.009000062942504883,
+     "p99": 0.032000064849853516,
+     "max": 0.046000003814697266,
+     "iso_timeout_s": 2.0
+    },
+    "PreChargeReq": {
+     "n": 3546,
+     "p50": 0.009000062942504883,
+     "p99": 0.020999908447265625,
+     "max": 0.023000001907348633,
+     "iso_timeout_s": 2.0
+    },
+    "PowerDeliveryReq": {
+     "n": 304,
+     "p50": 0.00800013542175293,
+     "p99": 0.019999980926513672,
+     "max": 0.023000001907348633,
+     "iso_timeout_s": 5.0
+    },
+    "CurrentDemandReq": {
+     "n": 1680462,
+     "p50": 0.012000083923339844,
+     "p99": 0.021000027656555176,
+     "max": 0.07899999618530273,
+     "iso_timeout_s": 0.25
+    },
+    "SessionStopReq": {
+     "n": 215,
+     "p50": 0.009999990463256836,
+     "p99": 0.02200007438659668,
+     "max": 0.023000001907348633,
+     "iso_timeout_s": 2.0
+    },
+    "WeldingDetectionReq": {
+     "n": 251,
+     "p50": 0.007999897003173828,
+     "p99": 0.01699995994567871,
+     "max": 0.023000001907348633,
+     "iso_timeout_s": 2.0
+    }
+   }
+  },
+  "seq_gap": {
+   "clean": {
+    "n": 2703786,
+    "p50": 0.15700006484985352,
+    "p99": 0.7239999771118164,
+    "max": 9.640000104904175
+   },
+   "faulty": {
+    "n": 1757472,
+    "p50": 0.16199994087219238,
+    "p99": 0.5409998893737793,
+    "max": 85.80599999427795
+   }
+  },
+  "ongoing_span": {
+   "clean": {
+    "n": 685,
+    "p50": 6.9659998416900635,
+    "p95": 14.384000062942505,
+    "max": 22.60199999809265
+   },
+   "faulty": {
+    "n": 448,
+    "p50": 0.5829999446868896,
+    "p95": 14.55299997329712,
+    "max": 353.4490000009537
+   }
+  },
+  "ongoing_by_family": {
+   "SESSION_ABORT": {
+    "hit": 17,
+    "n": 186
+   },
+   "PROTOCOL_FAILED": {
+    "hit": 28,
+    "n": 165
+   }
+  }
+ },
+ "iso_label_audit": [
+  {
+   "split": "train",
+   "n": 4534,
+   "n_faulty": 486,
+   "iso_any": 701,
+   "iso_any_on_clean": 440,
+   "iso_new": 619,
+   "iso_new_on_clean": 440,
+   "faulty_no_iso_hit": 225,
+   "per_criterion": {
+    "V2G2-711 EVSEProcessing Ongoing > 60 s": {
+     "sessions": 51,
+     "on_faulty": 50,
+     "on_clean": 1
+    },
+    "V2G2-443 sequence idle > 60 s": {
+     "sessions": 6,
+     "on_faulty": 6,
+     "on_clean": 0
+    },
+    "V2G2-448 no SessionSetupRes in 20 s": {
+     "sessions": 4,
+     "on_faulty": 4,
+     "on_clean": 0
+    },
+    "V2G2-702 CableCheck > 40 s": {
+     "sessions": 12,
+     "on_faulty": 12,
+     "on_clean": 0
+    },
+    "V2G2-706 PreCharge > 7 s": {
+     "sessions": 135,
+     "on_faulty": 7,
+     "on_clean": 128
+    },
+    "Table 109 message timeout": {
+     "sessions": 8,
+     "on_faulty": 8,
+     "on_clean": 0
+    },
+    "Fig.102 illegal successor": {
+     "sessions": 567,
+     "on_faulty": 138,
+     "on_clean": 429
+    },
+    "Fig.102 dialog reopened": {
+     "sessions": 16,
+     "on_faulty": 16,
+     "on_clean": 0
+    },
+    "8.8.3 ResponseCode FAILED": {
+     "sessions": 172,
+     "on_faulty": 172,
+     "on_clean": 0
+    },
+    "Table 98 EVSE hard status": {
+     "sessions": 15,
+     "on_faulty": 15,
+     "on_clean": 0
+    },
+    "8.5 isolation Fault": {
+     "sessions": 0,
+     "on_faulty": 0,
+     "on_clean": 0
+    },
+    "8.5 EVErrorCode set": {
+     "sessions": 45,
+     "on_faulty": 45,
+     "on_clean": 0
+    }
+   }
+  },
+  {
+   "split": "test",
+   "n": 1909,
+   "n_faulty": 222,
+   "iso_any": 314,
+   "iso_any_on_clean": 196,
+   "iso_new": 275,
+   "iso_new_on_clean": 196,
+   "faulty_no_iso_hit": 104,
+   "per_criterion": {
+    "V2G2-711 EVSEProcessing Ongoing > 60 s": {
+     "sessions": 10,
+     "on_faulty": 10,
+     "on_clean": 0
+    },
+    "V2G2-443 sequence idle > 60 s": {
+     "sessions": 1,
+     "on_faulty": 1,
+     "on_clean": 0
+    },
+    "V2G2-448 no SessionSetupRes in 20 s": {
+     "sessions": 1,
+     "on_faulty": 1,
+     "on_clean": 0
+    },
+    "V2G2-702 CableCheck > 40 s": {
+     "sessions": 3,
+     "on_faulty": 3,
+     "on_clean": 0
+    },
+    "V2G2-706 PreCharge > 7 s": {
+     "sessions": 81,
+     "on_faulty": 9,
+     "on_clean": 72
+    },
+    "Table 109 message timeout": {
+     "sessions": 7,
+     "on_faulty": 5,
+     "on_clean": 2
+    },
+    "Fig.102 illegal successor": {
+     "sessions": 255,
+     "on_faulty": 62,
+     "on_clean": 193
+    },
+    "Fig.102 dialog reopened": {
+     "sessions": 6,
+     "on_faulty": 6,
+     "on_clean": 0
+    },
+    "8.8.3 ResponseCode FAILED": {
+     "sessions": 73,
+     "on_faulty": 73,
+     "on_clean": 0
+    },
+    "Table 98 EVSE hard status": {
+     "sessions": 3,
+     "on_faulty": 3,
+     "on_clean": 0
+    },
+    "8.5 isolation Fault": {
+     "sessions": 0,
+     "on_faulty": 0,
+     "on_clean": 0
+    },
+    "8.5 EVErrorCode set": {
+     "sessions": 31,
+     "on_faulty": 31,
+     "on_clean": 0
+    }
+   }
+  }
+ ]
+}

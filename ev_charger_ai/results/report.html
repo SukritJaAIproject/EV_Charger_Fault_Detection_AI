@@ -1,0 +1,457 @@
+<title>ศึก AI 5 สถาปัตยกรรม — ตรวจจับปัญหาการชาร์จ EV (EGAT)</title>
+<style>
+  :root {
+    --bg: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --accent: #116d5a;
+    --accent-ink: #0d5546;
+    --d-trad: #2a78d6;
+    --d-rl: #eb6834;
+    --d-aia: #1baf7a;
+    --d-agn: #eda100;
+    --d-mas: #e87ba4;
+    --tint-1: #eef4fd;
+    --tint-2: #cde2fb;
+    --tint-3: #9ec5f4;
+    --tint-4: #6da7ec;
+    --good: #006300;
+    --bad: #b02a2a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --accent: #2fae93;
+      --accent-ink: #46c5aa;
+      --d-trad: #3987e5;
+      --d-rl: #d95926;
+      --d-aia: #199e70;
+      --d-agn: #c98500;
+      --d-mas: #d55181;
+      --tint-1: #1d2735;
+      --tint-2: #21374f;
+      --tint-3: #2a4a6d;
+      --tint-4: #33608f;
+      --good: #0ca30c;
+      --bad: #e66767;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --accent: #2fae93;
+    --accent-ink: #46c5aa;
+    --d-trad: #3987e5;
+    --d-rl: #d95926;
+    --d-aia: #199e70;
+    --d-agn: #c98500;
+    --d-mas: #d55181;
+    --tint-1: #1d2735;
+    --tint-2: #21374f;
+    --tint-3: #2a4a6d;
+    --tint-4: #33608f;
+    --good: #0ca30c;
+    --bad: #e66767;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Leelawadee UI", "Segoe UI", system-ui, "Noto Sans Thai", sans-serif;
+    line-height: 1.65;
+    margin: 0;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  .eyebrow {
+    color: var(--accent-ink);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-size: 32px;
+    line-height: 1.3;
+    margin: 0 0 8px;
+    text-wrap: balance;
+    font-weight: 800;
+  }
+  .subtitle { color: var(--ink-2); font-size: 16px; margin: 0 0 28px; max-width: 62ch; }
+  h2 {
+    font-size: 21px;
+    margin: 48px 0 6px;
+    font-weight: 800;
+    text-wrap: balance;
+  }
+  h2 .no { color: var(--accent-ink); }
+  .lede { color: var(--ink-2); margin: 0 0 18px; max-width: 68ch; }
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin: 26px 0 8px;
+  }
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px 16px;
+  }
+  .tile .label { font-size: 13px; color: var(--muted); font-weight: 700; letter-spacing: 0.06em; }
+  .tile .value { font-size: 30px; font-weight: 800; line-height: 1.2; margin: 4px 0 2px; }
+  .tile .detail { font-size: 13.5px; color: var(--ink-2); }
+  .chip {
+    display: inline-block;
+    width: 11px; height: 11px;
+    border-radius: 3px;
+    margin-right: 7px;
+    vertical-align: baseline;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 24px;
+    margin: 18px 0;
+  }
+  .chart-title { font-weight: 700; font-size: 15px; margin: 0 0 2px; }
+  .chart-sub { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .barrow {
+    display: grid;
+    grid-template-columns: 130px 1fr 84px;
+    gap: 10px;
+    align-items: center;
+    margin: 0 0 7px;
+    font-size: 14px;
+  }
+  .barrow .name { text-align: right; color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+  .bartrack { position: relative; height: 26px; background: transparent; }
+  .bartrack::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1px;
+    background: var(--baseline);
+  }
+  .bar {
+    position: absolute; left: 1px; top: 0; bottom: 0;
+    border-radius: 0 4px 4px 0;
+    min-width: 2px;
+  }
+  .barrow .val {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .barrow .val .sub { color: var(--muted); font-weight: 400; font-size: 12.5px; }
+  .axisnote { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  th {
+    text-align: left; color: var(--muted); font-weight: 700; font-size: 12.5px;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--baseline);
+    padding: 8px 10px;
+  }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--grid); }
+  th.num, td.num { text-align: right; }
+  .tblwrap { overflow-x: auto; }
+  .cell-t1 { background: var(--tint-1); }
+  .cell-t2 { background: var(--tint-2); }
+  .cell-t3 { background: var(--tint-3); }
+  .cell-t4 { background: var(--tint-4); }
+  .pct { color: var(--muted); font-size: 12.5px; }
+  svg text { font-family: inherit; }
+  .note {
+    border-left: 3px solid var(--accent);
+    padding: 4px 0 4px 16px;
+    color: var(--ink-2);
+    margin: 18px 0;
+    font-size: 14.5px;
+    max-width: 68ch;
+  }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+  .profile h3 { margin: 0 0 4px; font-size: 15.5px; }
+  .profile .arch { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; }
+  .profile p { margin: 0; font-size: 13.8px; color: var(--ink-2); }
+  .kv { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+  .kv b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  code {
+    background: var(--tint-1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 13px;
+    font-family: Consolas, "Cascadia Mono", monospace;
+  }
+  ul { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  .footer { color: var(--muted); font-size: 12.5px; margin-top: 56px; border-top: 1px solid var(--grid); padding-top: 14px; }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">EGAT EV Charger · DIN 70121 V2G Telemetry · 2026-08-13</p>
+  <h1>ศึก AI 5 สถาปัตยกรรม: ใครตรวจจับปัญหาการชาร์จได้ก่อน — และแม่นที่สุด</h1>
+  <p class="subtitle">
+    สร้าง AI 5 แบบ (Traditional AI, RL, AI Agent, Agentic AI, Multi-Agent) จาก log จริงของตู้ชาร์จ DC
+    16 สถานี แล้วให้แข่งตรวจจับปัญหาบน stream เดียวกันแบบไม่เห็นอนาคต
+    วัดผลบน 5 สถานีที่โมเดลไม่เคยเห็น (853 sessions)
+  </p>
+
+  <div class="verdict">
+    <div class="tile">
+      <div class="label">🏆 แชมป์คะแนนรวม</div>
+      <div class="value"><span class="chip" style="background:var(--d-trad)"></span>Traditional AI</div>
+      <div class="detail">70.1 คะแนน — จับปัญหาได้ 85% โดยเตือนผิดแค่ 24%</div>
+    </div>
+    <div class="tile">
+      <div class="label">⚡ เจอก่อนเพื่อนบ่อยที่สุด</div>
+      <div class="value"><span class="chip" style="background:var(--d-mas)"></span>Multi-Agent</div>
+      <div class="detail">ชนะ head-to-head 98 จาก 214 sessions — แต่แลกกับเตือนผิด 50%</div>
+    </div>
+    <div class="tile">
+      <div class="label">⚖️ สมดุลที่สุดสำหรับ Production</div>
+      <div class="value"><span class="chip" style="background:var(--d-agn)"></span>Agentic AI</div>
+      <div class="detail">จับได้ 79% เตือนผิดต่ำสุดในกลุ่มหัวไว (17.5%) และเก่งสุดเรื่อง SLAC failure</div>
+    </div>
+  </div>
+
+  <h2><span class="no">1.</span> สนามแข่งและกติกา</h2>
+  <p class="lede">
+    ข้อมูลคือ pcap 3,068 ไฟล์ (7.1 GB) จากหัวชาร์จ 32 หัว — ภายในเป็นการสื่อสาร DIN 70121
+    ระหว่างรถกับตู้ (SLAC/PLC → handshake → CableCheck → PreCharge → CurrentDemand loop → SessionStop)
+    ประกอบเป็น <b>2,742 charging sessions</b> โดย <b>789 sessions มีปัญหาจริง</b> ตาม ground truth
+    ที่นิยามจากสเปคโปรโตคอล
+  </p>
+  <div class="card">
+    <p class="chart-title">ปัญหาที่พบในทั้ง fleet (ground truth, 789 sessions)</p>
+    <p class="chart-sub">SESSION_ABORT = การชาร์จขาดกลางคันโดยไม่มี SessionStop (สายหลุด / สื่อสารตาย / TCP RST)</p>
+    <div class="barrow"><span class="name">SESSION_ABORT</span><span class="bartrack"><span class="bar" style="width:100%;background:var(--accent)"></span></span><span class="val">624 <span class="sub">79%</span></span></div>
+    <div class="barrow"><span class="name">PROTOCOL_FAILED</span><span class="bartrack"><span class="bar" style="width:15.1%;background:var(--accent)"></span></span><span class="val">94 <span class="sub">12%</span></span></div>
+    <div class="barrow"><span class="name">SLAC_FAILURE</span><span class="bartrack"><span class="bar" style="width:6.6%;background:var(--accent)"></span></span><span class="val">41 <span class="sub">5%</span></span></div>
+    <div class="barrow"><span class="name">EV_ERROR</span><span class="bartrack"><span class="bar" style="width:4.3%;background:var(--accent)"></span></span><span class="val">27 <span class="sub">3%</span></span></div>
+    <div class="barrow"><span class="name">EVSE_FAULT</span><span class="bartrack"><span class="bar" style="width:0.5%;background:var(--accent)"></span></span><span class="val">3 <span class="sub">&lt;1%</span></span></div>
+    <p class="axisnote">ตัวอย่างจริงที่เจอ: <code>FAILED_SequenceError</code>, <code>FAILED_ChargerConnectorLockFault</code> (ล็อกหัวชาร์จมีปัญหา), SLAC จับคู่ PLC ไม่สำเร็จ</p>
+  </div>
+  <p class="lede">
+    <b>กติกา:</b> ทุกโมเดลเห็น event stream เดียวกันทีละ event (ไม่มี lookahead) — alert แรกของแต่ละ
+    session คือคำตอบ โมเดลที่ต้องเทรน เทรนจาก 11 สถานีเท่านั้น แล้ววัดบน 5 สถานีที่ไม่เคยเห็น
+    (853 sessions: มีปัญหา 214 / ปกติ 639) &nbsp;
+    <b>คะแนน = 50×Recall + 30×(1−FAR) + 20×Earliness</b> (นำหน้าได้สูงสุด 120 วินาที)
+  </p>
+
+  <h2><span class="no">2.</span> Leaderboard</h2>
+  <div class="card">
+    <p class="chart-title">คะแนนรวม (เต็ม 100)</p>
+    <p class="chart-sub">853 test sessions บน 5 สถานีที่ไม่เคยเห็น</p>
+    <div class="barrow"><span class="name">Traditional AI</span><span class="bartrack"><span class="bar" style="width:70.1%;background:var(--d-trad)"></span></span><span class="val">70.1</span></div>
+    <div class="barrow"><span class="name">Agentic AI</span><span class="bartrack"><span class="bar" style="width:66.5%;background:var(--d-agn)"></span></span><span class="val">66.5</span></div>
+    <div class="barrow"><span class="name">Multi-Agent</span><span class="bartrack"><span class="bar" style="width:56.2%;background:var(--d-mas)"></span></span><span class="val">56.2</span></div>
+    <div class="barrow"><span class="name">AI Agent</span><span class="bartrack"><span class="bar" style="width:44.4%;background:var(--d-aia)"></span></span><span class="val">44.4</span></div>
+    <div class="barrow"><span class="name">RL (DQN)</span><span class="bartrack"><span class="bar" style="width:36.4%;background:var(--d-rl)"></span></span><span class="val">36.4</span></div>
+  </div>
+
+  <div class="card">
+    <p class="chart-title">ใครเจอปัญหา "ก่อนเพื่อน" (head-to-head wins จาก 214 faulty sessions)</p>
+    <p class="chart-sub">ต่อ session ที่มีปัญหา — โมเดลที่ alert ถูกและเร็วที่สุดได้ 1 แต้ม (เสมอแบ่งแต้ม)</p>
+    <div class="barrow"><span class="name">Multi-Agent</span><span class="bartrack"><span class="bar" style="width:100%;background:var(--d-mas)"></span></span><span class="val">98.4</span></div>
+    <div class="barrow"><span class="name">Traditional AI</span><span class="bartrack"><span class="bar" style="width:55.3%;background:var(--d-trad)"></span></span><span class="val">54.4</span></div>
+    <div class="barrow"><span class="name">Agentic AI</span><span class="bartrack"><span class="bar" style="width:22.1%;background:var(--d-agn)"></span></span><span class="val">21.8</span></div>
+    <div class="barrow"><span class="name">AI Agent</span><span class="bartrack"><span class="bar" style="width:13.8%;background:var(--d-aia)"></span></span><span class="val">13.6</span></div>
+    <div class="barrow"><span class="name">RL (DQN)</span><span class="bartrack"><span class="bar" style="width:12.0%;background:var(--d-rl)"></span></span><span class="val">11.8</span></div>
+    <p class="axisnote">Multi-Agent หัวไวที่สุดเพราะ specialist 4 ตัวช่วยกัน cross-confirm — แต่ความไวนี้มีราคา (ดูข้อ 3)</p>
+  </div>
+
+  <h2><span class="no">3.</span> ความไว vs ความแม่น — trade-off ที่ต้องเลือก</h2>
+  <div class="card">
+    <p class="chart-title">Recall (จับปัญหาได้) เทียบ False Alarm Rate (เตือนผิดใน session ปกติ)</p>
+    <p class="chart-sub">เป้าหมายคือมุมขวาล่าง: จับได้มาก + เตือนผิดน้อย</p>
+    <div style="overflow-x:auto">
+    <svg viewBox="0 0 640 330" width="100%" style="max-width:640px;display:block;margin:0 auto" role="img"
+         aria-label="Scatter: recall vs false alarm rate ของ 5 โมเดล">
+      <line x1="70" y1="20" x2="70" y2="270" stroke="var(--baseline)" stroke-width="1"/>
+      <line x1="70" y1="270" x2="610" y2="270" stroke="var(--baseline)" stroke-width="1"/>
+      <g stroke="var(--grid)" stroke-width="1">
+        <line x1="205" y1="20" x2="205" y2="270"/><line x1="340" y1="20" x2="340" y2="270"/>
+        <line x1="475" y1="20" x2="475" y2="270"/><line x1="610" y1="20" x2="610" y2="270"/>
+        <line x1="70" y1="145" x2="610" y2="145"/><line x1="70" y1="20" x2="610" y2="20"/>
+      </g>
+      <g fill="var(--muted)" font-size="11.5">
+        <text x="70" y="288" text-anchor="middle">0%</text>
+        <text x="205" y="288" text-anchor="middle">25%</text>
+        <text x="340" y="288" text-anchor="middle">50%</text>
+        <text x="475" y="288" text-anchor="middle">75%</text>
+        <text x="610" y="288" text-anchor="middle">100%</text>
+        <text x="340" y="312" text-anchor="middle" font-weight="700">Recall — จับปัญหาได้กี่ %</text>
+        <text x="58" y="274" text-anchor="end">0%</text>
+        <text x="58" y="149" text-anchor="end">25%</text>
+        <text x="58" y="24" text-anchor="end">50%</text>
+        <text x="24" y="145" text-anchor="middle" transform="rotate(-90 24 145)" font-weight="700">เตือนผิด (FAR)</text>
+      </g>
+      <!-- points: x = 70 + recall*540, y = 270 - far/0.5*250 -->
+      <g stroke="var(--surface)" stroke-width="2">
+        <circle cx="529" cy="149.5" r="9" fill="var(--d-trad)"/>
+        <circle cx="497" cy="182.5" r="9" fill="var(--d-agn)"/>
+        <circle cx="471" cy="21" r="9" fill="var(--d-mas)"/>
+        <circle cx="282" cy="122" r="9" fill="var(--d-aia)"/>
+        <circle cx="148" cy="227" r="9" fill="var(--d-rl)"/>
+      </g>
+      <g fill="var(--ink)" font-size="12.5" font-weight="700">
+        <text x="529" y="137">Traditional</text>
+        <text x="497" y="207" text-anchor="middle">Agentic</text>
+        <text x="471" y="45" text-anchor="middle">Multi-Agent</text>
+        <text x="282" y="110" text-anchor="middle">AI Agent</text>
+        <text x="148" y="215" text-anchor="middle">RL</text>
+      </g>
+    </svg>
+    </div>
+    <p class="axisnote">
+      Traditional และ Agentic อยู่ใกล้มุมเป้าหมาย · Multi-Agent recall ดีแต่ FAR ทะลุ 50% ·
+      RL วินัยที่สุด (FAR 8.6%) แต่ conservative จนพลาดปัญหาส่วนใหญ่
+    </p>
+  </div>
+
+  <div class="card tblwrap">
+    <p class="chart-title">ตัวเลขเต็ม</p>
+    <table>
+      <thead><tr>
+        <th>โมเดล</th><th class="num">คะแนน</th><th class="num">Recall</th><th class="num">FAR</th>
+        <th class="num">จับได้ทัน</th><th class="num">สาย</th><th class="num">พลาด</th><th class="num">เตือนผิด</th>
+        <th class="num">Median lead</th><th class="num">µs/event</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="chip" style="background:var(--d-trad)"></span>Traditional AI</td><td class="num"><b>70.1</b></td><td class="num">85.0%</td><td class="num">24.1%</td><td class="num">182</td><td class="num">3</td><td class="num">29</td><td class="num">154</td><td class="num">0 s</td><td class="num">585</td></tr>
+        <tr><td><span class="chip" style="background:var(--d-agn)"></span>Agentic AI</td><td class="num"><b>66.5</b></td><td class="num">79.0%</td><td class="num">17.5%</td><td class="num">169</td><td class="num">12</td><td class="num">33</td><td class="num">112</td><td class="num">0 s</td><td class="num">512</td></tr>
+        <tr><td><span class="chip" style="background:var(--d-mas)"></span>Multi-Agent</td><td class="num"><b>56.2</b></td><td class="num">74.3%</td><td class="num">49.8%</td><td class="num">159</td><td class="num">16</td><td class="num">39</td><td class="num">318</td><td class="num">0 s</td><td class="num">22</td></tr>
+        <tr><td><span class="chip" style="background:var(--d-aia)"></span>AI Agent</td><td class="num"><b>44.4</b></td><td class="num">39.3%</td><td class="num">29.6%</td><td class="num">84</td><td class="num">74</td><td class="num">56</td><td class="num">189</td><td class="num">29 s</td><td class="num">509</td></tr>
+        <tr><td><span class="chip" style="background:var(--d-rl)"></span>RL (DQN)</td><td class="num"><b>36.4</b></td><td class="num">14.5%</td><td class="num">8.6%</td><td class="num">31</td><td class="num">5</td><td class="num">178</td><td class="num">55</td><td class="num">184 s</td><td class="num">62</td></tr>
+      </tbody>
+    </table>
+    <p class="axisnote">Median lead = 0 หมายถึง alert ณ วินาทีที่ fault ปรากฏ (ปัญหาส่วนใหญ่เป็น hard failure ที่ไม่มีสัญญาณเตือนล่วงหน้า) — เคสที่มี precursor จริง โมเดลนำหน้าได้เป็นนาที (mean lead 86–437 s)</p>
+  </div>
+
+  <h2><span class="no">4.</span> ใครเก่งปัญหาแบบไหน</h2>
+  <div class="card tblwrap">
+    <p class="chart-title">Recall แยกตามชนิดปัญหา (จับได้ / ทั้งหมด บน test set)</p>
+    <table>
+      <thead><tr>
+        <th>โมเดล</th><th class="num">EV_ERROR (11)</th><th class="num">PROTOCOL (29)</th>
+        <th class="num">ABORT (158)</th><th class="num">SLAC (16)</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="chip" style="background:var(--d-trad)"></span>Traditional AI</td>
+          <td class="num cell-t4">11/11</td><td class="num cell-t4">29/29</td><td class="num cell-t4">139/158 <span class="pct">88%</span></td><td class="num cell-t1">3/16 <span class="pct">19%</span></td></tr>
+        <tr><td><span class="chip" style="background:var(--d-agn)"></span>Agentic AI</td>
+          <td class="num cell-t4">11/11</td><td class="num cell-t4">29/29</td><td class="num cell-t3">116/158 <span class="pct">73%</span></td><td class="num cell-t4">13/16 <span class="pct">81%</span></td></tr>
+        <tr><td><span class="chip" style="background:var(--d-mas)"></span>Multi-Agent</td>
+          <td class="num cell-t4">11/11</td><td class="num cell-t4">29/29</td><td class="num cell-t3">115/158 <span class="pct">73%</span></td><td class="num cell-t1">4/16 <span class="pct">25%</span></td></tr>
+        <tr><td><span class="chip" style="background:var(--d-aia)"></span>AI Agent</td>
+          <td class="num cell-t4">11/11</td><td class="num cell-t4">29/29</td><td class="num cell-t1">44/158 <span class="pct">28%</span></td><td class="num">0/16</td></tr>
+        <tr><td><span class="chip" style="background:var(--d-rl)"></span>RL (DQN)</td>
+          <td class="num cell-t1">3/11</td><td class="num cell-t1">7/29</td><td class="num cell-t1">21/158 <span class="pct">13%</span></td><td class="num">0/16</td></tr>
+      </tbody>
+    </table>
+    <p class="axisnote">
+      จุดต่างที่สำคัญ: <b>Agentic AI จับ SLAC failure ได้ 13/16</b> — memory รายสถานีทำให้รู้ว่า
+      "SLAC ปกติของสถานีนี้ควรเสร็จในกี่วินาที" แล้วเปิด investigation เมื่อผิดจังหวะ
+      ขณะที่ SESSION_ABORT (สายหลุดกลางคัน) Traditional จับได้มากสุดจากกฎ timeout + XGBoost
+    </p>
+  </div>
+
+  <h2><span class="no">5.</span> บทเรียนจากสนามจริง</h2>
+  <ul>
+    <li><b>ตู้ชาร์จ 2 หัวแชร์กำลังกัน</b> — กระแสตกจาก 129 A เหลือ 54 A กลางคันเป็นเรื่อง "ปกติ"
+      เมื่อรถอีกคันเสียบชาร์จ กฎแบบสเปค (current collapse) จึงเตือนผิดถล่มจนต้องออกแบบใหม่
+      — โมเดลที่เรียนรู้จากข้อมูล (XGBoost/AE) แยกแยะเองได้</li>
+    <li><b>79% ของปัญหาคือการชาร์จขาดกลางคัน</b> (ไม่มี SessionStop) ซึ่งส่วนใหญ่ตายทันทีไม่มีอาการนำ —
+      เพดานของ "การเตือนล่วงหน้า" จึงถูกกำหนดโดยธรรมชาติของปัญหา ไม่ใช่ตัวโมเดล</li>
+    <li><b>สัญญาณนำที่ใช้ได้จริง</b>: SLAC retry (นำหน้าการเชื่อมต่อล้มเหลว), retransmission storm
+      และ dialog gap ที่ยาวผิดจังหวะ (นำหน้า abort), isolation Warning แบบต่อเนื่อง</li>
+    <li><b>ความรู้เฉพาะ fleet ที่ฝังไว้ในโมเดลแล้ว</b>: EVSENotification ใช้ค่า <code>StopCharging</code>,
+      PLC บางสถานี retransmit สูงถึง 40 ครั้ง/นาทีแบบปกติ, dialog gap 2–3 วิ เกิดเป็นระยะใน session ดีๆ</li>
+  </ul>
+
+  <h2><span class="no">6.</span> รู้จักผู้เข้าแข่งขัน</h2>
+  <div class="grid2">
+    <div class="card profile">
+      <h3><span class="chip" style="background:var(--d-trad)"></span>Traditional AI — แชมป์คะแนนรวม</h3>
+      <div class="arch">Rule engine ตามสเปค + Isolation Forest + XGBoost (เทรนบน GPU)</div>
+      <p>กฎ DIN 70121 จับ hard fault ได้ทันทีแบบไม่พลาด ส่วน XGBoost เก็บ pattern ที่กฎมองไม่เห็น
+      จุดอ่อนคือปรับตัวเองไม่ได้ — threshold เดียวใช้ทั้ง fleet</p>
+      <div class="kv"><span>Score <b>70.1</b></span><span>Recall <b>85%</b></span><span>FAR <b>24%</b></span></div>
+    </div>
+    <div class="card profile">
+      <h3><span class="chip" style="background:var(--d-agn)"></span>Agentic AI — สมดุลที่สุด</h3>
+      <div class="arch">Goal-driven: expectation รายเฟส + investigation + station memory + reflection</div>
+      <p>ตั้งเป้า "session นี้ต้องจบอย่างปลอดภัย" แล้วสืบสวนเมื่อผิดคาด baseline
+      ปรับตามสถานีแบบออนไลน์ ทำให้ FAR ต่ำสุดในกลุ่มหัวไว และชนะขาดเรื่อง SLAC failure</p>
+      <div class="kv"><span>Score <b>66.5</b></span><span>Recall <b>79%</b></span><span>FAR <b>17.5%</b></span></div>
+    </div>
+    <div class="card profile">
+      <h3><span class="chip" style="background:var(--d-mas)"></span>Multi-Agent — หัวไวที่สุด</h3>
+      <div class="arch">Specialist 4 ตัว (Power/Battery/Protocol/Comms) + Coordinator consensus</div>
+      <p>เจอก่อนเพื่อนบ่อยสุด (98/214) และประหยัด compute สุด (22 µs/event)
+      แต่ consensus แบบสองเสียงยังไวเกิน — เตือนผิดครึ่งหนึ่งของ session ปกติ</p>
+      <div class="kv"><span>Score <b>56.2</b></span><span>Wins <b>98.4</b></span><span>FAR <b>49.8%</b></span></div>
+    </div>
+    <div class="card profile">
+      <h3><span class="chip" style="background:var(--d-aia)"></span>AI Agent — นักสะสมหลักฐาน</h3>
+      <div class="arch">Perceive→Reason→Act เดี่ยว + tools (spec/trend/comm/LSTM-AE/GRU) + evidence board</div>
+      <p>รอหลักฐาน 2 ประเภทก่อน alert ทำให้ช้ากว่าเพื่อน (สาย 74 sessions)
+      — ตัวอย่างชัดว่า fusion แบบระวังตัวแลกความไวกับความมั่นใจ</p>
+      <div class="kv"><span>Score <b>44.4</b></span><span>Recall <b>39%</b></span><span>FAR <b>30%</b></span></div>
+    </div>
+    <div class="card profile">
+      <h3><span class="chip" style="background:var(--d-rl)"></span>RL (DQN) — นักวินัย</h3>
+      <div class="arch">Optimal stopping (WAIT/ALERT) — fitted Q-iteration บน GPU, 19.4M transitions</div>
+      <p>เรียน policy จาก reward ล้วนๆ ได้นิสัยระวังตัวสุด (FAR 8.6%) แต่ discount factor
+      ทำให้มองปัญหาไกลๆ ไม่คุ้มเสี่ยง จึงพลาดมาก — เหมาะเป็นชั้นยืนยัน ไม่ใช่ด่านแรก</p>
+      <div class="kv"><span>Score <b>36.4</b></span><span>FAR <b>8.6%</b></span><span>µs/event <b>62</b></span></div>
+    </div>
+  </div>
+
+  <h2><span class="no">7.</span> พร้อม deploy จริง</h2>
+  <ul>
+    <li>ทุกโมเดลคือ Python class ที่ implement <code>Detector.observe(event, features)</code> —
+      ต่อกับ live capture ได้ทันที (tshark → parser เดียวกับ pipeline)</li>
+    <li><b>Inference เป็น numpy ล้วน</b> (ตรวจสอบแล้วผลตรงกับ torch/sklearn ทุกตำแหน่ง) —
+      server ปลายทางไม่ต้องมี GPU ไม่ต้องลง torch ก็รันได้ ใช้เวลา 22–585 µs/event
+      เทียบกับ event rate จริง ~12 events/วินาที/หัว = เหลือเฟือหลักพันเท่า</li>
+    <li>โค้ด + โมเดลทั้งหมดอยู่ที่ <code>F:\pcap_downloads\ev_charger_ai</code>
+      (README มีขั้นตอน reproduce ครบ) · GPU env: conda <code>ev_ai</code> (torch 2.11 + CUDA 12.8)</li>
+    <li><b>คำแนะนำ:</b> deploy แบบ 2 ชั้น — Traditional AI เป็นด่านหลัก (แม่น เข้าใจง่าย อธิบายได้)
+      เสริมด้วย Agentic AI สำหรับสถานีที่มีปัญหา SLAC/PLC เรื้อรัง แล้วเก็บ label จากช่างภาคสนาม
+      มา retrain XGBoost/RL ให้แม่นขึ้นเรื่อยๆ</li>
+  </ul>
+
+  <div class="note">
+    <b>ข้อจำกัดที่ควรรู้:</b> ground truth มาจาก semantics ของโปรโตคอล (ไม่มี label จากช่างภาคสนาม) —
+    SESSION_ABORT บางส่วนอาจเป็นผู้ใช้ดึงปลั๊กเอง ซึ่งแยกจากปัญหาอุปกรณ์ไม่ได้จากข้อมูลฝั่งสื่อสารเพียงอย่างเดียว
+    และ threshold ของ agent-based ปรับจากสถานี train เท่านั้น (ไม่เห็น test)
+  </div>
+
+  <p class="footer">
+    สร้างจาก pcap 3,068 ไฟล์ · 13.3 ล้าน events บน test set · เทรนบน NVIDIA RTX 1000 Ada (CUDA 12.8) ·
+    ผลดิบ: <code>results/leaderboard_test.json</code>, <code>results/records_test.json</code>
+  </p>
+</div>

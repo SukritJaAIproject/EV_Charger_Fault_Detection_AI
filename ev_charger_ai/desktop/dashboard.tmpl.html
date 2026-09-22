@@ -1,0 +1,2291 @@
+<title>แผงเฝ้าระวังตู้ชาร์จ EGAT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* ===========================================================================
+   Dark-first control room. The page commits to dark: the bare :root block IS
+   the dark palette, and light is an opt-in the viewer can pick from the top
+   bar. Every colour is a token so both worlds swap in one place.
+   Series colours are the validated categorical steps (CVD-checked against the
+   #141c24 panel); status colours are reserved and never used as a series.
+   =========================================================================== */
+:root{
+  color-scheme: dark;
+
+  --page:#0a0e12;          /* the room */
+  --surface:#141c24;       /* panels */
+  --surface-2:#1b2530;     /* hover, insets */
+  --sunken:#0d141b;        /* bar tracks */
+  --rule:#26323d;
+  --grid:#1c2630;
+  --edge:rgba(255,255,255,.045);   /* top highlight that lifts a panel */
+
+  --ink:#e6edf3;
+  --ink-2:#9fb0bd;
+  --muted:#7a8b9a;
+
+  --accent:#4d9bf0;
+  --accent-ink:#8fc2f8;
+  --accent-fill:#4d9bf0;
+  --accent-on:#08121c;     /* text ON an accent fill */
+  --accent-wash:#12283f;
+  --accent-edge:#2d5f92;
+
+  --good:#0ca30c;   --good-ink:#3fc23f;
+  --warning:#fab219;--warning-ink:#fab219;
+  --serious:#ec835a;
+  --critical:#d03b3b;--critical-ink:#f08080;
+
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --s5:#d55181; --s6:#008300; --s7:#9085e9;
+  --seq-lo:#184f95; --seq:#3987e5; --seq-hi:#86b6ef;
+
+  --shadow:0 1px 0 var(--edge) inset, 0 2px 10px rgba(0,0,0,.35);
+  --shadow-sm:0 1px 0 var(--edge) inset;
+  --ring:0 0 0 2px var(--page), 0 0 0 4px var(--accent);
+}
+
+:root[data-theme="light"]{
+  color-scheme: light;
+  --page:#e8ecef;
+  --surface:#ffffff;
+  --surface-2:#f1f4f6;
+  --sunken:#dde3e7;
+  --rule:#d1d9dd;
+  --grid:#e6eaed;
+  --edge:rgba(14,22,27,.04);
+
+  --ink:#0d151b;
+  --ink-2:#48545d;
+  --muted:#6d7a82;
+
+  --accent:#2a78d6;
+  --accent-ink:#1a5aa8;
+  --accent-fill:#1f66bd;
+  --accent-on:#ffffff;
+  --accent-wash:#e7f0fc;
+  --accent-edge:#a8caf0;
+
+  --good:#0ca30c;   --good-ink:#0a7a0a;
+  --warning:#fab219;--warning-ink:#875e00;
+  --serious:#ec835a;
+  --critical:#d03b3b;--critical-ink:#a32c2c;
+
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7;
+  --seq-lo:#9ec5f4; --seq:#2a78d6; --seq-hi:#184f95;
+
+  --shadow:0 1px 2px rgba(14,22,27,.07);
+  --shadow-sm:none;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--page); color:var(--ink);
+  font-family:"Bai Jamjuree","Leelawadee UI",system-ui,sans-serif;
+  font-size:14px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.mono,td.n,th.n,.metric b,.kpi .v,.brand .sub,.stname .txt span,
+.bv,.gv,.as,.abrow .v,.histbar em,.histax,#tip{
+  font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  font-variant-numeric:tabular-nums;
+}
+.shell{max-width:1340px;margin:0 auto;padding-inline:18px;padding-block:0 60px;
+  display:flex;flex-direction:column;gap:18px}
+:where(button,input,[tabindex]):focus-visible{outline:none;box-shadow:var(--ring);border-radius:3px}
+
+/* ---------- top bar ---------- */
+.top{position:sticky;top:0;z-index:30;background:var(--page);padding-block:18px 13px;
+  border-bottom:1px solid var(--rule);display:flex;flex-wrap:wrap;gap:12px 20px;
+  align-items:flex-end;justify-content:space-between}
+.brand{display:flex;flex-direction:column;gap:3px;min-width:0}
+.brand h1{margin:0;font-size:19px;font-weight:700;letter-spacing:-.012em;line-height:1.25;
+  display:flex;align-items:center;gap:9px}
+.brand h1::before{content:"";width:9px;height:9px;border-radius:50%;flex:none;
+  background:var(--good);box-shadow:0 0 0 3px color-mix(in srgb,var(--good) 22%,transparent)}
+.brand .sub{font-size:11.5px;color:var(--muted);letter-spacing:.02em}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.search{position:relative}
+.search input{font:inherit;font-size:13px;padding:7px 11px 7px 31px;width:210px;
+  border:1px solid var(--rule);border-radius:3px;background:var(--surface);color:var(--ink)}
+.search input::placeholder{color:var(--muted)}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none}
+.seg{display:flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden;
+  background:var(--surface);box-shadow:var(--shadow-sm)}
+.seg button{font:inherit;font-size:12.5px;padding:7px 12px;border:none;background:transparent;
+  color:var(--ink-2);cursor:pointer;border-right:1px solid var(--rule);line-height:1.5}
+.seg button:last-child{border-right:none}
+.seg button:hover{background:var(--surface-2);color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--accent-fill);color:var(--accent-on);font-weight:600}
+.seg button[aria-pressed="true"]:hover{background:var(--accent-fill);color:var(--accent-on)}
+.toggle{font:inherit;font-size:12.5px;padding:7px 12px;border:1px solid var(--rule);
+  border-radius:3px;background:var(--surface);color:var(--ink-2);cursor:pointer;
+  display:flex;align-items:center;gap:7px;box-shadow:var(--shadow-sm)}
+.toggle:hover{color:var(--ink)}
+.toggle[aria-pressed="true"]{border-color:var(--critical);color:var(--critical-ink)}
+.toggle .box{width:11px;height:11px;border:1.5px solid currentColor;border-radius:2px;flex:none}
+.toggle[aria-pressed="true"] .box{background:currentColor}
+.toggle .cnt{font-family:"IBM Plex Mono",monospace;font-size:11px;opacity:.75}
+#themebtn{font:inherit;font-size:13px;width:34px;height:33px;display:grid;place-items:center;
+  border:1px solid var(--rule);border-radius:3px;background:var(--surface);color:var(--ink-2);
+  cursor:pointer;box-shadow:var(--shadow-sm)}
+#themebtn:hover{color:var(--ink)}
+
+/* ---------- kpi ---------- */
+/* the six figures read as one instrument cluster, not six floating cards:
+   hairline separators, no inner borders, the panel clips the corners */
+.ovkpi{overflow:hidden}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;
+  background:var(--rule);flex:1}
+@media (max-width:640px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--surface);border:none;border-radius:0;box-shadow:none;
+  padding:13px 16px;display:flex;flex-direction:column;gap:1px;justify-content:center}
+.kpi .l{font-size:11px;color:var(--muted);font-weight:500;letter-spacing:.05em;
+  text-transform:uppercase;line-height:1.4}
+.kpi .v{font-size:27px;font-weight:600;line-height:1.2;letter-spacing:-.015em}
+.kpi .s{font-size:12px;color:var(--ink-2);line-height:1.45}
+.kpi.hero{background:linear-gradient(180deg,var(--accent-wash),var(--surface) 88%);
+  box-shadow:inset 0 0 0 1px var(--accent-edge)}
+.kpi.hero .v{color:var(--accent-ink)}
+.sevstrip{display:flex;height:4px;border-radius:2px;overflow:hidden;background:var(--sunken);margin-top:7px}
+.sevstrip i{display:block;height:100%}
+
+/* ---------- panels ---------- */
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:4px;
+  box-shadow:var(--shadow);display:flex;flex-direction:column;min-width:0}
+.ph{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding:13px 16px;border-bottom:1px solid var(--rule)}
+.ph h2{margin:0;font-size:14.5px;font-weight:600;letter-spacing:-.005em}
+.ph .hint{font-size:11.5px;color:var(--muted);text-align:right}
+.pb{padding:15px 16px}
+/* band 2: the donut sits beside the cluster; both stretch to the same height */
+.overview{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:14px;
+  align-items:stretch}
+@media (max-width:1180px){.overview{grid-template-columns:1fr}}
+.ctlsep{width:1px;align-self:stretch;min-height:22px;background:var(--rule);flex:none}
+
+/* band 3: both columns share one fixed height and scroll their own content.
+   Stretching to the taller column instead would make the table resize every
+   time you picked a station with a different amount of detail. */
+.main{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:14px;
+  align-items:stretch}
+.main > .panel{height:min(82vh,900px)}
+.main > .panel > .pb{overflow:auto;scrollbar-width:thin;
+  scrollbar-color:var(--rule) transparent}
+.main > .panel > .pb::-webkit-scrollbar{width:10px}
+.main > .panel > .pb::-webkit-scrollbar-thumb{background:var(--rule);border-radius:5px;
+  border:3px solid var(--surface)}
+.main > .panel > .pb::-webkit-scrollbar-track{background:transparent}
+@media (max-width:1020px){
+  .main{grid-template-columns:1fr}
+  .main > .panel{height:auto}
+  .main > .panel > .pb{overflow:visible}
+}
+
+/* ---------- station table ---------- */
+.tablewrap{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;
+  scrollbar-color:var(--rule) transparent}
+.tablewrap::-webkit-scrollbar{width:10px;height:10px}
+.tablewrap::-webkit-scrollbar-thumb{background:var(--rule);border-radius:5px;
+  border:3px solid var(--surface)}
+.tablewrap::-webkit-scrollbar-track{background:transparent}
+table{border-collapse:collapse;width:100%;font-size:13px}
+thead th{position:sticky;top:0;z-index:2;background:var(--surface);text-align:right;
+  font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+  font-weight:600;padding:10px;border-bottom:1px solid var(--rule);white-space:nowrap;
+  cursor:pointer;user-select:none}
+thead th:hover{color:var(--ink-2)}
+thead th:first-child{text-align:left}
+thead th .ar{margin-left:4px;opacity:.3;font-size:9px}
+thead th[data-active="1"]{color:var(--accent-ink)}
+thead th[data-active="1"] .ar{opacity:1}
+tbody td{padding:7px 10px;border-bottom:1px solid var(--grid);text-align:right;white-space:nowrap}
+tbody td:first-child{text-align:left;position:relative}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:var(--surface-2)}
+tbody tr[aria-selected="true"] td{background:var(--accent-wash)}
+tbody tr[aria-selected="true"] td:first-child::before{content:"";position:absolute;
+  left:0;top:0;bottom:0;width:2px;background:var(--accent)}
+tbody tr:focus-visible{outline:none}
+tbody tr:focus-visible td{background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--accent)}
+.stname{display:flex;align-items:center;gap:9px;min-width:0}
+.sev{width:3px;align-self:stretch;min-height:19px;border-radius:2px;flex:none;background:var(--grid)}
+.sev.t1{background:var(--warning)} .sev.t2{background:var(--critical)}
+.stname .txt{display:flex;flex-direction:column;line-height:1.3;min-width:0}
+.stname .txt b{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;max-width:236px}
+.stname .txt span{font-size:10.5px;color:var(--muted)}
+.ratecell{display:flex;align-items:center;justify-content:flex-end;gap:9px}
+.ratebar{width:64px;height:6px;background:var(--sunken);border-radius:3px;overflow:hidden;flex:none}
+.ratebar i{display:block;height:100%;border-radius:3px;background:var(--seq)}
+.famtag{font-size:11px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px}
+.famdot{width:8px;height:8px;border-radius:2px;flex:none}
+.flags{display:inline-flex;gap:4px}
+.flag{font-size:10px;font-weight:600;letter-spacing:.03em;padding:1px 6px;border-radius:2px;
+  border:1px solid currentColor;line-height:1.5}
+.flag.skew{color:var(--critical-ink)} .flag.clock{color:var(--warning-ink)} .flag.ho{color:var(--accent-ink)}
+.stat{font-size:11px;font-weight:600;padding:2px 8px;border-radius:2px;line-height:1.5;
+  display:inline-block;border:1px solid transparent}
+.stat.open{color:var(--muted);border-color:var(--rule)}
+.stat.ack{color:var(--warning-ink);border-color:var(--warning)}
+.stat.sent{color:var(--accent-ink);border-color:var(--accent)}
+.stat.done{color:var(--good-ink);border-color:var(--good)}
+.empty{padding:36px 16px;text-align:center;color:var(--muted);font-size:13px}
+
+/* ---------- detail ---------- */
+.dhead{display:flex;flex-direction:column;gap:7px}
+.dhead h3{margin:0;font-size:17.5px;font-weight:700;line-height:1.3;letter-spacing:-.01em}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:11px;padding:2px 8px;border:1px solid var(--rule);border-radius:2px;
+  color:var(--ink-2);line-height:1.55;background:var(--surface-2)}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:1px;
+  background:var(--rule);border:1px solid var(--rule);border-radius:3px;overflow:hidden;margin-top:14px}
+.metric{background:var(--surface);padding:9px 11px}
+.metric b{display:block;font-size:17px;font-weight:600;line-height:1.35}
+.metric span{font-size:11px;color:var(--muted)}
+.sect{margin-top:17px}
+.sect h4{margin:0 0 9px;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--muted);font-weight:600}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gun{background:var(--surface-2);border:1px solid var(--rule);border-radius:3px;padding:10px 12px}
+.gun .gt{font-size:11.5px;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
+.gun .gv{font-size:19px;font-weight:600;line-height:1.35}
+.gun .gbar{height:6px;background:var(--sunken);border-radius:3px;overflow:hidden;margin-top:6px}
+.gun .gbar i{display:block;height:100%;border-radius:3px}
+.gun.bad{border-color:var(--critical);background:color-mix(in srgb,var(--critical) 7%,var(--surface-2))}
+.barlist{display:flex;flex-direction:column;gap:6px}
+.blrow{display:grid;grid-template-columns:124px 1fr 54px;gap:9px;align-items:center;font-size:12px}
+.blrow .bn{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bltrack{height:12px;background:var(--sunken);border-radius:2px;overflow:hidden}
+.bltrack i{display:block;height:100%;border-radius:0 2px 2px 0}
+.blrow .bv{text-align:right;font-weight:600}
+.alerts{display:flex;flex-direction:column;gap:7px}
+.alert{display:flex;gap:10px;align-items:flex-start;font-size:12.5px;padding:10px 12px;
+  border-radius:3px;border:1px solid;line-height:1.55;background:var(--surface-2)}
+.alert .ic{font-family:"IBM Plex Mono",monospace;font-weight:700;flex:none;line-height:1.35;
+  width:14px;text-align:center}
+.alert.critical{border-color:var(--critical);color:var(--critical-ink)}
+.alert.warning{border-color:var(--warning);color:var(--warning-ink)}
+.alert.good{border-color:var(--good);color:var(--good-ink)}
+.triage{display:flex;flex-wrap:wrap;gap:6px}
+.triage button{font:inherit;font-size:12px;font-weight:600;padding:6px 12px;
+  border:1px solid var(--rule);border-radius:3px;background:var(--surface-2);
+  color:var(--ink-2);cursor:pointer}
+.triage button:hover:not([disabled]){color:var(--ink);border-color:var(--muted)}
+.triage button[aria-pressed="true"]{border-color:transparent;color:var(--accent-on)}
+.triage button[data-s="open"][aria-pressed="true"]{background:var(--muted)}
+.triage button[data-s="ack"][aria-pressed="true"]{background:var(--warning);color:#2a1f00}
+.triage button[data-s="sent"][aria-pressed="true"]{background:var(--accent-fill)}
+.triage button[data-s="done"][aria-pressed="true"]{background:var(--good);color:#022402}
+.triage button[disabled]{opacity:.4;cursor:not-allowed}
+.noterow{display:flex;gap:7px;margin-top:9px}
+.noterow input{flex:1;font:inherit;font-size:12.5px;padding:7px 10px;border:1px solid var(--rule);
+  border-radius:3px;background:var(--surface-2);color:var(--ink);min-width:0}
+.noterow input::placeholder{color:var(--muted)}
+.noterow button{font:inherit;font-size:12.5px;font-weight:600;padding:7px 14px;
+  border:1px solid var(--rule);border-radius:3px;background:var(--surface-2);color:var(--ink);cursor:pointer}
+.noterow button:hover:not([disabled]){border-color:var(--muted)}
+.noterow button[disabled],.noterow input[disabled]{opacity:.45;cursor:not-allowed}
+.savedhint{font-size:11.5px;color:var(--muted);margin-top:8px;min-height:18px;line-height:1.5}
+
+/* ---------- charts ---------- */
+/* band 4: three panels, never an orphan - at two columns the last one spans.
+   They stretch to a common height and their contents spread into it, so no
+   panel trails empty page underneath. */
+.charts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;
+  align-items:stretch}
+.charts .pb{flex:1;display:flex;flex-direction:column}
+.charts figure{flex:1;display:flex;flex-direction:column;justify-content:space-between;
+  gap:12px}
+.charts figcaption{margin-top:0}
+.charts #famchart{flex:1;justify-content:space-evenly}
+.charts .histwrap{flex:1;min-height:118px}
+@media (max-width:1180px){
+  .charts{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .charts > .panel:last-child{grid-column:1 / -1}
+}
+@media (max-width:760px){
+  .charts{grid-template-columns:1fr}
+  .charts > .panel:last-child{grid-column:auto}
+}
+.legend{display:flex;flex-wrap:wrap;gap:5px 16px;font-size:11.5px;color:var(--ink-2);margin-bottom:12px}
+.legend > span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:9px;height:9px;border-radius:2px;display:inline-block;flex:none}
+figure{margin:0}
+figcaption{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.55}
+figcaption b{color:var(--ink-2)}
+svg text{font-family:"IBM Plex Mono",monospace}
+.histwrap{display:flex;align-items:flex-end;gap:3px;height:122px}
+.histbar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;
+  gap:4px;height:100%;cursor:default}
+.histbar i{width:100%;background:var(--seq-lo);border-radius:2px 2px 0 0;display:block;min-height:2px}
+.histbar:hover i{background:var(--seq)}
+.histbar.sel i{background:var(--accent)}
+.histbar em{font-style:normal;font-size:10px;color:var(--muted)}
+.histbar.sel em{color:var(--accent-ink);font-weight:600}
+.histax{display:flex;gap:3px;margin-top:5px;font-size:9.5px;color:var(--muted)}
+.histax span{flex:1;text-align:center}
+
+/* ---------- fault reference ---------- */
+.phaseline{display:flex;gap:2px;overflow-x:auto;padding-bottom:4px}
+.phase{flex:1;min-width:104px;background:var(--surface-2);border:1px solid var(--rule);
+  border-radius:3px;padding:9px 11px}
+.phase .pk{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted)}
+.phase .pt{font-size:12.5px;font-weight:600;margin-top:2px;line-height:1.35}
+.phase .pf{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+.phase .pf i{width:8px;height:8px;border-radius:2px;display:block}
+.reflist{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.refcard{border:1px solid var(--rule);border-left-width:3px;border-radius:3px;
+  background:var(--surface);padding:15px 17px}
+.refcard h3{margin:0;font-size:15px;font-weight:700;display:flex;align-items:baseline;
+  gap:9px;flex-wrap:wrap}
+.refcard h3 code{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted);
+  background:none;border:none;padding:0}
+.refcard .rnum{display:flex;gap:16px;margin:9px 0 12px;font-size:11.5px;color:var(--muted)}
+.refcard .rnum b{display:block;font-family:"IBM Plex Mono",monospace;
+  font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;color:var(--ink)}
+.refcard dl{margin:0;display:flex;flex-direction:column;gap:9px}
+.refcard dt{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);font-weight:600}
+.refcard dd{margin:2px 0 0;font-size:13px;color:var(--ink-2);line-height:1.6}
+.refcard dd code{font-family:"IBM Plex Mono",monospace;font-size:11.5px;
+  background:var(--surface-2);border:1px solid var(--rule);border-radius:2px;padding:0 5px}
+.refai{display:flex;flex-wrap:wrap;gap:5px;margin-top:11px}
+.refai span{font-size:11px;font-family:"IBM Plex Mono",monospace;padding:2px 8px;
+  border:1px solid var(--rule);border-radius:2px;color:var(--ink-2);line-height:1.6}
+.refai span.good{border-color:var(--good);color:var(--good-ink)}
+.refai span.poor{border-color:var(--rule);color:var(--muted)}
+.notfault{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.nf{border:1px solid var(--rule);border-radius:3px;background:var(--surface-2);
+  padding:12px 14px;font-size:12.5px;color:var(--ink-2);line-height:1.6}
+.nf b{display:block;color:var(--ink);font-size:13px;margin-bottom:3px}
+
+/* ---------- tabs + the analyse view ---------- */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--rule);margin-top:-4px}
+.tabs button{font:inherit;font-size:13.5px;font-weight:600;padding:9px 16px;border:none;
+  border-bottom:2px solid transparent;background:none;color:var(--muted);cursor:pointer;
+  display:flex;align-items:center;gap:8px}
+.tabs button:hover{color:var(--ink-2)}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+
+.scanwrap{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:14px;
+  align-items:start}
+@media (max-width:980px){.scanwrap{grid-template-columns:1fr}}
+.drop{border:1.5px dashed var(--rule);border-radius:4px;padding:26px 18px;text-align:center;
+  color:var(--ink-2);cursor:pointer;background:var(--surface-2);transition:border-color .12s}
+.drop:hover,.drop.over{border-color:var(--accent);color:var(--ink)}
+.drop b{display:block;font-size:14px;margin-bottom:4px;color:var(--ink)}
+.drop span{font-size:12px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.drop{transition:none}}
+.filelist{display:flex;flex-direction:column;gap:1px;background:var(--rule);
+  border:1px solid var(--rule);border-radius:3px;margin-top:12px;overflow:hidden}
+.filerow{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;
+  background:var(--surface);padding:7px 11px;font-size:12.5px}
+.filerow .fn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filerow .fb{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  color:var(--muted);font-size:11.5px}
+.filerow button{font:inherit;font-size:14px;line-height:1;border:none;background:none;
+  color:var(--muted);cursor:pointer;padding:2px 4px}
+.filerow button:hover{color:var(--critical-ink)}
+.mpick{margin-top:15px}
+.mphead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+  font-weight:600;margin-bottom:8px}
+.mplink{font:inherit;font-size:11px;text-transform:none;letter-spacing:0;border:none;
+  background:none;color:var(--accent-ink);cursor:pointer;padding:0 0 0 12px}
+.mplink:hover{text-decoration:underline}
+.mpchips{display:flex;flex-wrap:wrap;gap:6px}
+.mpchip{font:inherit;font-size:12px;padding:6px 11px;border:1px solid var(--rule);
+  border-radius:3px;background:var(--surface-2);color:var(--ink-2);cursor:pointer;
+  display:flex;align-items:center;gap:8px}
+.mpchip:hover{color:var(--ink)}
+.mpchip .tick{width:11px;height:11px;border:1.5px solid var(--muted);border-radius:2px;
+  flex:none}
+.mpchip .mps{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted)}
+.mpchip[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-wash);
+  color:var(--ink)}
+.mpchip[aria-pressed="true"] .tick{background:var(--accent);border-color:var(--accent)}
+.mpchip[aria-pressed="true"] .mps{color:var(--accent-ink)}
+.mphint{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5}
+.ranline{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.6}
+.ranline b{color:var(--ink-2);font-weight:600}
+.ranline .bad{color:var(--warning-ink)}
+.runrow{display:flex;gap:8px;margin-top:12px}
+.btn{font:inherit;font-size:13px;font-weight:600;padding:9px 18px;border-radius:3px;
+  border:1px solid var(--rule);background:var(--surface-2);color:var(--ink);cursor:pointer}
+.btn:hover:not([disabled]){border-color:var(--muted)}
+.btn.primary{background:var(--accent-fill);color:var(--accent-on);border-color:transparent}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.runstate{margin-top:14px;font-size:12.5px;color:var(--ink-2);line-height:1.6;
+  border-left:2px solid var(--accent);padding-left:12px;min-height:20px}
+.runstate .el{font-family:"IBM Plex Mono",monospace;color:var(--muted)}
+.runstate.bad{border-left-color:var(--critical);color:var(--critical-ink)}
+
+.restiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:1px;
+  background:var(--rule);border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+.restile{background:var(--surface);padding:10px 12px}
+.restile b{display:block;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-size:19px;font-weight:600;line-height:1.35}
+.restile span{font-size:11px;color:var(--muted)}
+.restile.bad b{color:var(--critical-ink)}
+.sesslist{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.sess{border:1px solid var(--rule);border-radius:3px;background:var(--surface-2);
+  padding:12px 14px}
+.sess.bad{border-color:var(--critical)}
+.sess .sh{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;
+  justify-content:space-between}
+.sess .sh b{font-size:13.5px}
+.sess .meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11.5px;color:var(--muted);
+  margin-top:5px}
+.sess .meta em{font-style:normal;font-family:"IBM Plex Mono",monospace;color:var(--ink-2)}
+.faultrow{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;margin-top:9px;
+  padding:8px 10px;border-radius:3px;border:1px solid var(--critical);color:var(--critical-ink);
+  background:var(--surface)}
+.faultrow .ft{font-family:"IBM Plex Mono",monospace;flex:none;font-size:11.5px;opacity:.85}
+.faultrow .fd{color:var(--ink-2)}
+.okrow{font-size:12.5px;color:var(--good-ink);margin-top:8px}
+.obsbox{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.obsbox .oh{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);font-weight:600}
+.obs{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:var(--ink-2);
+  line-height:1.55;padding:7px 10px;border-radius:3px;background:var(--surface);
+  border:1px solid var(--rule);border-left:2px solid var(--warning)}
+.obs .oi{font-family:"IBM Plex Mono",monospace;color:var(--warning-ink);flex:none}
+.obs b{color:var(--ink)}
+.aihits{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.aihit{font-size:11px;padding:2px 8px;border-radius:2px;border:1px solid var(--accent);
+  color:var(--accent-ink);line-height:1.6;font-family:"IBM Plex Mono",monospace}
+.aihit.miss{border-color:var(--rule);color:var(--muted)}
+.scannote{font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.6}
+.offbox{border:1px solid var(--rule);border-radius:3px;background:var(--surface-2);
+  padding:18px 20px;font-size:13px;color:var(--ink-2);line-height:1.7;max-width:70ch}
+.offbox b{color:var(--ink)}
+
+/* ---------- fleet donut ---------- */
+.pieblock{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+.pieblock > svg{flex:none}
+.pielegend{flex:1;min-width:178px;display:flex;flex-direction:column;gap:2px}
+.pierow{display:grid;grid-template-columns:11px minmax(0,1fr) auto 40px;gap:9px;
+  align-items:center;font:inherit;font-size:12.5px;padding:5px 7px;border-radius:3px;
+  border:1px solid transparent;background:none;color:var(--ink-2);cursor:pointer;text-align:left}
+.pierow:hover{background:var(--surface-2);color:var(--ink)}
+.pierow[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-wash);color:var(--ink)}
+.pierow i{width:11px;height:11px;border-radius:2px;display:block}
+.pierow .pn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pierow .pc{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-weight:600;color:var(--ink)}
+.pierow .pp{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  color:var(--muted);font-size:11px;text-align:right}
+.clearbtn{font:inherit;font-size:11px;padding:2px 9px;border:1px solid var(--accent);
+  border-radius:2px;background:var(--accent-wash);color:var(--accent-ink);cursor:pointer}
+.piesw{margin-bottom:14px}
+.overview .pb{flex:1;display:flex;flex-direction:column}
+.overview figure{flex:1;display:flex;flex-direction:column;justify-content:center}
+/* once the band stacks, the donut panel is far wider than its content, so
+   centre the ring and legend instead of leaving a dead right edge */
+@media (max-width:1180px){
+  .overview .pieblock{justify-content:center}
+  .overview .pielegend{flex:0 1 380px;max-width:380px}
+  .overview figcaption{max-width:74ch}
+}
+
+/* ---------- ai ---------- */
+.aigrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(236px,1fr));gap:10px}
+.aicard{border:1px solid var(--rule);border-radius:3px;padding:13px 14px;background:var(--surface-2)}
+.aicard.win{border-color:var(--accent-edge);background:var(--accent-wash)}
+.aicard .an{font-weight:600;font-size:13.5px;display:flex;justify-content:space-between;
+  align-items:baseline;gap:8px}
+.aicard .as{font-size:20px;font-weight:600}
+.aicard.win .as{color:var(--accent-ink)}
+.aicard .ab{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.abrow{display:grid;grid-template-columns:62px 1fr 44px;gap:8px;align-items:center;
+  font-size:11.5px;color:var(--ink-2)}
+.abrow .t{height:8px;background:var(--sunken);border-radius:2px;overflow:hidden}
+.abrow .t i{display:block;height:100%;border-radius:2px}
+.abrow .v{text-align:right;font-weight:600;color:var(--ink)}
+
+footer{color:var(--muted);font-size:11.5px;border-top:1px solid var(--rule);padding-top:15px;
+  line-height:1.65;display:flex;flex-direction:column;gap:3px}
+#tip{position:fixed;z-index:60;pointer-events:none;background:var(--surface);color:var(--ink);
+  border:1px solid var(--rule);padding:7px 10px;border-radius:4px;font-size:11.5px;
+  line-height:1.5;opacity:0;transition:opacity .09s;max-width:260px;white-space:pre-line;
+  box-shadow:0 4px 18px rgba(0,0,0,.45)}
+@media (prefers-reduced-motion:reduce){#tip{transition:none}}
+@media (max-width:560px){
+  .stname .txt b{max-width:140px}
+  .tablewrap{max-height:420px}
+  .brand h1{font-size:17px}
+}
+</style>
+
+
+<div class="shell">
+
+  <div class="top">
+    <div class="brand">
+      <h1 id="brand">แผงเฝ้าระวังตู้ชาร์จ EGAT</h1>
+      <div class="sub" id="sub">DIN 70121 V2G</div>
+    </div>
+    <div class="controls">
+      <div class="search">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="7" cy="7" r="5" stroke="var(--muted)" stroke-width="1.6"/>
+          <path d="M11 11l3.5 3.5" stroke="var(--muted)" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <input id="q" type="search" aria-label="search">
+      </div>
+      <span class="ctlsep" aria-hidden="true"></span>
+      <div class="seg" id="grp" role="group">
+        <button type="button" data-g="all" aria-pressed="true" data-i18n="f_all">ทั้งหมด</button>
+        <button type="button" data-g="main" aria-pressed="false">main</button>
+        <button type="button" data-g="v2g2024" aria-pressed="false">2024</button>
+        <button type="button" data-g="v2g2025" aria-pressed="false">2025</button>
+      </div>
+      <button type="button" class="toggle" id="onlyflag" aria-pressed="false">
+        <span class="box" aria-hidden="true"></span><span data-i18n="f_flag">เฉพาะที่ต้องดูแล</span><span class="cnt" id="flagcnt"></span>
+      </button>
+      <span class="ctlsep" aria-hidden="true"></span>
+      <div class="seg" id="localbar" hidden>
+        <button type="button" id="refresh" data-i18n="c_refresh">รีเฟรชข้อมูล</button>
+        <button type="button" id="quit" data-i18n="c_quit">ปิดโปรแกรม</button>
+      </div>
+      <span class="ctlsep" aria-hidden="true"></span>
+      <div class="seg" id="langbar" role="group" aria-label="language / ภาษา">
+        <button type="button" data-lang="th" aria-pressed="true">ไทย</button>
+        <button type="button" data-lang="en" aria-pressed="false">EN</button>
+      </div>
+      <button type="button" id="themebtn" aria-pressed="false"></button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs" role="tablist">
+    <button type="button" role="tab" data-view="dash" aria-selected="true"
+            data-i18n="tab_dash">แผงควบคุม</button>
+    <button type="button" role="tab" data-view="scan" aria-selected="false">
+      <span data-i18n="tab_scan">วิเคราะห์ไฟล์ pcap</span><span class="dot" id="scandot" hidden></span>
+    </button>
+    <button type="button" role="tab" data-view="ref" aria-selected="false"
+            data-i18n="tab_ref">คู่มือชนิดปัญหา</button>
+  </div>
+
+  <div id="view-ref" hidden>
+    <div class="panel">
+      <div class="ph">
+        <h2 data-i18n="p_seq">ลำดับการชาร์จ DIN 70121</h2>
+        <span class="hint" data-i18n="p_seq_hint">ปัญหาแต่ละชนิดเกิดคนละช่วง</span>
+      </div>
+      <div class="pb">
+        <div class="phaseline" id="phaseline"></div>
+        <p class="scannote" data-i18n="seq_note"></p>
+      </div>
+    </div>
+
+    <div class="reflist" id="reflist" style="margin-top:14px"></div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="ph">
+        <h2 data-i18n="p_notfault">สิ่งที่จงใจไม่นับเป็นปัญหา</h2>
+        <span class="hint" data-i18n="p_notfault_hint">ถ้านับ จะได้สัญญาณลวงมหาศาล</span>
+      </div>
+      <div class="pb"><div class="notfault" id="notfault"></div></div>
+    </div>
+  </div>
+
+  <div id="view-scan" hidden>
+    <div class="panel">
+      <div class="ph">
+        <h2 data-i18n="scan_title">วิเคราะห์ไฟล์ pcap</h2>
+        <span class="hint" data-i18n="scan_hint">ใช้ตัวตัดสินชุดเดียวกับที่ใช้ทั้ง fleet</span>
+      </div>
+      <div class="pb">
+        <p class="scannote" style="margin-top:0" data-i18n="scan_lead"></p>
+        <div id="scanoff" class="offbox" hidden></div>
+        <div class="scanwrap" id="scanwrap">
+          <div>
+            <div class="drop" id="drop" tabindex="0" role="button">
+              <b data-i18n="drop_here">ลากไฟล์ .pcap มาวางที่นี่</b>
+              <span data-i18n="drop_or">หรือกดเพื่อเลือกไฟล์ (สูงสุด 12 ไฟล์)</span>
+            </div>
+            <input type="file" id="picker" accept=".pcap,.pcapng,.cap" multiple hidden>
+            <div class="filelist" id="filelist" hidden></div>
+            <div class="mpick">
+              <div class="mphead"><span data-i18n="mp_title">AI ที่จะให้วิเคราะห์</span>
+                <span><button type="button" class="mplink" id="mpall" data-i18n="mp_all">เลือกทั้งหมด</button>
+                <button type="button" class="mplink" id="mpnone" data-i18n="mp_none">ไม่ใช้เลย</button></span>
+              </div>
+              <div class="mpchips" id="mpchips"></div>
+              <div class="mphint" data-i18n="mp_hint"></div>
+            </div>
+            <div class="runrow">
+              <button type="button" class="btn primary" id="runscan" disabled
+                      data-i18n="btn_run">วิเคราะห์</button>
+              <button type="button" class="btn" id="clearscan" data-i18n="btn_clear">ล้าง</button>
+            </div>
+            <div class="runstate" id="runstate"></div>
+          </div>
+          <div id="scanres"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="view-dash">
+  <div class="overview">
+    <div class="panel">
+      <div class="ph">
+        <h2 data-i18n="p_pie">ภาพรวมทั้ง fleet</h2>
+        <span class="hint" id="piehint"></span>
+      </div>
+      <div class="pb">
+        <div class="seg piesw" id="piesw" role="group">
+          <button type="button" data-pie="prio" aria-pressed="true" data-i18n="pie_prio">ความเร่งด่วน</button>
+          <button type="button" data-pie="case" aria-pressed="false" data-i18n="pie_case">ชนิดปัญหา</button>
+          <button type="button" data-pie="work" aria-pressed="false" data-i18n="pie_work">สถานะงานซ่อม</button>
+        </div>
+        <figure>
+          <div class="pieblock" id="pieblock"></div>
+          <figcaption id="piecap"></figcaption>
+        </figure>
+      </div>
+    </div>
+    <div class="panel ovkpi">
+      <div class="ph">
+        <h2 data-i18n="p_now">สถานะตอนนี้</h2>
+        <span class="hint" id="kpihint"></span>
+      </div>
+      <div class="kpis" id="kpis"></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="panel">
+      <div class="ph">
+        <h2 data-i18n="p_list">รายการสถานี</h2>
+        <span class="hint" id="cnt"></span>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th data-k="name"><span data-i18n="th_station">สถานี</span><span class="ar">↕</span></th>
+              <th class="n" data-k="rate"><span data-i18n="th_rate">อัตราเสีย</span><span class="ar">↕</span></th>
+              <th class="n" data-k="n"><span data-i18n="th_sess">เซสชัน</span><span class="ar">↕</span></th>
+              <th class="n" data-k="top"><span data-i18n="th_top">ปัญหาเด่น</span><span class="ar">↕</span></th>
+              <th class="n" data-k="gap"><span data-i18n="th_flags">ธง</span><span class="ar">↕</span></th>
+              <th class="n" data-k="stat"><span data-i18n="th_status">สถานะ</span><span class="ar">↕</span></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ph">
+        <h2 data-i18n="p_detail">รายละเอียดสถานี</h2>
+        <span class="hint" data-i18n="p_detail_hint">คลิกแถวเพื่อเปลี่ยน</span>
+      </div>
+      <div class="pb" id="detail"></div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="panel">
+      <div class="ph">
+        <h2 data-i18n="p_fam">ชนิดปัญหาทั้ง fleet</h2>
+        <span class="hint" data-i18n="p_fam_hint">นับจำนวนครั้ง ไม่ใช่เซสชัน</span>
+      </div>
+      <div class="pb"><figure>
+        <div class="barlist" id="famchart"></div>
+        <figcaption id="famcap"></figcaption>
+      </figure></div>
+    </div>
+
+    <div class="panel">
+      <div class="ph">
+        <h2 data-i18n="p_skew">หัวชาร์จคู่ที่ผิดปกติข้างเดียว</h2>
+        <span class="hint" data-i18n="p_skew_hint">14 อันดับแรก</span>
+      </div>
+      <div class="pb"><figure>
+        <div class="legend">
+          <span><i style="background:var(--s1)"></i><span data-i18n="gun1">หัว 1</span></span>
+          <span><i style="background:var(--s2)"></i><span data-i18n="gun2">หัว 2</span></span>
+        </div>
+        <div id="skewchart"></div>
+        <figcaption data-i18n="skewcap"></figcaption>
+      </figure></div>
+    </div>
+
+    <div class="panel">
+      <div class="ph">
+        <h2 data-i18n="p_hist">อัตราเสียปกติของ fleet</h2>
+        <span class="hint" data-i18n="p_hist_hint">จำนวนสถานีในแต่ละช่วง</span>
+      </div>
+      <div class="pb"><figure>
+        <div class="histwrap" id="hist"></div>
+        <div class="histax" id="histax"></div>
+        <figcaption id="histcap"></figcaption>
+      </figure></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ph">
+      <h2 data-i18n="p_ai">AI ทั้ง 5 ตัวจับได้แค่ไหน</h2>
+      <span class="hint" id="aihint"></span>
+    </div>
+    <div class="pb">
+      <div class="legend">
+        <span><i style="background:var(--s1)"></i><span data-i18n="l_recall">จับได้ (recall)</span></span>
+        <span><i style="background:var(--critical)"></i><span data-i18n="l_far">เตือนผิด (FAR)</span></span>
+      </div>
+      <div class="aigrid" id="ai"></div>
+    </div>
+  </div>
+
+  </div>
+
+  <footer>
+    <span data-i18n="foot"></span>
+    <span id="modeline"></span>
+    <span id="shortcuts"></span>
+  </footer>
+</div>
+
+<div id="tip" role="status"></div>
+
+<script type="application/json" id="fleet-data">__FLEET_JSON__</script>
+<script>
+(function(){
+"use strict";
+var D = JSON.parse(document.getElementById("fleet-data").textContent);
+var ST = D.stations;
+
+var FAMS = ["SESSION_ABORT","PROTOCOL_FAILED","SLAC_FAILURE","NO_POWER_DELIVERED",
+            "EV_ERROR","EVSE_FAULT","COMM_FREEZE","ISOLATION_FAULT"];
+var FAMC = {SESSION_ABORT:"--s1",PROTOCOL_FAILED:"--s2",SLAC_FAILURE:"--s3",
+            NO_POWER_DELIVERED:"--s4",EV_ERROR:"--s5",EVSE_FAULT:"--s6",
+            COMM_FREEZE:"--s7",ISOLATION_FAULT:"--muted"};
+var DETS = ["AgenticAI","TraditionalAI","MultiAgent","AIAgent","RL"];
+var DETN = {AgenticAI:"Agentic AI",TraditionalAI:"Traditional AI",MultiAgent:"Multi-Agent",
+            AIAgent:"AI Agent",RL:"RL (DQN)"};
+var STATUS = ["open","ack","sent","done"];
+
+/* ------------------------------------------------------------------ i18n */
+var L = {
+th: {
+  doc:"แผงเฝ้าระวังตู้ชาร์จ EGAT",
+  brand:"แผงเฝ้าระวังตู้ชาร์จ EGAT",
+  sub:function(g,n,m){ return "DIN 70121 V2G · "+n+" สถานี · "+m+" เซสชัน"; },
+  search:"ค้นหาสถานี", f_all:"ทั้งหมด", f_flag:"เฉพาะที่ต้องดูแล",
+  c_refresh:"รีเฟรชข้อมูล", c_quit:"ปิดโปรแกรม",
+  c_refreshing:"กำลังอ่านผลรอบล่าสุด...", c_refreshfail:"รีเฟรชไม่สำเร็จ ลองอีกครั้ง",
+  quit_h:"ปิดโปรแกรมแล้ว", quit_p:"ปิดแท็บนี้ได้เลย เปิดใหม่จากไอคอนบนเดสก์ท็อป",
+
+  k_conn:"หัวชาร์จที่เฝ้าระวัง",  k_conn_s:function(n){ return n+" สถานี"; },
+  k_sess:"เซสชันที่วิเคราะห์",    k_sess_s:function(n){ return n ? "จาก pcap "+n+" ไฟล์" : "ground truth จากโปรโตคอล"; },
+  k_rate:"อัตราเสียทั้ง fleet",   k_rate_s:function(n){ return n+" เซสชันมีปัญหา"; },
+  k_send:"ต้องส่งช่าง",           k_send_s:function(n){ return "เฝ้าระวังอีก "+n+" สถานี"; },
+  k_queue:"งานค้างในคิว",         k_queue_s:function(n){ return "ยังไม่ปิดจาก "+n+" สถานีที่ติดธง"; },
+  k_clock:"นาฬิกาตู้ผิด",         k_clock_s:"ตั้งเวลาไม่ตรง ซ่อมได้ด้วยการ sync",
+
+  p_list:"รายการสถานี",
+  cnt:function(a,b){ return a+" จาก "+b+" สถานี"; },
+  p_detail:"รายละเอียดสถานี", p_detail_hint:"คลิกแถวเพื่อเปลี่ยน",
+  p_fam:"ชนิดปัญหาทั้ง fleet", p_fam_hint:"นับจำนวนครั้ง ไม่ใช่เซสชัน",
+  famcap:function(a,b){ return "เซสชันหนึ่งอาจมีปัญหามากกว่าหนึ่งชนิด รวมทั้งหมด "+a+" ครั้ง จาก "+b+" เซสชันที่มีปัญหา"; },
+  p_skew:"หัวชาร์จคู่ที่ผิดปกติข้างเดียว", p_skew_hint:"14 อันดับแรก",
+  skewcap:"สองหัวในตู้เดียวกันใช้ไฟชุดเดียวกันและรับรถพอๆ กัน ถ้าข้างหนึ่งเสียบ่อยกว่าอีกข้างมาก ต้นเหตุมักอยู่ที่หัวจ่ายหรือสายของข้างนั้น",
+  p_hist:"อัตราเสียปกติของ fleet", p_hist_hint:"จำนวนสถานีในแต่ละช่วง",
+  histcap:function(med,name,r,over){ return "ค่ากลางของ fleet คือ "+med+" — แท่งที่เน้นคือช่วงของ <b>"+name+"</b> ที่ "+r+" สถานีที่เกิน 15% มี "+over+" แห่ง"; },
+  p_ai:"AI ทั้ง 5 ตัวจับได้แค่ไหน",
+  aihint:function(s,f,c){ return "วัดบน "+s+" สถานีที่โมเดลไม่เคยเห็น · "+f+" ปัญหา / "+c+" เซสชันปกติ"; },
+  ai_none:"รอบนี้ยังไม่ได้รัน benchmark จึงยังไม่มีผลของ AI",
+  l_recall:"จับได้ (recall)", l_far:"เตือนผิด (FAR)",
+  a_caught:"จับได้", a_false:"เตือนผิด", a_lead:"เตือนก่อนเหตุ (ค่ากลาง)", a_sec:"วิ",
+  a_tip_recall:function(tp,n){ return "จับปัญหาได้ "+tp+" จาก "+n+" ครั้ง"; },
+  a_tip_far:function(fp,n){ return "เตือนผิด "+fp+" ครั้งใน "+n+" เซสชันปกติ"; },
+
+  th_station:"สถานี", th_rate:"อัตราเสีย", th_sess:"เซสชัน",
+  th_top:"ปัญหาเด่น", th_flags:"ธง", th_status:"สถานะ",
+  empty:"ไม่พบสถานีที่ตรงกับตัวกรอง",
+  fl_gun:function(c){ return "หัว"+c; }, fl_clock:"นาฬิกา", fl_test:"ทดสอบ",
+  fl_gun_tip:function(c,w,b){ return "หัว "+c+" เสีย "+w+" ขณะที่อีกหัว "+b; },
+  fl_clock_tip:"นาฬิกาในตู้ตั้งไม่ตรง (เวลาที่บันทึกไม่ใช่ปีปัจจุบัน)",
+  fl_test_tip:"สถานีที่กันไว้ทดสอบ AI",
+
+  st_open:"ยังไม่ดู", st_ack:"รับทราบ", st_sent:"ส่งช่างแล้ว", st_done:"แก้แล้ว",
+
+  m_sess:"เซสชัน", m_rate:"อัตราเสีย", m_deliv:"จ่ายไฟจริง",
+  m_close:"ปิดงานปกติ", m_min:"นาที/ครั้ง",
+  d_test:"ชุดทดสอบ AI",
+  s_guns:"เทียบสองหัวจ่ายในตู้เดียวกัน", s_todo:"สิ่งที่ควรทำ",
+  s_fam:"ชนิดปัญหาของสถานีนี้", s_ai:"AI จับปัญหาของสถานีนี้ได้แค่ไหน", s_work:"สถานะงานซ่อม",
+  gun1:"หัว 1", gun2:"หัว 2",
+  gun:function(n){ return "หัว "+n; },
+  gun_times:function(n){ return n+" ครั้ง"; },
+  gun_tip:function(n,f,t){ return "หัว "+n+"\n"+f+" เสีย จาก "+t+" ครั้ง"; },
+  fam_tip:function(name,n){ return name+"\n"+n+" ครั้ง"; },
+  fam_tip_fleet:function(name,n){ return name+"\n"+n+" ครั้งทั้ง fleet"; },
+  ai_tip:function(name,tp,n,fp){ return name+"\nจับได้ "+tp+" จาก "+n+"\nเตือนผิด "+fp+" ครั้ง"; },
+  skew_tip:function(name,r1,n1,r2,n2){ return name+"\nหัว 1: "+r1+" ("+n1+" ครั้ง)\nหัว 2: "+r2+" ("+n2+" ครั้ง)"; },
+  hist_tip:function(band,n){ return band+"\n"+n+" สถานี"; },
+  hist_over:"20% ขึ้นไป",
+
+  al_skew:function(c,d,w,b){ return "<b>หัว "+c+" เสียมากกว่าหัวอีกข้าง "+d+" จุด</b> ("+w+" เทียบ "+b+") ตรวจหัวจ่าย สายชาร์จ และการล็อกของหัวนั้นก่อน"; },
+  al_rate:function(r,med){ return "<b>อัตราเสีย "+r+"</b> สูงกว่าค่ากลางของ fleet ("+med+") อย่างชัดเจน"; },
+  al_clock:"<b>นาฬิกาในตู้ตั้งไม่ตรง</b> เวลาที่บันทึกในไฟล์ไม่ใช่ปีปัจจุบัน ทำให้สืบย้อนเหตุการณ์กับใบแจ้งซ่อมไม่ได้",
+  al_deliv:function(p){ return "<b>จ่ายไฟจริงเพียง "+p+" ของการเสียบ</b> ที่เหลือจบก่อนถึงขั้นจ่ายกระแส"; },
+  al_ok:"ไม่พบสัญญาณที่ต้องส่งช่างจากข้อมูลชุดนี้",
+
+  note_ph:"บันทึกสั้นๆ เช่น เปลี่ยนหัวจ่ายแล้ว", note_save:"บันทึก",
+  hint_ro:"โหมดอ่านอย่างเดียว — เปิดผ่านโปรแกรมบนเดสก์ท็อปหรือหน้าที่เผยแพร่ เพื่อบันทึกสถานะ",
+  hint_last:function(t){ return "แก้ไขล่าสุด "+t; },
+  hint_saved:function(t){ return "บันทึกแล้ว "+t; },
+  hint_fail:function(c){ return "บันทึกไม่สำเร็จ ("+c+") ลองอีกครั้ง"; },
+
+  theme_dark:"โหมดสว่าง", theme_light:"โหมดมืด",
+  tab_ref:"คู่มือชนิดปัญหา",
+  p_seq:"ลำดับการชาร์จ DIN 70121", p_seq_hint:"ปัญหาแต่ละชนิดเกิดคนละช่วง",
+  seq_note:"สีเล็กๆ ใต้แต่ละช่วงคือชนิดปัญหาที่เกิดได้ในช่วงนั้น การชาร์จหนึ่งครั้งต้องผ่านครบทุกช่วงตามลำดับ ถ้าสะดุดช่วงไหนก็จบตรงนั้น",
+  p_notfault:"สิ่งที่จงใจไม่นับเป็นปัญหา", p_notfault_hint:"ถ้านับ จะได้สัญญาณลวงมหาศาล",
+  r_what:"คืออะไร", r_how:"ระบบตัดสินอย่างไร", r_why:"สาเหตุที่พบบ่อย", r_do:"ควรทำอะไร",
+  r_times:"ครั้งทั้ง fleet", r_share:"ของปัญหาทั้งหมด", r_dom:"สถานีที่เป็นปัญหาเด่น",
+  r_pending:"กติกาใหม่ ยังไม่มีในตัวเลขรอบนี้ ต้องรัน sessionize ใหม่ตัวเลขทั้ง fleet จึงจะรวมชนิดนี้",
+  r_ai:"AI จับได้:",
+  ph_slac:"จับคู่สาย PLC", ph_slac_t:"SLAC / ATTEN_CHAR",
+  ph_hand:"เปิดบทสนทนา", ph_hand_t:"SDP · supportedAppProtocol · SessionSetup",
+  ph_cc:"ตรวจฉนวน", ph_cc_t:"CableCheck",
+  ph_pre:"ไล่แรงดัน", ph_pre_t:"PreCharge · PowerDelivery start",
+  ph_cd:"จ่ายไฟ", ph_cd_t:"CurrentDemand loop",
+  ph_stop:"ปิดงาน", ph_stop_t:"WeldingDetection · SessionStop",
+  tab_dash:"แผงควบคุม", tab_scan:"วิเคราะห์ไฟล์ pcap",
+  scan_title:"วิเคราะห์ไฟล์ pcap", scan_hint:"ใช้ตัวตัดสินชุดเดียวกับที่ใช้ทั้ง fleet",
+  scan_lead:"วางไฟล์ pcap จากหัวชาร์จหัวเดียว (จะเป็นไฟล์เดียวหรือทั้งวงแหวนก็ได้) แล้วโปรแกรมจะถอด DIN 70121 ด้วย tshark ตัดเป็นเซสชัน แล้วชี้ว่าแต่ละเซสชันพังตรงไหน ด้วยกติกาเดียวกับที่ใช้ตัดสินทั้ง fleet",
+  scan_off:"แท็บนี้ทำงานได้เฉพาะตอนเปิดผ่าน<b>โปรแกรมบนเดสก์ท็อป</b> เพราะต้องใช้ tshark กับโมเดลที่เทรนไว้บนเครื่อง หน้าที่เผยแพร่บนเว็บจึงวิเคราะห์ไฟล์ให้ไม่ได้ เปิดจากไอคอน \"แผงเฝ้าระวังตู้ชาร์จ EGAT\" บนเดสก์ท็อปแล้วมาที่แท็บนี้อีกครั้ง",
+  drop_here:"ลากไฟล์ .pcap มาวางที่นี่", drop_or:"หรือกดเพื่อเลือกไฟล์ (สูงสุด 12 ไฟล์)",
+  mp_title:"AI ที่จะให้วิเคราะห์", mp_all:"เลือกทั้งหมด", mp_none:"ไม่ใช้เลย",
+  mp_hint:"เลือกกี่ตัวก็ได้ ตัวเลขคือคะแนนที่ทำได้บนทั้ง fleet · Multi-Agent ใช้กฎล้วน จึงเร็วที่สุดและไม่ต้องพึ่งโมเดลที่เทรนไว้",
+  ai_ran_label:"AI ที่รันรอบนี้:", ai_skip_label:"ไม่ได้รัน:", ai_nohit:"ไม่เตือน",
+  obs_head:"ข้อสังเกตจาก log",
+  obs_no_current_demand:function(p){ return "<b>ไม่เคยจ่ายไฟเลย</b> ไปได้ไกลสุดถึงขั้น <b>"+p+"</b> แล้วจบ"; },
+  obs_silent_after:function(p,s,n){ return "<b>เงียบไป "+s+" วินาที</b> หลังข้อความ "+p+" จนไฟล์จบ ระหว่างนั้นยังมีอีก "+n+" เฟรมวิ่งอยู่ แปลว่าสายยังต่อดี แต่ไม่มีใครพูดต่อ (สเปคให้รอได้ 60 วินาทีก่อนตู้ต้องยุติเอง)"; },
+  obs_isolation_invalid:function(b,t){ return "<b>ผลตรวจฉนวนไม่ผ่าน "+b+" จาก "+t+" รอบ</b> กว่าจะขึ้น Valid ในรอบท้ายๆ"; },
+  obs_cablecheck_long:function(s,n){ return "<b>ตรวจฉนวนนาน "+s+" วินาที</b> ("+n+" รอบ) ปกติจบในไม่กี่วินาที"; },
+  obs_precharge_short:function(r,t,g){ return "<b>ไล่แรงดันได้แค่ "+r+" V จากที่รถขอ "+t+" V</b> ขาดอีก "+g+" V ตอนที่เซสชันจบ"; },
+  obs_slac_slow:function(s){ return "<b>จับคู่สาย PLC ใช้เวลา "+s+" วินาที</b> ค่ากลางของ fleet คือ 9 วินาที"; },
+  fam_NO_POWER_DELIVERED:"เสียบแล้วไม่ได้ไฟ", sh_NO_POWER_DELIVERED:"ไม่ได้ไฟ",
+  btn_run:"วิเคราะห์", btn_clear:"ล้าง",
+  scan_badtype:"รับเฉพาะไฟล์ .pcap .pcapng .cap", scan_toomany:"ได้สูงสุด 12 ไฟล์",
+  scan_uploading:function(i,n){ return "กำลังส่งไฟล์ "+i+"/"+n; },
+  scan_elapsed:function(s){ return s+" วินาที"; },
+  scan_failed:function(e){ return "วิเคราะห์ไม่สำเร็จ: "+e; },
+  scan_none:"ไม่พบเซสชันการชาร์จในไฟล์ที่ส่งมา ลองตรวจว่าเป็น pcap จากหัวชาร์จจริงหรือไม่",
+  r_files:"ไฟล์ที่ใช้", r_events:"เหตุการณ์", r_sessions:"เซสชัน", r_faulty:"มีปัญหา",
+  r_time:"ใช้เวลา", r_sec:"วิ",
+  sess_fault:"มีปัญหา", sess_ok:"ผ่านปกติ",
+  l_start:"เริ่ม", l_dur:"นาน", l_events:"เหตุการณ์", l_deliver:"จ่ายไฟ", l_close:"ปิดงาน",
+  yes:"ใช่", no:"ไม่",
+  ai_by:"AI ที่จับได้:", ai_nobody:"ไม่มี AI ตัวไหนเตือนในเซสชันนี้",
+  ai_off:"ไม่ได้เรียก AI ในรอบนี้",
+  scan_clockwarn:"เวลาที่แสดงมาจากนาฬิกาในตู้ ซึ่งหลายตู้ตั้งไม่ตรง ให้ดูระยะเวลาและลำดับเป็นหลัก",
+  p_now:"สถานะตอนนี้", kpihint:function(g){ return "ข้อมูล " + g; },
+  p_pie:"ภาพรวมทั้ง fleet", pie_prio:"ความเร่งด่วน", pie_work:"สถานะงานซ่อม",
+  pie_case:"ชนิดปัญหา",
+  pie_hint:"คลิกส่วนใดก็ได้เพื่อกรองรายการ", pie_clear:"ล้างตัวกรอง",
+  pie_stations:"สถานี", pie_times:"ครั้ง", pie_other:"อื่นๆ",
+  pie_other_tip:function(list){ return "อื่นๆ: "+list; },
+  pie_case_tip:function(l,n,p,st){ return l+"\n"+n+" ครั้ง ("+p+")\nเป็นปัญหาเด่นที่ "+st+" สถานี"; },
+  pie_cap_case:function(a,b,p){ return "นับทุกครั้งที่เกิด ไม่ใช่จำนวนเซสชัน — <b>"+a+" กับ "+b+"</b> รวมกัน "+p+" ของปัญหาทั้งหมด คลิกเพื่อดูเฉพาะสถานีที่ชนิดนั้นเป็นปัญหาเด่น"; },
+  prio_crit:"ต้องส่งช่าง", prio_watch:"เฝ้าระวัง", prio_ok:"ปกติ",
+  pie_tip:function(l,n,p){ return l+"\n"+n+" สถานี ("+p+")"; },
+  pie_cap_prio:function(n,p){ return "<b>"+n+" สถานี ("+p+")</b> ติดธงว่าต้องดูแล เกณฑ์คือ อัตราเสีย 15% ขึ้นไป หรือหัวจ่ายสองข้างต่างกันเกิน 8 จุด (สีแดงคือ 20% ขึ้นไป หรือต่างกันเกิน 15 จุด)"; },
+  pie_cap_work:function(n,p){ return "ปิดงานแล้ว <b>"+n+" สถานี ("+p+")</b> — สัดส่วนนี้ขยับตามที่ทีมกดเปลี่ยนสถานะในแผงขวา"; },
+  keys:"คีย์ลัด: ↑ ↓ เลื่อนสถานี · Home / End ไปต้นหรือท้ายรายการ · ลิงก์บนแถบที่อยู่แชร์สถานีที่เลือกได้",
+  mode_local:"โปรแกรมบนเครื่อง — สถานะงานซ่อมเก็บที่ desktop\\state\\triage.json",
+  mode_db:"หน้าที่เผยแพร่ — สถานะงานซ่อมใช้ร่วมกันทุกคนที่เปิดลิงก์นี้",
+  mode_ro:"เปิดจากไฟล์โดยตรง — ดูได้อย่างเดียว",
+  foot:"ground truth มาจาก semantics ของโปรโตคอล DIN 70121 ในไฟล์ pcap ไม่ใช่ใบแจ้งซ่อมจากหน้างาน — SESSION_ABORT บางส่วนอาจเป็นผู้ใช้ถอดปลั๊กเอง · ตัวเลข AI ครอบคลุมเฉพาะสถานีที่กันไว้ทดสอบ สถานีที่เหลือยังไม่ได้ replay · ",
+  fam_SESSION_ABORT:"ชาร์จขาดกลางคัน", fam_PROTOCOL_FAILED:"โปรโตคอลตอบ FAILED",
+  fam_SLAC_FAILURE:"จับคู่ PLC ไม่สำเร็จ", fam_EV_ERROR:"รถแจ้งข้อผิดพลาด",
+  fam_EVSE_FAULT:"ตู้แจ้ง fault", fam_COMM_FREEZE:"การสื่อสารค้าง",
+  fam_ISOLATION_FAULT:"ฉนวนผิดปกติ",
+  sh_SESSION_ABORT:"ขาดกลางคัน", sh_PROTOCOL_FAILED:"FAILED", sh_SLAC_FAILURE:"SLAC",
+  sh_EV_ERROR:"รถแจ้ง error", sh_EVSE_FAULT:"ตู้ fault", sh_COMM_FREEZE:"สื่อสารค้าง",
+  sh_ISOLATION_FAULT:"ฉนวน"
+},
+en: {
+  doc:"EGAT Charger Watch",
+  brand:"EGAT Charger Watch",
+  sub:function(g,n,m){ return "DIN 70121 V2G · "+n+" stations · "+m+" sessions"; },
+  search:"Search stations", f_all:"All", f_flag:"Needs attention",
+  c_refresh:"Refresh data", c_quit:"Quit",
+  c_refreshing:"Reading the latest run...", c_refreshfail:"Refresh failed, try again",
+  quit_h:"The program has stopped", quit_p:"You can close this tab. Start it again from the desktop icon.",
+
+  k_conn:"Connectors watched",   k_conn_s:function(n){ return n+" stations"; },
+  k_sess:"Sessions analysed",    k_sess_s:function(n){ return n ? "from "+n+" pcap files" : "ground truth from the protocol"; },
+  k_rate:"Fleet fault rate",     k_rate_s:function(n){ return n+" sessions with a fault"; },
+  k_send:"Send a technician",    k_send_s:function(n){ return n+" more to keep watching"; },
+  k_queue:"Open in the queue",   k_queue_s:function(n){ return "still open, of "+n+" flagged"; },
+  k_clock:"Wrong charger clock", k_clock_s:"Time is not set; a clock sync fixes it",
+
+  p_list:"Stations",
+  cnt:function(a,b){ return a+" of "+b+" stations"; },
+  p_detail:"Station detail", p_detail_hint:"click a row to change",
+  p_fam:"Fault types across the fleet", p_fam_hint:"counted per occurrence, not per session",
+  famcap:function(a,b){ return "A session can carry more than one fault: "+a+" occurrences across "+b+" faulty sessions."; },
+  p_skew:"Pairs where one gun fails far more", p_skew_hint:"top 14",
+  skewcap:"Both guns in a cabinet share the same supply and see similar traffic. When one fails far more often than its twin, the gun or its cable is usually the cause.",
+  p_hist:"What a normal fault rate looks like", p_hist_hint:"stations per band",
+  histcap:function(med,name,r,over){ return "The fleet median is "+med+". The highlighted bar is the band <b>"+name+"</b> sits in, at "+r+". "+over+" stations are above 15%."; },
+  p_ai:"How well the five AI models catch it",
+  aihint:function(s,f,c){ return "measured on "+s+" stations the models never saw · "+f+" faults / "+c+" clean sessions"; },
+  ai_none:"This run has no benchmark results yet.",
+  l_recall:"Caught (recall)", l_far:"False alarms (FAR)",
+  a_caught:"Caught", a_false:"False alarms", a_lead:"Median warning lead", a_sec:"s",
+  a_tip_recall:function(tp,n){ return "caught "+tp+" of "+n+" faults"; },
+  a_tip_far:function(fp,n){ return fp+" false alarms in "+n+" clean sessions"; },
+
+  th_station:"Station", th_rate:"Fault rate", th_sess:"Sessions",
+  th_top:"Top fault", th_flags:"Flags", th_status:"Status",
+  empty:"No station matches these filters",
+  fl_gun:function(c){ return "Gun "+c; }, fl_clock:"Clock", fl_test:"Test",
+  fl_gun_tip:function(c,w,b){ return "Gun "+c+" fails "+w+" while the other fails "+b; },
+  fl_clock_tip:"The charger clock is wrong (recorded time is not the current year)",
+  fl_test_tip:"Held out to test the AI models",
+
+  st_open:"Not reviewed", st_ack:"Acknowledged", st_sent:"Technician sent", st_done:"Fixed",
+
+  m_sess:"sessions", m_rate:"fault rate", m_deliv:"power delivered",
+  m_close:"closed normally", m_min:"min per session",
+  d_test:"AI test set",
+  s_guns:"The two guns in the same cabinet", s_todo:"What to do",
+  s_fam:"Fault types at this station", s_ai:"How the AI models did here", s_work:"Work status",
+  gun1:"Gun 1", gun2:"Gun 2",
+  gun:function(n){ return "Gun "+n; },
+  gun_times:function(n){ return n+" sessions"; },
+  gun_tip:function(n,f,t){ return "Gun "+n+"\n"+f+" faulty of "+t+" sessions"; },
+  fam_tip:function(name,n){ return name+"\n"+n+" occurrences"; },
+  fam_tip_fleet:function(name,n){ return name+"\n"+n+" across the fleet"; },
+  ai_tip:function(name,tp,n,fp){ return name+"\ncaught "+tp+" of "+n+"\n"+fp+" false alarms"; },
+  skew_tip:function(name,r1,n1,r2,n2){ return name+"\nGun 1: "+r1+" ("+n1+" sessions)\nGun 2: "+r2+" ("+n2+" sessions)"; },
+  hist_tip:function(band,n){ return band+"\n"+n+" stations"; },
+  hist_over:"20% and above",
+
+  al_skew:function(c,d,w,b){ return "<b>Gun "+c+" fails "+d+" points more than its twin</b> ("+w+" vs "+b+"). Check that gun, its cable and its lock first."; },
+  al_rate:function(r,med){ return "<b>A fault rate of "+r+"</b> sits clearly above the fleet median ("+med+")."; },
+  al_clock:"<b>The charger clock is wrong.</b> Recorded times are not in the current year, so these events cannot be matched to field work orders.",
+  al_deliv:function(p){ return "<b>Only "+p+" of plug-ins actually delivered power.</b> The rest ended before current started flowing."; },
+  al_ok:"Nothing in this data calls for a technician.",
+
+  note_ph:"Short note, e.g. replaced the gun", note_save:"Save",
+  hint_ro:"Read-only — open it from the desktop program or the published page to save status",
+  hint_last:function(t){ return "last edited "+t; },
+  hint_saved:function(t){ return "saved "+t; },
+  hint_fail:function(c){ return "could not save ("+c+"), try again"; },
+
+  theme_dark:"Light mode", theme_light:"Dark mode",
+  tab_ref:"Fault guide",
+  p_seq:"The DIN 70121 charging sequence", p_seq_hint:"each fault belongs to a different phase",
+  seq_note:"The small colour chips under each phase are the faults that can appear there. A charge has to pass every phase in order; whichever one it trips on is where it ends.",
+  p_notfault:"Deliberately not counted as faults", p_notfault_hint:"counting these would bury the real ones",
+  r_what:"what it is", r_how:"how it is decided", r_why:"common causes", r_do:"what to do",
+  r_times:"across the fleet", r_share:"of all faults", r_dom:"stations where it dominates",
+  r_pending:"New rule - not in this run's figures yet; the fleet needs re-sessionizing before it appears.",
+  r_ai:"models catching it:",
+  ph_slac:"Pair the powerline", ph_slac_t:"SLAC / ATTEN_CHAR",
+  ph_hand:"Open the dialogue", ph_hand_t:"SDP · supportedAppProtocol · SessionSetup",
+  ph_cc:"Check insulation", ph_cc_t:"CableCheck",
+  ph_pre:"Ramp the voltage", ph_pre_t:"PreCharge · PowerDelivery start",
+  ph_cd:"Deliver power", ph_cd_t:"CurrentDemand loop",
+  ph_stop:"Close out", ph_stop_t:"WeldingDetection · SessionStop",
+  tab_dash:"Dashboard", tab_scan:"Analyse a pcap",
+  scan_title:"Analyse a pcap", scan_hint:"judged by the same rules as the whole fleet",
+  scan_lead:"Drop in pcap files from a single charger connector - one file or a whole ring. They are decoded with tshark, split into charging sessions, and every fault is named using the same labeller that produced the fleet numbers on the other tab.",
+  scan_off:"This tab only works when the page is served by the <b>desktop program</b>, because the decoding needs tshark and the trained models on the machine. The published web page cannot analyse a file. Open it from the \"EGAT Charger Watch\" desktop icon and come back to this tab.",
+  drop_here:"Drop .pcap files here", drop_or:"or click to choose files (up to 12)",
+  mp_title:"Models to replay", mp_all:"select all", mp_none:"none",
+  mp_hint:"Pick any number. The figure is the model's score on the whole fleet. Multi-Agent is rules-only, so it is the fastest and needs no trained artifact.",
+  ai_ran_label:"models replayed:", ai_skip_label:"could not run:", ai_nohit:"no alert",
+  obs_head:"what else the log shows",
+  obs_no_current_demand:function(p){ return "<b>No power ever flowed.</b> The furthest it got was <b>"+p+"</b>."; },
+  obs_silent_after:function(p,s,n){ return "<b>Silent for "+s+" s</b> after "+p+" until the file ends, with "+n+" more frames still arriving - the link was up, nobody spoke. The spec allows 60 s before the charger must stop."; },
+  obs_isolation_invalid:function(b,t){ return "<b>The insulation check failed "+b+" of "+t+" rounds</b> before finally reading Valid."; },
+  obs_cablecheck_long:function(s,n){ return "<b>The insulation check took "+s+" s</b> over "+n+" rounds; it normally finishes in seconds."; },
+  obs_precharge_short:function(r,t,g){ return "<b>Pre-charge only reached "+r+" V against the car's "+t+" V target</b> - still "+g+" V short when the session ended."; },
+  obs_slac_slow:function(s){ return "<b>Pairing the power line took "+s+" s</b>; the fleet median is 9 s."; },
+  fam_NO_POWER_DELIVERED:"Plugged in, no power", sh_NO_POWER_DELIVERED:"No power",
+  btn_run:"Analyse", btn_clear:"Clear",
+  scan_badtype:"only .pcap, .pcapng and .cap files", scan_toomany:"up to 12 files",
+  scan_uploading:function(i,n){ return "uploading file "+i+"/"+n; },
+  scan_elapsed:function(s){ return s+"s"; },
+  scan_failed:function(e){ return "analysis failed: "+e; },
+  scan_none:"No charging session was found in these files. Check that they came from a charger connector.",
+  r_files:"files used", r_events:"events", r_sessions:"sessions", r_faulty:"with a fault",
+  r_time:"took", r_sec:"s",
+  sess_fault:"fault", sess_ok:"clean",
+  l_start:"start", l_dur:"length", l_events:"events", l_deliver:"delivered", l_close:"closed",
+  yes:"yes", no:"no",
+  ai_by:"caught by:", ai_nobody:"no model raised an alert on this session",
+  ai_off:"the models were not run this time",
+  scan_clockwarn:"Times come from the charger's own clock, which on many units is wrong. Read the durations and the order, not the wall time.",
+  p_now:"Where things stand", kpihint:function(g){ return "data " + g; },
+  p_pie:"Fleet overview", pie_prio:"Priority", pie_work:"Work status",
+  pie_case:"Fault type",
+  pie_hint:"click a slice to filter the list", pie_clear:"Clear filter",
+  pie_stations:"stations", pie_times:"occurrences", pie_other:"Other",
+  pie_other_tip:function(list){ return "Other: "+list; },
+  pie_case_tip:function(l,n,p,st){ return l+"\n"+n+" occurrences ("+p+")\ndominant at "+st+" stations"; },
+  pie_cap_case:function(a,b,p){ return "Counted per occurrence, not per session — <b>"+a+" and "+b+"</b> together are "+p+" of everything that went wrong. Click to see only the stations where that case dominates."; },
+  prio_crit:"Send a technician", prio_watch:"Keep watching", prio_ok:"Normal",
+  pie_tip:function(l,n,p){ return l+"\n"+n+" stations ("+p+")"; },
+  pie_cap_prio:function(n,p){ return "<b>"+n+" stations ("+p+")</b> are flagged: a fault rate of 15% or more, or the two guns differing by more than 8 points (red is 20% / 15 points)."; },
+  pie_cap_work:function(n,p){ return "Closed: <b>"+n+" stations ("+p+")</b> — this moves as the team changes status in the detail panel."; },
+  keys:"Keys: ↑ ↓ move between stations · Home / End jump to either end · the address bar links to the selected station",
+  mode_local:"Running locally — work status is kept in desktop\\state\\triage.json",
+  mode_db:"Published page — work status is shared with everyone who opens this link",
+  mode_ro:"Opened straight from a file — view only",
+  foot:"Ground truth comes from DIN 70121 protocol semantics in the pcap files, not from field work orders — some SESSION_ABORTs may be a driver unplugging. AI figures cover only the held-out stations; the rest were not replayed. ",
+  fam_SESSION_ABORT:"Charge cut off mid-session", fam_PROTOCOL_FAILED:"Protocol answered FAILED",
+  fam_SLAC_FAILURE:"PLC pairing failed", fam_EV_ERROR:"Vehicle reported an error",
+  fam_EVSE_FAULT:"Charger reported a fault", fam_COMM_FREEZE:"Communication froze",
+  fam_ISOLATION_FAULT:"Isolation fault",
+  sh_SESSION_ABORT:"Cut off", sh_PROTOCOL_FAILED:"FAILED", sh_SLAC_FAILURE:"SLAC",
+  sh_EV_ERROR:"Vehicle", sh_EVSE_FAULT:"Charger", sh_COMM_FREEZE:"Froze",
+  sh_ISOLATION_FAULT:"Isolation"
+}};
+
+var lang = "th";
+var theme = "dark";          /* the console is dark first; light is opt-in */
+try {
+  lang = localStorage.getItem("egat-lang") || "th";
+  theme = localStorage.getItem("egat-theme") || "dark";
+} catch (e) { /* private window: keep the defaults */ }
+if (!L[lang]) lang = "th";
+if (theme !== "light") theme = "dark";
+
+function applyTheme(){
+  document.documentElement.setAttribute("data-theme", theme);
+  var b = document.getElementById("themebtn");
+  if (b) {
+    b.textContent = theme === "dark" ? "☀" : "☾";
+    b.title = t(theme === "dark" ? "theme_dark" : "theme_light");
+    b.setAttribute("aria-label", b.title);
+  }
+}
+function setTheme(next){
+  theme = next === "light" ? "light" : "dark";
+  try { localStorage.setItem("egat-theme", theme); } catch (e) { /* ignore */ }
+  applyTheme();
+}
+
+function t(k){
+  var v = L[lang][k];
+  if (v === undefined) v = L.th[k];
+  if (typeof v === "function") return v.apply(null, [].slice.call(arguments, 1));
+  return v === undefined ? k : v;
+}
+function famName(f){ return t("fam_" + f); }
+function famShort(f){ return t("sh_" + f); }
+
+/* ------------------------------------------------------- derived per-row */
+ST.forEach(function(s, i){
+  s.i = i;
+  s.gap = s.skew ? (s.skew.worse - s.skew.better) : 0;
+  s.tier = (s.rate >= 0.20 || s.gap >= 0.15) ? 2 : (s.rate >= 0.15 || s.gap >= 0.08) ? 1 : 0;
+  var top = null, best = 0;
+  for (var k in s.fam) { if (s.fam[k] > best) { best = s.fam[k]; top = k; } }
+  s.top = top;
+  s.docId = "s" + i;
+});
+
+var maxRate = ST.reduce(function(m, s){ return Math.max(m, s.rate); }, 0);
+var medRate = (function(){
+  var r = ST.map(function(s){ return s.rate; }).sort(function(a, b){ return a - b; });
+  return r.length ? r[Math.floor(r.length / 2)] : 0;
+})();
+var overCount = ST.filter(function(s){ return s.rate >= 0.15; }).length;
+
+var pieMode = "prio";
+var state = { q:"", g:"all", flag:false, slice:null, sort:"rate", dir:-1,
+              sel: ST.reduce(function(b, s){ return s.rate > ST[b].rate ? s.i : b; }, 0) };
+var triage = {};
+var Store = { mode:"readonly", save:null };
+
+function pct(x, d){ return (x * 100).toFixed(d === undefined ? 1 : d) + "%"; }
+function esc(x){ return String(x).replace(/[&<>"]/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+function statusOf(s){ var x = triage[s.key]; return (x && x.s) || "open"; }
+function num(n){ return Number(n).toLocaleString(lang === "th" ? "th-TH" : "en-US"); }
+
+/* ------------------------------------------------------------ static text */
+function applyStatic(){
+  document.documentElement.lang = lang;
+  document.title = t("doc");
+  document.getElementById("brand").textContent = t("brand");
+  document.getElementById("q").placeholder = t("search");
+  document.getElementById("q").setAttribute("aria-label", t("search"));
+  Array.prototype.forEach.call(document.querySelectorAll("[data-i18n]"), function(el){
+    el.textContent = t(el.getAttribute("data-i18n"));
+  });
+  document.querySelector('figcaption[data-i18n="skewcap"]').textContent = t("skewcap");
+  document.getElementById("famcap").innerHTML = t("famcap",
+    num(Object.keys(D.fleet.families).reduce(function(a, k){ return a + D.fleet.families[k]; }, 0)),
+    num(D.fleet.faulty));
+  var f = D.fleet;
+  document.getElementById("sub").textContent =
+    t("sub", D.generated || "", f.stations, num(f.sessions));
+  var kh = document.getElementById("kpihint");
+  if (kh) kh.textContent = t("kpihint", D.generated || "");
+  var h = D.held_out || {};
+  document.getElementById("aihint").textContent = h.stations
+    ? t("aihint", h.stations, num(h.faulty), num(h.clean)) : t("ai_none");
+  Array.prototype.forEach.call(document.querySelectorAll("#langbar button"), function(b){
+    b.setAttribute("aria-pressed", String(b.getAttribute("data-lang") === lang));
+  });
+  var sc = document.getElementById("shortcuts");
+  if (sc) sc.textContent = t("keys");
+}
+
+function setLang(next){
+  if (!L[next] || next === lang) return;
+  lang = next;
+  try { localStorage.setItem("egat-lang", lang); } catch (e) { /* private window */ }
+  applyStatic(); applyTheme(); renderKpi(); renderTable(); renderDetail();
+  renderFamily(); renderSkew(); renderAI(); renderPie(); renderMode();
+  renderScanShell(); renderFileList(); renderModels(); renderScanResult(); renderRef();
+}
+
+/* ------------------------------------------------------------------- KPI */
+function renderKpi(){
+  var f = D.fleet;
+  var crit = ST.filter(function(s){ return s.tier === 2; }).length;
+  var watch = ST.filter(function(s){ return s.tier === 1; }).length;
+  var open = ST.filter(function(s){ return s.tier > 0 && statusOf(s) !== "done"; }).length;
+  var tiles = [
+    [t("k_conn"), num(f.connectors), t("k_conn_s", f.stations), false],
+    [t("k_sess"), num(f.sessions), t("k_sess_s", f.pcaps ? num(f.pcaps) : 0), false],
+    [t("k_rate"), pct(f.faulty / f.sessions), t("k_rate_s", num(f.faulty)), true],
+    [t("k_send"), String(crit), t("k_send_s", watch), false],
+    [t("k_queue"), String(open), t("k_queue_s", crit + watch), false],
+    [t("k_clock"), String(f.clock_bad), t("k_clock_s"), false]
+  ];
+  var total = ST.length || 1;
+  var strip = '<div class="sevstrip" aria-hidden="true">' +
+    '<i style="width:' + (crit / total * 100).toFixed(1) + '%;background:var(--critical)"></i>' +
+    '<i style="width:' + (watch / total * 100).toFixed(1) + '%;background:var(--warning)"></i>' +
+    '</div>';
+  document.getElementById("kpis").innerHTML = tiles.map(function(x, i){
+    return '<div class="kpi' + (x[3] ? " hero" : "") + '"><div class="l">' + x[0] +
+           '</div><div class="v">' + x[1] + '</div><div class="s">' + x[2] + '</div>' +
+           (i === 3 ? strip : "") + '</div>';
+  }).join("");
+}
+
+/* ----------------------------------------------------------------- table */
+function visible(){
+  var q = state.q.trim().toLowerCase();
+  var out = ST.filter(function(s){
+    if (state.g !== "all" && s.group !== state.g) return false;
+    if (state.flag && s.tier === 0) return false;
+    if (state.slice) {
+      if (state.slice.m === "prio" && s.tier !== state.slice.k) return false;
+      if (state.slice.m === "work" && statusOf(s) !== state.slice.k) return false;
+      if (state.slice.m === "case") {
+        /* a fault case selects the stations where it is the DOMINANT fault,
+           which is exactly what the table's "top fault" column shows */
+        var want = state.slice.k === "__other" ? caseGroups().tail : [state.slice.k];
+        if (!s.top || want.indexOf(s.top) < 0) return false;
+      }
+    }
+    if (q && (s.name + " " + s.key).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  var k = state.sort, d = state.dir;
+  out.sort(function(a, b){
+    var x, y;
+    if (k === "name") { x = a.name.toLowerCase(); y = b.name.toLowerCase(); }
+    else if (k === "top") { x = a.top || "zz"; y = b.top || "zz"; }
+    else if (k === "stat") { x = statusOf(a); y = statusOf(b); }
+    else { x = a[k]; y = b[k]; }
+    if (x < y) return -d;
+    if (x > y) return d;
+    return a.rate < b.rate ? 1 : -1;
+  });
+  return out;
+}
+
+var shown = [];
+
+function sortArrows(){
+  Array.prototype.forEach.call(document.querySelectorAll("thead th[data-k]"), function(th){
+    var a = th.querySelector(".ar");
+    if (!a) return;
+    a.textContent = th.getAttribute("data-k") === state.sort
+      ? (state.dir === 1 ? "▲" : "▼") : "↕";
+  });
+}
+
+function renderTable(){
+  var rows = visible();
+  shown = rows;
+  sortArrows();
+  var fc = document.getElementById("flagcnt");
+  if (fc) fc.textContent = ST.filter(function(s){ return s.tier > 0; }).length;
+  document.getElementById("cnt").textContent = t("cnt", rows.length, ST.length);
+  var tb = document.getElementById("rows");
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="6"><div class="empty">' + t("empty") + '</div></td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(function(s){
+    var st = statusOf(s), flags = "";
+    if (s.skew) flags += '<span class="flag skew" data-tip="' +
+      esc(t("fl_gun_tip", s.skew.conn, pct(s.skew.worse), pct(s.skew.better))) + '">' +
+      t("fl_gun", s.skew.conn) + '</span>';
+    if (!s.clock) flags += '<span class="flag clock" data-tip="' + esc(t("fl_clock_tip")) +
+      '">' + t("fl_clock") + '</span>';
+    if (s.held_out) flags += '<span class="flag ho" data-tip="' + esc(t("fl_test_tip")) +
+      '">' + t("fl_test") + '</span>';
+    return '<tr data-i="' + s.i + '" tabindex="0" aria-selected="' + (s.i === state.sel) + '">' +
+      '<td><div class="stname"><span class="sev t' + s.tier + '"></span><span class="txt">' +
+        '<b>' + esc(s.name) + '</b><span>' + esc(s.tag || s.group) + '</span></span></div></td>' +
+      '<td class="n"><span class="ratecell"><span class="ratebar"><i style="width:' +
+        (s.rate / maxRate * 100).toFixed(1) + '%"></i></span>' + pct(s.rate) + '</span></td>' +
+      '<td class="n">' + num(s.n) + '</td>' +
+      '<td class="n">' + (s.top ? '<span class="famtag" data-tip="' +
+        esc(t("fam_tip", famName(s.top), s.fam[s.top])) + '"><span class="famdot" style="background:var(' +
+        FAMC[s.top] + ')"></span>' + famShort(s.top) + '</span>' : '<span class="famtag">—</span>') + '</td>' +
+      '<td class="n"><span class="flags">' + (flags || '<span style="color:var(--muted)">—</span>') + '</span></td>' +
+      '<td class="n"><span class="stat ' + st + '">' + t("st_" + st) + '</span></td></tr>';
+  }).join("");
+}
+
+/* ---------------------------------------------------------------- detail */
+function gunHtml(no, n, f, r, gmax, bad){
+  var col = no === 1 ? "var(--s1)" : "var(--s2)";
+  return '<div class="gun' + (bad ? " bad" : "") + '" data-tip="' +
+    esc(t("gun_tip", no, f, num(n))) + '">' +
+    '<div class="gt"><span>' + t("gun", no) + '</span><span>' + t("gun_times", num(n)) + '</span></div>' +
+    '<div class="gv">' + (n ? pct(r) : "—") + '</div>' +
+    '<div class="gbar"><i style="width:' + (n ? (r / gmax * 100).toFixed(1) : 0) +
+    '%;background:' + col + '"></i></div></div>';
+}
+
+function renderDetail(){
+  var s = ST[state.sel];
+  var x = triage[s.key] || {};
+  var st = statusOf(s);
+  var r1 = s.c1n ? s.c1f / s.c1n : 0, r2 = s.c2n ? s.c2f / s.c2n : 0;
+  var gmax = Math.max(r1, r2, 0.02);
+  var famRows = FAMS.filter(function(f){ return s.fam[f]; })
+                    .sort(function(a, b){ return s.fam[b] - s.fam[a]; });
+  var famMax = famRows.length ? s.fam[famRows[0]] : 1;
+
+  var alerts = [];
+  if (s.skew) alerts.push(["critical", "!", t("al_skew", s.skew.conn,
+    ((s.skew.worse - s.skew.better) * 100).toFixed(1), pct(s.skew.worse), pct(s.skew.better))]);
+  if (s.rate >= 0.15) alerts.push(["critical", "!", t("al_rate", pct(s.rate), pct(medRate))]);
+  if (!s.clock) alerts.push(["warning", "~", t("al_clock")]);
+  if (s.delivered < 0.75) alerts.push(["warning", "~", t("al_deliv", pct(s.delivered))]);
+  if (!alerts.length) alerts.push(["good", "OK", t("al_ok")]);
+
+  var ai = "";
+  if (s.ai) {
+    ai = '<div class="sect"><h4>' + t("s_ai") + '</h4><div class="barlist">' +
+      DETS.map(function(d){
+        var a = s.ai[d], tot = a.tp + a.miss, rc = tot ? a.tp / tot : 0;
+        return '<div class="blrow" data-tip="' + esc(t("ai_tip", DETN[d], a.tp, tot, a.fp)) + '">' +
+          '<span class="bn">' + DETN[d] + '</span>' +
+          '<span class="bltrack"><i style="width:' + (rc * 100).toFixed(1) +
+          '%;background:var(--s1)"></i></span>' +
+          '<span class="bv">' + a.tp + "/" + tot + '</span></div>';
+      }).join("") + '</div></div>';
+  }
+
+  document.getElementById("detail").innerHTML =
+    '<div class="dhead"><h3>' + esc(s.name) + '</h3><div class="chips">' +
+      '<span class="chip">' + esc(s.key) + '</span><span class="chip">' + s.group + '</span>' +
+      (s.held_out ? '<span class="chip">' + t("d_test") + '</span>' : "") +
+    '</div></div>' +
+    '<div class="metrics">' +
+      '<div class="metric"><b>' + num(s.n) + '</b><span>' + t("m_sess") + '</span></div>' +
+      '<div class="metric"><b>' + pct(s.rate) + '</b><span>' + t("m_rate") + '</span></div>' +
+      '<div class="metric"><b>' + pct(s.delivered, 0) + '</b><span>' + t("m_deliv") + '</span></div>' +
+      '<div class="metric"><b>' + pct(s.graceful, 0) + '</b><span>' + t("m_close") + '</span></div>' +
+      '<div class="metric"><b>' + s.med_min + '</b><span>' + t("m_min") + '</span></div>' +
+    '</div>' +
+    '<div class="sect"><h4>' + t("s_guns") + '</h4><div class="pair">' +
+      gunHtml(1, s.c1n, s.c1f, r1, gmax, s.skew && s.skew.conn === 1) +
+      gunHtml(2, s.c2n, s.c2f, r2, gmax, s.skew && s.skew.conn === 2) +
+    '</div></div>' +
+    '<div class="sect"><h4>' + t("s_todo") + '</h4><div class="alerts">' +
+      alerts.map(function(a){
+        return '<div class="alert ' + a[0] + '"><span class="ic">' + a[1] +
+               '</span><span>' + a[2] + '</span></div>';
+      }).join("") + '</div></div>' +
+    (famRows.length ? '<div class="sect"><h4>' + t("s_fam") + '</h4><div class="barlist">' +
+      famRows.map(function(f){
+        return '<div class="blrow" data-tip="' + esc(t("fam_tip", famName(f), s.fam[f])) +
+          '"><span class="bn">' + famName(f) + '</span><span class="bltrack"><i style="width:' +
+          (s.fam[f] / famMax * 100).toFixed(1) + '%;background:var(' + FAMC[f] + ')"></i></span>' +
+          '<span class="bv">' + s.fam[f] + '</span></div>';
+      }).join("") + '</div></div>' : "") +
+    ai +
+    '<div class="sect"><h4>' + t("s_work") + '</h4><div class="triage" id="triage">' +
+      STATUS.map(function(k){
+        return '<button type="button" data-s="' + k + '" aria-pressed="' + (st === k) + '"' +
+               (Store.mode === "readonly" ? " disabled" : "") + '>' + t("st_" + k) + '</button>';
+      }).join("") + '</div>' +
+      '<div class="noterow"><input id="note" type="text" maxlength="120" placeholder="' +
+        esc(t("note_ph")) + '" value="' + esc(x.n || "") + '"' +
+        (Store.mode === "readonly" ? " disabled" : "") + '>' +
+        '<button type="button" id="savenote"' + (Store.mode === "readonly" ? " disabled" : "") +
+        '>' + t("note_save") + '</button></div>' +
+      '<div class="savedhint" id="savedhint">' +
+        (Store.mode === "readonly" ? t("hint_ro") : (x.at ? t("hint_last", x.at) : "")) +
+      '</div></div>';
+
+  var tr = document.getElementById("triage");
+  if (tr) tr.addEventListener("click", function(e){
+    var b = e.target.closest("button[data-s]");
+    if (b && !b.disabled) setStatus(s, b.getAttribute("data-s"));
+  });
+  var sn = document.getElementById("savenote");
+  if (sn) sn.addEventListener("click", function(){
+    setStatus(s, statusOf(s), document.getElementById("note").value);
+  });
+  renderHist();
+}
+
+/* ----------------------------------------------------------------- donut */
+/* families below this share of all occurrences fold into one "Other" slice,
+   so the ring never grows past six readable segments */
+var PIE_TAIL = 0.02;
+
+function caseGroups(){
+  var f = D.fleet.families || {};
+  var total = 0;
+  FAMS.forEach(function(k){ total += (f[k] || 0); });
+  var big = [], tail = [];
+  FAMS.filter(function(k){ return f[k]; })
+      .sort(function(a, b){ return f[b] - f[a]; })
+      .forEach(function(k){
+        (f[k] / (total || 1) < PIE_TAIL ? tail : big).push(k);
+      });
+  return { total: total, big: big, tail: tail };
+}
+
+function domCount(keys){
+  return ST.filter(function(s){ return s.top && keys.indexOf(s.top) >= 0; }).length;
+}
+
+function pieData(){
+  if (pieMode === "case") {
+    var g = caseGroups();
+    var rows = g.big.map(function(k){
+      return { k: k, label: famName(k), color: "var(" + FAMC[k] + ")",
+               n: D.fleet.families[k], stations: domCount([k]) };
+    });
+    if (g.tail.length) {
+      var n = 0;
+      g.tail.forEach(function(k){ n += D.fleet.families[k]; });
+      rows.push({ k: "__other", label: t("pie_other"), color: "var(--muted)", n: n,
+                  stations: domCount(g.tail), members: g.tail });
+    }
+    return rows;
+  }
+  if (pieMode === "work") {
+    var col = { open:"var(--muted)", ack:"var(--warning)",
+                sent:"var(--accent)", done:"var(--good)" };
+    return STATUS.map(function(k){
+      return { k:k, label:t("st_" + k), color:col[k],
+               n: ST.filter(function(s){ return statusOf(s) === k; }).length };
+    });
+  }
+  return [
+    { k:2, label:t("prio_crit"),  color:"var(--critical)",
+      n: ST.filter(function(s){ return s.tier === 2; }).length },
+    { k:1, label:t("prio_watch"), color:"var(--warning)",
+      n: ST.filter(function(s){ return s.tier === 1; }).length },
+    { k:0, label:t("prio_ok"),    color:"var(--good)",
+      n: ST.filter(function(s){ return s.tier === 0; }).length }
+  ];
+}
+
+function arcPath(cx, cy, ro, ri, a0, a1){
+  var big = (a1 - a0) > Math.PI ? 1 : 0;
+  var p = function(r, a){ return (cx + r * Math.cos(a)).toFixed(2) + "," +
+                                 (cy + r * Math.sin(a)).toFixed(2); };
+  return "M" + p(ro, a0) + " A" + ro + "," + ro + " 0 " + big + " 1 " + p(ro, a1) +
+         " L" + p(ri, a1) + " A" + ri + "," + ri + " 0 " + big + " 0 " + p(ri, a0) + " Z";
+}
+
+function sliceTip(r, total, isCase){
+  if (!isCase) return t("pie_tip", r.label, num(r.n), pct(r.n / total, 0));
+  var tip = t("pie_case_tip", r.label, num(r.n), pct(r.n / total, 0), r.stations);
+  if (r.members) {
+    tip += "\n" + t("pie_other_tip", r.members.map(famName).join(", "));
+  }
+  return tip;
+}
+
+function renderPie(){
+  var rows = pieData();
+  var isCase = pieMode === "case";
+  var total = isCase
+    ? rows.reduce(function(a, r){ return a + r.n; }, 0) || 1
+    : (ST.length || 1);
+  var live = rows.filter(function(r){ return r.n > 0; });
+  var SZ = 178, cx = SZ / 2, cy = SZ / 2, ro = 84, ri = 53;
+  var parts = ['<svg viewBox="0 0 ' + SZ + ' ' + SZ + '" width="' + SZ + '" height="' + SZ +
+               '" role="img" aria-label="' + esc(t("p_pie")) + '">'];
+  if (live.length === 1) {
+    parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + ((ro + ri) / 2) +
+      '" fill="none" stroke="' + live[0].color + '" stroke-width="' + (ro - ri) + '"/>');
+  } else {
+    var a = -Math.PI / 2;
+    live.forEach(function(r){
+      var span = r.n / total * Math.PI * 2;
+      parts.push('<path d="' + arcPath(cx, cy, ro, ri, a, a + span) + '" fill="' + r.color +
+        '" stroke="var(--surface)" stroke-width="2" data-tip="' +
+        esc(sliceTip(r, total, isCase)) + '"/>');
+      a += span;
+    });
+  }
+  parts.push('<text x="' + cx + '" y="' + (cy - 4) + '" text-anchor="middle" font-size="27" ' +
+    'font-weight="600" fill="var(--ink)">' + num(total) + '</text>');
+  parts.push('<text x="' + cx + '" y="' + (cy + 16) + '" text-anchor="middle" font-size="11" ' +
+    'fill="var(--muted)">' + esc(t(isCase ? "pie_times" : "pie_stations")) + '</text>');
+  parts.push("</svg>");
+
+  parts.push('<div class="pielegend">');
+  rows.forEach(function(r){
+    var on = state.slice && state.slice.m === pieMode && state.slice.k === r.k;
+    parts.push('<button type="button" class="pierow" data-slice="' + r.k + '" aria-pressed="' +
+      (on ? "true" : "false") + '" data-tip="' + esc(sliceTip(r, total, isCase)) +
+      '"><i style="background:' + r.color + '"></i>' +
+      '<span class="pn">' + esc(r.label) + '</span>' +
+      '<span class="pc">' + num(r.n) + '</span>' +
+      '<span class="pp">' + pct(r.n / total, 0) + '</span></button>');
+  });
+  parts.push("</div>");
+  document.getElementById("pieblock").innerHTML = parts.join("");
+
+  var hint = document.getElementById("piehint");
+  if (hint) {
+    hint.innerHTML = state.slice
+      ? '<button type="button" class="clearbtn" id="pieclear">' + t("pie_clear") + '</button>'
+      : t("pie_hint");
+    var cb = document.getElementById("pieclear");
+    if (cb) cb.addEventListener("click", function(){
+      state.slice = null; renderTable(); renderPie();
+    });
+  }
+  var cap = document.getElementById("piecap");
+  if (cap) {
+    if (isCase) {
+      var two = rows.slice(0, 2);
+      cap.innerHTML = t("pie_cap_case", esc(two[0] ? two[0].label : "-"),
+        esc(two[1] ? two[1].label : "-"),
+        pct(two.reduce(function(a, r){ return a + r.n; }, 0) / total, 0));
+    } else if (pieMode === "work") {
+      var d = rows.filter(function(r){ return r.k === "done"; })[0];
+      cap.innerHTML = t("pie_cap_work", num(d ? d.n : 0), pct((d ? d.n : 0) / total, 0));
+    } else {
+      var flagged = ST.filter(function(s){ return s.tier > 0; }).length;
+      cap.innerHTML = t("pie_cap_prio", num(flagged), pct(flagged / total, 0));
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- charts */
+function renderFamily(){
+  var f = D.fleet.families, max = 0;
+  FAMS.forEach(function(k){ if (f[k] > max) max = f[k]; });
+  document.getElementById("famchart").innerHTML = FAMS.filter(function(k){ return f[k]; })
+    .map(function(k){
+      return '<div class="blrow" data-tip="' + esc(t("fam_tip_fleet", famName(k), num(f[k]))) + '">' +
+        '<span class="bn">' + famName(k) + '</span>' +
+        '<span class="bltrack"><i style="width:' + (f[k] / max * 100).toFixed(1) +
+        '%;background:var(' + FAMC[k] + ')"></i></span>' +
+        '<span class="bv">' + num(f[k]) + '</span></div>';
+    }).join("");
+}
+
+function renderSkew(){
+  var rows = ST.filter(function(s){ return s.skew; })
+               .sort(function(a, b){ return b.gap - a.gap; }).slice(0, 14);
+  if (!rows.length) { document.getElementById("skewchart").innerHTML =
+    '<div class="empty">' + t("empty") + '</div>'; return; }
+  var max = Math.max.apply(null, rows.map(function(s){ return s.skew.worse; })) * 1.06;
+  var W = 660, Lm = 196, R = 48, rowH = 22, H = rows.length * rowH + 30;
+  var x = function(v){ return Lm + (v / max) * (W - Lm - R); };
+  var p = ['<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="' +
+           esc(t("p_skew")) + '">'];
+  [0, 0.15, 0.3, 0.45, 0.6].filter(function(v){ return v <= max; }).forEach(function(v){
+    p.push('<line x1="' + x(v).toFixed(1) + '" y1="14" x2="' + x(v).toFixed(1) + '" y2="' +
+      (H - 16) + '" stroke="var(--grid)" stroke-width="1"/>');
+    p.push('<text x="' + x(v).toFixed(1) + '" y="' + (H - 4) +
+      '" text-anchor="middle" font-size="9.5" fill="var(--muted)">' + Math.round(v * 100) + '%</text>');
+  });
+  rows.forEach(function(s, i){
+    var y = 26 + i * rowH, r1 = s.c1f / s.c1n, r2 = s.c2f / s.c2n;
+    var nm = s.name.length > 26 ? s.name.slice(0, 25) + "…" : s.name;
+    p.push('<line x1="' + x(Math.min(r1, r2)).toFixed(1) + '" y1="' + y + '" x2="' +
+      x(Math.max(r1, r2)).toFixed(1) + '" y2="' + y + '" stroke="var(--rule)" stroke-width="2.5"/>');
+    p.push('<circle cx="' + x(r1).toFixed(1) + '" cy="' + y +
+      '" r="5" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>');
+    p.push('<circle cx="' + x(r2).toFixed(1) + '" cy="' + y +
+      '" r="5" fill="var(--s2)" stroke="var(--surface)" stroke-width="2"/>');
+    p.push('<text x="' + (Lm - 10) + '" y="' + (y + 3.5) +
+      '" text-anchor="end" font-size="10.5" fill="var(--ink-2)">' + esc(nm) + '</text>');
+    p.push('<text x="' + (W - R + 6) + '" y="' + (y + 3.5) +
+      '" font-size="10" fill="var(--muted)">+' + (s.gap * 100).toFixed(0) + '</text>');
+    p.push('<rect x="0" y="' + (y - 10) + '" width="' + W + '" height="' + rowH +
+      '" fill="transparent" data-tip="' +
+      esc(t("skew_tip", s.name, pct(r1), num(s.c1n), pct(r2), num(s.c2n))) + '"/>');
+  });
+  p.push("</svg>");
+  document.getElementById("skewchart").innerHTML = p.join("");
+}
+
+function renderHist(){
+  var bands = new Array(11).fill(0);
+  ST.forEach(function(s){ bands[Math.min(10, Math.floor(s.rate * 100 / 2))]++; });
+  var sel = Math.min(10, Math.floor(ST[state.sel].rate * 100 / 2));
+  var max = Math.max.apply(null, bands);
+  document.getElementById("hist").innerHTML = bands.map(function(v, i){
+    var lo = i * 2;
+    var band = i === 10 ? t("hist_over") : lo + "–" + (lo + 2) + "%";
+    return '<div class="histbar' + (i === sel ? " sel" : "") + '" data-tip="' +
+      esc(t("hist_tip", band, v)) + '"><em>' + (v || "") + '</em><i style="height:' +
+      (v / max * 100).toFixed(1) + '%"></i></div>';
+  }).join("");
+  document.getElementById("histax").innerHTML = bands.map(function(v, i){
+    return "<span>" + (i % 2 === 0 ? (i === 10 ? "20+" : i * 2) : "") + "</span>";
+  }).join("");
+  document.getElementById("histcap").innerHTML =
+    t("histcap", pct(medRate), esc(ST[state.sel].name), pct(ST[state.sel].rate), overCount);
+}
+
+function renderAI(){
+  var box = document.getElementById("ai");
+  if (!D.detectors || !D.detectors[DETS[0]]) {
+    box.innerHTML = '<div class="empty">' + t("ai_none") + '</div>';
+    return;
+  }
+  var h = D.held_out || {};
+  var best = DETS.reduce(function(b, d){
+    return D.detectors[d].score > D.detectors[b].score ? d : b; }, DETS[0]);
+  box.innerHTML = DETS.map(function(d){
+    var a = D.detectors[d];
+    return '<div class="aicard' + (d === best ? " win" : "") + '">' +
+      '<div class="an"><span>' + DETN[d] + '</span><span class="as">' + a.score.toFixed(1) + '</span></div>' +
+      '<div class="ab">' +
+        '<div class="abrow" data-tip="' + esc(t("a_tip_recall", a.tp, a.tp + a.miss)) + '">' +
+          '<span>' + t("a_caught") + '</span><span class="t"><i style="width:' +
+          (a.recall * 100).toFixed(1) + '%;background:var(--s1)"></i></span>' +
+          '<span class="v">' + pct(a.recall, 0) + '</span></div>' +
+        '<div class="abrow" data-tip="' + esc(t("a_tip_far", num(a.fp), num(h.clean || 0))) + '">' +
+          '<span>' + t("a_false") + '</span><span class="t"><i style="width:' +
+          (a.far * 100).toFixed(1) + '%;background:var(--critical)"></i></span>' +
+          '<span class="v">' + pct(a.far, 0) + '</span></div>' +
+      '</div>' +
+      '<div class="abrow" style="margin-top:8px;grid-template-columns:1fr auto;color:var(--muted)">' +
+        '<span>' + t("a_lead") + '</span><span class="v">' + a.lead + ' ' + t("a_sec") + '</span></div>' +
+    '</div>';
+  }).join("");
+}
+
+/* ---------------------------------------------------------- triage store */
+function setStatus(s, status, note){
+  var prev = triage[s.key] || {};
+  if (note === undefined) note = prev.n || "";
+  if (prev.s === status && prev.n === note) return;
+  var at = new Date().toISOString().slice(0, 16).replace("T", " ");
+  triage[s.key] = { s: status, n: note, at: at };
+  renderTable(); renderDetail(); renderKpi(); renderPie();
+  if (!Store.save) return;
+  var hint = document.getElementById("savedhint");
+  Store.save(s, { s: status, n: note, at: at })
+    .then(function(){ if (hint) hint.textContent = t("hint_saved", at); })
+    .catch(function(e){
+      if (hint) hint.textContent = t("hint_fail", (e && e.code) ? e.code : "error");
+    });
+}
+
+function applyTriage(next){
+  triage = next || {};
+  /* never yank the note field out from under someone who is typing in it */
+  var editing = document.activeElement && document.activeElement.id === "note";
+  renderTable(); renderKpi(); renderPie();
+  if (!editing) renderDetail();
+}
+
+function renderMode(){
+  var local = Store.mode === "local";
+  var dot = document.getElementById("scandot");
+  if (dot) dot.hidden = !local;
+  renderScanShell();
+  var bar = document.getElementById("localbar");
+  if (bar) bar.hidden = !local;
+  var ml = document.getElementById("modeline");
+  if (ml) ml.textContent = local ? t("mode_local")
+    : (Store.mode === "db" ? t("mode_db") : t("mode_ro"));
+}
+
+/* Three homes for the triage state, picked at runtime: published on claude.ai
+   -> the db capability (shared by everyone with the link); served by
+   desktop/app.py -> the local HTTP API (saved beside the program); opened as a
+   bare file -> read-only. */
+function initStore(){
+  if (window.claude && window.claude.use) {
+    window.claude.use("db").then(function(db){
+      if (db) attachDb(db); else initLocal();
+    }).catch(initLocal);
+  } else initLocal();
+}
+
+function attachDb(db){
+  Store.mode = "db";
+  Store.save = function(s, doc){
+    return db.collection("triage").doc(s.docId)
+             .set({ k: s.key, s: doc.s, n: doc.n, at: doc.at });
+  };
+  db.collection("triage").onSnapshot(function(snap){
+    var next = {};
+    snap.docs.forEach(function(doc){
+      var v = doc.data() || {};
+      if (v.k) next[v.k] = { s: v.s || "open", n: v.n || "", at: v.at || "" };
+    });
+    applyTriage(next);
+  }, function(){ /* subscription ended; the page stays usable */ });
+  renderMode(); renderDetail();
+}
+
+function initLocal(){
+  if (!window.fetch || location.protocol === "file:") { renderMode(); return; }
+  fetch("api/ping").then(function(r){ return r.ok ? r.json() : null; })
+  .then(function(p){
+    if (!p || p.app !== "egat-charger-dashboard") { renderMode(); return null; }
+    Store.mode = "local";
+    Store.save = function(s, doc){
+      return fetch("api/triage", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ k: s.key, s: doc.s, n: doc.n, at: doc.at })
+      }).then(function(r){ if (!r.ok) throw new Error("save failed"); });
+    };
+    return fetch("api/triage").then(function(r){ return r.json(); })
+      .then(function(x){ applyTriage(x); renderMode(); });
+  }).catch(function(){ renderMode(); });
+}
+
+function wireLocalBar(){
+  var rb = document.getElementById("refresh"), qb = document.getElementById("quit");
+  if (rb) rb.addEventListener("click", function(){
+    rb.disabled = true; rb.textContent = t("c_refreshing");
+    fetch("api/rebuild", { method: "POST" }).then(function(r){
+      if (!r.ok) throw new Error("rebuild failed");
+      location.reload();
+    }).catch(function(){ rb.disabled = false; rb.textContent = t("c_refreshfail"); });
+  });
+  if (qb) qb.addEventListener("click", function(){
+    fetch("api/quit", { method: "POST" }).catch(function(){});
+    document.body.innerHTML = '<div style="font-family:inherit;margin:64px auto;' +
+      'max-width:440px;text-align:center;color:var(--ink-2)">' +
+      '<p style="font-size:17px;color:var(--ink)">' + t("quit_h") + '</p><p>' +
+      t("quit_p") + '</p></div>';
+  });
+}
+
+
+/* ------------------------------------------------------- fault reference */
+var PHASES = [
+  ["slac", ["SLAC_FAILURE"]],
+  ["hand", ["PROTOCOL_FAILED", "SESSION_ABORT"]],
+  ["cc",   ["ISOLATION_FAULT", "COMM_FREEZE", "PROTOCOL_FAILED"]],
+  ["pre",  ["EV_ERROR", "EVSE_FAULT", "PROTOCOL_FAILED", "NO_POWER_DELIVERED"]],
+  ["cd",   ["COMM_FREEZE", "SESSION_ABORT", "EVSE_FAULT", "EV_ERROR"]],
+  ["stop", ["PROTOCOL_FAILED", "SESSION_ABORT"]]
+];
+
+var REF = {
+th: {
+  NO_POWER_DELIVERED: {
+    what:"รถขอเงื่อนไขการชาร์จไปแล้ว ตู้เดินขั้นตอนไฟตรงต่อจนจบ แล้วเซสชันปิดลงอย่างถูกขั้นตอนโดยไม่เคยจ่ายกระแสเลยแม้แต่ครั้งเดียว คือตั้งใจจะชาร์จจริงแต่ไม่ได้ไฟ",
+    how:"ไปถึงขั้น <code>ChargeParameterDiscovery</code> แล้วจบด้วย <code>SessionStop</code> ตามขั้นตอน โดยไม่มี <code>CurrentDemand</code> เลย — ที่ต้องมี SessionStop ก็เพราะไฟล์ที่ถูกตัดกลางคันปลอมมันไม่ได้ จึงไม่มีทางเป็นสัญญาณลวงจากการเก็บ log",
+    why:"ไล่แรงดันไม่ถึงที่รถขอ รถเลยไม่ยอมสับคอนแทกเตอร์ · ผลตรวจฉนวนก้ำกึ่ง · รถยกเลิกเองตอนท้าย · แรงดันแบตกับที่ตู้จ่ายไม่แมตช์",
+    todo:"ดูข้อสังเกตท้ายเซสชันประกอบ โดยเฉพาะแรงดันตอน PreCharge เทียบกับที่รถขอ ถ้าขาดอยู่ไม่กี่โวลต์ซ้ำๆ คือตู้ไล่แรงดันไม่ขึ้น"
+  },
+  SESSION_ABORT: {
+    what:"บทสนทนา V2G เริ่มไปแล้ว แต่ไม่เคยปิดด้วย SessionStop ตามขั้นตอน คือการชาร์จขาดกลางคัน",
+    how:"ต้องมีหลักฐานบวกอย่างน้อยหนึ่งอย่าง คือ <code>TCP RST</code> บนสตรีมเดียวกับ V2G, การจับคู่ PLC ใหม่กลางเซสชันที่ยืนยันได้ หรือ timer ตามสเปคหมดเวลาขณะที่ลิงก์ยังส่งแพ็กเก็ตอยู่ (ต้องมีอีก 20 เหตุการณ์ภายใน 10 วินาที) — ลำพัง \"ไม่มี SessionStop\" ไม่นับ เพราะแยกไม่ออกจากไฟล์ ring ที่ตัดพอดี",
+    why:"ผู้ใช้ถอดปลั๊กเอง · สายหรือหัวจ่ายหลวมจน PLC ขาด · ตู้รีบูตกลางคัน · เครือข่ายภายในตู้สะดุด",
+    todo:"ดูว่ากระจุกอยู่ที่หัวใดหัวหนึ่งหรือไม่ ถ้ากระจุกให้ตรวจหัวจ่ายกับสายของหัวนั้นก่อน ถ้ากระจายทั้งสองหัวให้สงสัยตัวตู้หรือไฟเข้า"
+  },
+  PROTOCOL_FAILED: {
+    what:"ฝ่ายใดฝ่ายหนึ่งตอบกลับด้วย ResponseCode ที่ขึ้นต้นด้วย <code>FAILED_</code> คือปฏิเสธคำขอตรงๆ ตามโปรโตคอล",
+    how:"อ่านค่า ResponseCode ของทุกข้อความ ถ้าขึ้นต้นด้วย FAILED ถือเป็นปัญหาทันที รวมถึง <code>FAILED_NoNegotiation</code> ตอนเจรจาเวอร์ชัน",
+    why:"ลำดับข้อความไม่ตรงสเปค (<code>FAILED_SequenceError</code>) · ล็อกหัวชาร์จไม่เข้า (<code>FAILED_ChargerConnectorLockFault</code>) · รถกับตู้ตกลงเวอร์ชันโปรโตคอลกันไม่ได้",
+    todo:"อ่านข้อความต่อท้ายให้ครบ เพราะมันบอกสาเหตุตรงๆ อยู่แล้ว ถ้าเป็น lock fault ซ้ำๆ ที่หัวเดิมคือกลไกล็อกเสีย"
+  },
+  SLAC_FAILURE: {
+    what:"รถกับตู้พยายามจับคู่สัญญาณผ่านสายไฟ (HomePlug Green PHY) แต่ไม่เคยเปิดบทสนทนา V2G ได้เลย คือเสียบแล้วไม่คุยกัน",
+    how:"ทั้งเซสชันไม่มีข้อความ V2G แม้แต่ข้อความเดียว แต่มีเฟรม SLAC หรือ ATTEN_CHAR ตั้งแต่ 3 เฟรมขึ้นไป",
+    why:"สัญญาณ PLC อ่อนเพราะสายชำรุดหรือยาวเกิน · หัวเสียบไม่แน่น หน้าสัมผัสสกปรก · กราวด์ไม่ดี · รถบางรุ่นไม่ตอบ",
+    todo:"ทำความสะอาดหน้าสัมผัสและตรวจสายก่อน เป็นชนิดที่ AgenticAI จับได้ดีกว่าตัวอื่นมาก เพราะจำเวลาจับคู่ปกติของแต่ละสถานีไว้เทียบ"
+  },
+  EV_ERROR: {
+    what:"ตัวรถเองแจ้งรหัสข้อผิดพลาดมาในข้อความ DC_EVStatus คือฝั่งรถบอกว่ามีปัญหา",
+    how:"ค่า <code>EVErrorCode</code> เป็นอย่างอื่นที่ไม่ใช่ <code>NO_ERROR</code>",
+    why:"ระบบจัดการแบตเตอรี่ปฏิเสธ · อุณหภูมิแบตสูงหรือต่ำเกิน · แรงดันที่ตู้จ่ายไม่ตรงที่รถขอ · ล็อกฝั่งรถไม่เข้า",
+    todo:"ส่วนใหญ่เป็นเรื่องฝั่งรถ แต่ถ้ากระจุกที่สถานีเดียวให้สงสัยว่าตู้จ่ายแรงดันเพี้ยนจนรถปฏิเสธ"
+  },
+  EVSE_FAULT: {
+    what:"ตัวตู้เองแจ้งสถานะว่าทำงานผิดปกติหรือหยุดฉุกเฉิน คือตู้ยอมรับเองว่ามีปัญหา",
+    how:"ค่า <code>EVSEStatusCode</code> เป็น <code>EVSE_Malfunction</code> หรือ <code>EVSE_EmergencyShutdown</code> — ส่วน <code>EVSE_Shutdown</code> ธรรมดาที่มาคู่กับ EVSENotification=StopCharging คือการหยุดปกติ ไม่นับ",
+    why:"โมดูลจ่ายไฟมีปัญหา · มีคนกดปุ่มฉุกเฉิน · ระบบป้องกันตัวเองตัดการทำงาน · พัดลมหรืออุณหภูมิผิดปกติ",
+    todo:"ส่งช่างดูตัวตู้โดยตรง เป็นชนิดที่ AI แทบทุกตัวจับได้ครบ เพราะตู้ประกาศออกมาเอง ค่าที่ควรดูคือเกิดถี่แค่ไหน"
+  },
+  COMM_FREEZE: {
+    what:"การสื่อสารค้างกลางคัน ทั้งที่ยังอยู่ในช่วงจ่ายไฟหรือกำลังตรวจฉนวน",
+    how:"ช่องว่างระหว่างข้อความเกิน 5 วินาที เฉพาะภายในลูป CurrentDemand หรือช่วง CableCheck ค้างเกิน 60 วินาที (สเปคให้ไม่เกิน 40) — ช่วงปิดงานไม่นับ เพราะหยุดยาวได้ตามปกติ",
+    why:"CPU ในตู้ทำงานไม่ทัน · สัญญาณรบกวนบนสายไฟ · เฟิร์มแวร์ค้างชั่วคราว",
+    todo:"พบน้อยมากในกองข้อมูลนี้ ถ้าเจอซ้ำที่ตู้เดิมให้สงสัยเฟิร์มแวร์หรือโหลดของตัวควบคุม"
+  },
+  ISOLATION_FAULT: {
+    what:"ผลตรวจฉนวนก่อนจ่ายไฟออกมาเป็น Fault คือตู้พบว่าวงจรฝั่งไฟตรงรั่วลงกราวด์",
+    how:"ค่า <code>EVSEIsolationStatus</code> เป็น <code>Fault</code> — ระดับ <code>Warning</code> ไม่นับเป็นปัญหา",
+    why:"ความชื้นหรือน้ำเข้าที่หัวจ่าย · ฉนวนสายเสื่อมสภาพ · หน้าสัมผัสสกปรกหรือเปียก · ปัญหาฝั่งรถ",
+    todo:"เป็นเรื่องความปลอดภัย ควรตรวจก่อนปล่อยให้ใช้งานต่อ โดยเฉพาะถ้าเกิดซ้ำที่หัวเดิมหลังฝนตก"
+  }
+},
+en: {
+  NO_POWER_DELIVERED: {
+    what:"The car asked for charge parameters, the DC sequence ran, and the session then closed properly without a single CurrentDemand - a charge meant in earnest that delivered nothing.",
+    how:"It reached <code>ChargeParameterDiscovery</code> and ended with a proper <code>SessionStop</code>, with no <code>CurrentDemand</code> in between. Requiring the SessionStop is what makes it safe: a truncated capture cannot produce one, so this can never be a logging artefact.",
+    why:"Pre-charge not reaching the voltage the car asked for, so the car refuses to close its contactor · a marginal insulation reading · the car cancelling at the last step · a pack-voltage mismatch",
+    todo:"Read the observations under the session, especially the pre-charge voltage against the car's target. A few volts short, repeatedly, means the cabinet cannot ramp to the target."
+  },
+  SESSION_ABORT: {
+    what:"The V2G dialogue opened but never closed with a proper SessionStop - the charge was cut off part way.",
+    how:"At least one piece of positive evidence is required: a <code>TCP RST</code> on the V2G stream, a corroborated re-pairing of the powerline mid-session, or a timer the standard defines running out while the link was still delivering packets (20 more events within 10 s). A missing SessionStop on its own does not count - it is indistinguishable from a capture file ending.",
+    why:"Driver unplugged · a loose gun or cable breaking the powerline link · the cabinet rebooting mid-charge · a hiccup on the charger's internal network",
+    todo:"Check whether it clusters on one gun. If it does, inspect that gun and its cable first; if both guns show it, suspect the cabinet or its supply."
+  },
+  PROTOCOL_FAILED: {
+    what:"One side answered with a ResponseCode beginning <code>FAILED_</code> - a flat refusal inside the protocol.",
+    how:"Every message's ResponseCode is read; anything starting with FAILED is a fault, including <code>FAILED_NoNegotiation</code> during version negotiation.",
+    why:"Messages out of the order the spec requires (<code>FAILED_SequenceError</code>) · the connector lock not engaging (<code>FAILED_ChargerConnectorLockFault</code>) · car and charger unable to agree a protocol version",
+    todo:"Read the full code - it names the cause. A lock fault repeating on the same gun means the locking mechanism itself."
+  },
+  SLAC_FAILURE: {
+    what:"Car and charger tried to pair over the power line (HomePlug Green PHY) but never got a V2G dialogue open at all - plugged in, never talking.",
+    how:"Not a single V2G message in the whole session, but three or more SLAC / ATTEN_CHAR frames.",
+    why:"Weak powerline signal from a damaged or over-long cable · a gun not seated, dirty contacts · poor earthing · some vehicles simply not answering",
+    todo:"Clean the contacts and check the cable first. This is the family Agentic AI catches far better than the others, because it remembers each station's normal pairing time."
+  },
+  EV_ERROR: {
+    what:"The vehicle itself reported an error code in its DC_EVStatus - the car is saying something is wrong.",
+    how:"<code>EVErrorCode</code> is anything other than <code>NO_ERROR</code>.",
+    why:"The battery management system refusing · pack temperature out of range · the delivered voltage not matching what the car asked for · the car-side lock not engaging",
+    todo:"Usually a vehicle-side matter, but if it clusters at one station suspect that the charger's voltage is off enough for cars to refuse it."
+  },
+  EVSE_FAULT: {
+    what:"The charger itself reported a malfunction or an emergency shutdown - the cabinet admitting the problem.",
+    how:"<code>EVSEStatusCode</code> is <code>EVSE_Malfunction</code> or <code>EVSE_EmergencyShutdown</code>. A plain <code>EVSE_Shutdown</code> alongside EVSENotification=StopCharging is a normal stop and is not counted.",
+    why:"A power module fault · someone pressing the emergency stop · self-protection cutting out · fan or temperature trouble",
+    todo:"Send a technician to the cabinet. Nearly every model catches this family because the charger announces it; what matters is how often it happens."
+  },
+  COMM_FREEZE: {
+    what:"The conversation stalled mid-charge or during the insulation check.",
+    how:"A gap of more than 5 s between messages inside the CurrentDemand loop, or a CableCheck phase stuck beyond 60 s (the spec allows 40). The closing handshake is excluded - it legitimately pauses.",
+    why:"The cabinet's controller falling behind · interference on the power line · firmware momentarily hanging",
+    todo:"Rare in this fleet. Repeated at one cabinet, suspect firmware or controller load."
+  },
+  ISOLATION_FAULT: {
+    what:"The insulation test before power delivery came back Fault - the charger found the DC side leaking to earth.",
+    how:"<code>EVSEIsolationStatus</code> is <code>Fault</code>. A <code>Warning</code> level is not counted.",
+    why:"Moisture or water in the gun · cable insulation degrading · dirty or wet contacts · a vehicle-side problem",
+    todo:"A safety matter - inspect before the unit goes back into service, especially if it repeats on the same gun after rain."
+  }
+}};
+
+var NOTFAULT = {
+th: [
+  ["หยุดชาร์จตามปกติ", "<code>EVSE_Shutdown</code> ที่มาคู่กับ <code>EVSENotification=StopCharging</code> คือผู้ใช้หรือตู้สั่งหยุดเอง ไม่ใช่ความเสียหาย"],
+  ["ฉนวนระดับ Warning", "<code>EVSEIsolationStatus=Warning</code> คือค่าที่ยังอยู่ในเกณฑ์ ไม่ถึงขั้น Fault"],
+  ["ชาร์จเต็มแล้ว", "<code>ChargingComplete</code> กับการปิดด้วย SessionStop ตามขั้นตอน คือจบงานสมบูรณ์"],
+  ["กระแสตกเพราะแบ่งไฟ", "ตู้สองหัวแบ่งกำลังกัน กระแสตกจาก 129 A เหลือ 54 A กลางคันเป็นเรื่องปกติเมื่ออีกหัวมีรถเสียบ"],
+  ["SLAC จากหัวข้างๆ", "สายไฟเป็นตัวกลางร่วมกัน เฟรม SLAC ของรถอีกคันที่หัวข้างๆ ถูกดักจับมาด้วย ไม่ได้แปลว่าลิงก์เราขาด"],
+  ["ไม่มี SessionStop เฉยๆ", "ไฟล์ ring ตัดพอดีก็ทำให้ไม่เห็น SessionStop ได้ ต้องมีหลักฐานอื่นประกอบจึงจะนับว่าขาดกลางคัน"]
+],
+en: [
+  ["A normal stop", "<code>EVSE_Shutdown</code> together with <code>EVSENotification=StopCharging</code> is the driver or the charger ending the session on purpose, not damage."],
+  ["Insulation Warning", "<code>EVSEIsolationStatus=Warning</code> is still within tolerance; only Fault counts."],
+  ["Charge complete", "<code>ChargingComplete</code> followed by a proper SessionStop is a job finished."],
+  ["Current dropping from load sharing", "Two guns in a cabinet share the supply. Current falling from 129 A to 54 A mid-charge is normal when the other gun gets a car."],
+  ["SLAC from the neighbouring gun", "The power line is a shared medium, so the other car's pairing frames are captured too. They do not mean our link dropped."],
+  ["A missing SessionStop alone", "A ring file can simply end. Without other evidence that is data loss, not an aborted charge."]
+]};
+
+function renderRef(){
+  var pl = document.getElementById("phaseline");
+  if (!pl) return;
+  pl.innerHTML = PHASES.map(function(p, i){
+    return '<div class="phase"><div class="pk">' + (i + 1) + " · " + esc(t("ph_" + p[0] + "_t")) +
+      '</div><div class="pt">' + esc(t("ph_" + p[0])) + '</div><div class="pf">' +
+      p[1].map(function(f){
+        return '<i style="background:var(' + FAMC[f] + ')" data-tip="' + esc(famName(f)) + '"></i>';
+      }).join("") + "</div></div>";
+  }).join("");
+
+  var fam = D.fleet.families || {};
+  var total = 0;
+  FAMS.forEach(function(k){ total += (fam[k] || 0); });
+  var book = REF[lang] || REF.th;
+  document.getElementById("reflist").innerHTML = FAMS
+    .filter(function(k){ return fam[k] || book[k]; })
+    .sort(function(a, b){ return (fam[b] || 0) - (fam[a] || 0); })
+    .map(function(k){
+      var e = book[k] || {};
+      var dom = ST.filter(function(s){ return s.top === k; }).length;
+      var chips = DETS.map(function(d){
+        var b = ((D.detectors[d] || {}).fam || {})[k];
+        if (!b || !b[1]) return "";
+        var r = b[0] / b[1];
+        return '<span class="' + (r >= 0.8 ? "good" : r < 0.3 ? "poor" : "") + '">' +
+          esc(DETN[d]) + " " + Math.round(r * 100) + "%</span>";
+      }).join("");
+      return '<div class="refcard" style="border-left-color:var(' + FAMC[k] + ')">' +
+        "<h3>" + esc(famName(k)) + " <code>" + k + "</code></h3>" +
+        '<div class="rnum">' + (fam[k]
+          ? "<div><b>" + num(fam[k]) + "</b>" + t("r_times") + "</div>" +
+            "<div><b>" + pct(fam[k] / (total || 1), 0) + "</b>" + t("r_share") + "</div>" +
+            "<div><b>" + dom + "</b>" + t("r_dom") + "</div>"
+          : '<div style="color:var(--warning-ink)">' + t("r_pending") + "</div>") +
+        "</div><dl>" +
+          "<div><dt>" + t("r_what") + "</dt><dd>" + (e.what || "") + "</dd></div>" +
+          "<div><dt>" + t("r_how") + "</dt><dd>" + (e.how || "") + "</dd></div>" +
+          "<div><dt>" + t("r_why") + "</dt><dd>" + (e.why || "") + "</dd></div>" +
+          "<div><dt>" + t("r_do") + "</dt><dd>" + (e.todo || "") + "</dd></div>" +
+        "</dl>" +
+        (chips ? '<div class="refai"><span style="border:none;padding-left:0;color:var(--muted)">' +
+          t("r_ai") + "</span>" + chips + "</div>" : "") +
+        "</div>";
+    }).join("");
+
+  document.getElementById("notfault").innerHTML =
+    (NOTFAULT[lang] || NOTFAULT.th).map(function(x){
+      return '<div class="nf"><b>' + esc(x[0]) + "</b>" + x[1] + "</div>";
+    }).join("");
+}
+
+/* ------------------------------------------------------------- pcap scan */
+var scan = { files: [], job: null, busy: false, t0: 0, timer: null, res: null,
+             models: DETS.slice() };
+try {
+  var savedM = JSON.parse(localStorage.getItem("egat-models") || "null");
+  if (Array.isArray(savedM)) scan.models = savedM.filter(function(m){ return DETS.indexOf(m) >= 0; });
+} catch (e) { /* private window: keep the default */ }
+
+function saveModels(){
+  try { localStorage.setItem("egat-models", JSON.stringify(scan.models)); }
+  catch (e) { /* ignore */ }
+}
+
+function renderModels(){
+  var box = document.getElementById("mpchips");
+  if (!box) return;
+  box.innerHTML = DETS.map(function(d){
+    var on = scan.models.indexOf(d) >= 0;
+    var sc = (D.detectors && D.detectors[d]) ? D.detectors[d].score.toFixed(1) : "";
+    return '<button type="button" class="mpchip" data-m="' + d + '" aria-pressed="' +
+      on + '"' + (scan.busy ? " disabled" : "") + '><span class="tick"></span>' +
+      esc(DETN[d]) + (sc ? '<span class="mps">' + sc + "</span>" : "") + "</button>";
+  }).join("");
+}
+
+function fmtBytes(n){
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB"
+                      : Math.max(1, Math.round(n / 1024)) + " KB";
+}
+function fmtDur(sec){
+  sec = Math.max(0, Math.round(sec));
+  var m = Math.floor(sec / 60);
+  return m + ":" + String(sec % 60).padStart(2, "0");
+}
+function fmtClock(ep){
+  try {
+    return new Date(ep * 1000).toISOString().slice(0, 19).replace("T", " ");
+  } catch (e) { return "-"; }
+}
+
+function scanAvailable(){ return Store.mode === "local"; }
+
+function renderScanShell(){
+  var off = document.getElementById("scanoff");
+  var wrap = document.getElementById("scanwrap");
+  var ok = scanAvailable();
+  if (off) { off.hidden = ok; off.innerHTML = t("scan_off"); }
+  if (wrap) wrap.hidden = !ok;
+}
+
+function renderFileList(){
+  var box = document.getElementById("filelist");
+  box.hidden = !scan.files.length;
+  box.innerHTML = scan.files.map(function(f, i){
+    return '<div class="filerow"><span class="fn">' + esc(f.name) + '</span>' +
+      '<span class="fb">' + fmtBytes(f.size) + '</span>' +
+      '<button type="button" data-rm="' + i + '" aria-label="remove">&times;</button></div>';
+  }).join("");
+  document.getElementById("runscan").disabled = scan.busy || !scan.files.length;
+}
+
+function addFiles(list){
+  var msg = "";
+  for (var i = 0; i < list.length; i++) {
+    var f = list[i];
+    if (!/\.(pcap|pcapng|cap)$/i.test(f.name)) { msg = t("scan_badtype"); continue; }
+    if (scan.files.length >= 12) { msg = t("scan_toomany"); break; }
+    scan.files.push(f);
+  }
+  renderFileList();
+  if (msg) setRunState(msg, true);
+}
+
+function setRunState(text, bad){
+  var el = document.getElementById("runstate");
+  el.className = "runstate" + (bad ? " bad" : "");
+  el.innerHTML = text || "";
+}
+
+function tick(){
+  var el = document.getElementById("runstate").querySelector(".el");
+  if (el) el.textContent = " · " + t("scan_elapsed", Math.round((Date.now() - scan.t0) / 1000));
+}
+
+async function runScan(){
+  if (scan.busy || !scan.files.length) return;
+  scan.busy = true; scan.res = null; scan.job = null;
+  document.getElementById("scanres").innerHTML = "";
+  renderFileList(); renderModels();
+  scan.t0 = Date.now();
+  clearInterval(scan.timer);
+  scan.timer = setInterval(tick, 1000);
+  try {
+    for (var i = 0; i < scan.files.length; i++) {
+      setRunState(t("scan_uploading", i + 1, scan.files.length) + '<span class="el"></span>');
+      var q = "api/upload?name=" + encodeURIComponent(scan.files[i].name) +
+              (scan.job ? "&job=" + scan.job : "");
+      var r = await fetch(q, { method: "POST", body: scan.files[i] });
+      if (!r.ok) throw new Error((await r.json().catch(function(){ return {}; })).error || r.status);
+      scan.job = (await r.json()).job;
+    }
+    var st = await fetch("api/analyse?job=" + scan.job + "&models=" +
+                         encodeURIComponent(scan.models.join(",")), { method: "POST" });
+    if (!st.ok) throw new Error((await st.json().catch(function(){ return {}; })).error || st.status);
+    while (true) {
+      await new Promise(function(res){ setTimeout(res, 1500); });
+      var v = await (await fetch("api/analyse?job=" + scan.job)).json();
+      setRunState(esc(v.step || "...") + '<span class="el"></span>');
+      if (v.state === "error") throw new Error(v.error || "error");
+      if (v.state === "done") { scan.res = v.result; break; }
+    }
+    setRunState("");
+    renderScanResult();
+  } catch (e) {
+    setRunState(esc(t("scan_failed", (e && e.message) || e)), true);
+  } finally {
+    scan.busy = false;
+    clearInterval(scan.timer);
+    renderFileList();
+    renderModels();
+  }
+}
+
+function renderScanResult(){
+  var r = scan.res, box = document.getElementById("scanres");
+  if (!r) { box.innerHTML = ""; return; }
+  var s = r.summary || {};
+  var tiles = [
+    [num(s.used || 0) + "/" + num(s.files || 0), t("r_files"), false],
+    [num(s.events || 0), t("r_events"), false],
+    [num(s.sessions || 0), t("r_sessions"), false],
+    [num(s.faulty || 0), t("r_faulty"), (s.faulty || 0) > 0],
+    [(s.seconds || 0) + " " + t("r_sec"), t("r_time"), false]
+  ];
+  var html = '<div class="restiles">' + tiles.map(function(x){
+    return '<div class="restile' + (x[2] ? " bad" : "") + '"><b>' + x[0] +
+           '</b><span>' + x[1] + '</span></div>';
+  }).join("") + "</div>";
+
+  var ran = r.ai_ran || [];
+  var skipped = r.ai_skipped || {};
+  var skipNames = Object.keys(skipped);
+  if (ran.length || skipNames.length) {
+    html += '<div class="ranline">' +
+      (ran.length ? t("ai_ran_label") + " <b>" +
+        ran.map(function(d){ return esc(DETN[d] || d); }).join(", ") + "</b>" : "") +
+      (skipNames.length ? (ran.length ? " · " : "") + '<span class="bad">' +
+        t("ai_skip_label") + " " + skipNames.map(function(d){
+          return esc(DETN[d] || d) + " (" + esc(skipped[d]) + ")"; }).join(", ") +
+        "</span>" : "") + "</div>";
+  }
+
+  if (!(r.sessions || []).length) {
+    html += '<p class="scannote">' + t("scan_none") + "</p>";
+    box.innerHTML = html;
+    return;
+  }
+
+  html += '<div class="sesslist">' + r.sessions.map(function(lab){
+    var bad = lab.faults && lab.faults.length;
+    var hits = (r.ai || {})[lab.session_key];
+    var block = '<div class="sess' + (bad ? " bad" : "") + '">' +
+      '<div class="sh"><b>' + esc(lab.session_key.split("__").pop()) + " · " +
+        (bad ? t("sess_fault") : t("sess_ok")) + '</b>' +
+        '<span class="fb" style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;color:var(--muted)">' +
+        fmtClock(lab.t_start) + '</span></div>' +
+      '<div class="meta">' +
+        "<span>" + t("l_dur") + " <em>" + fmtDur(lab.t_end - lab.t_start) + "</em></span>" +
+        "<span>" + t("l_events") + " <em>" + num(lab.n_events) + "</em></span>" +
+        "<span>" + t("l_deliver") + " <em>" +
+          t(lab.reached_current_demand ? "yes" : "no") + "</em></span>" +
+        "<span>" + t("l_close") + " <em>" +
+          t(lab.graceful_close ? "yes" : "no") + "</em></span>" +
+      "</div>";
+    if (bad) {
+      block += lab.faults.map(function(f){
+        return '<div class="faultrow"><span class="ft">+' + fmtDur(f[0] - lab.t_start) +
+          '</span><span><b>' + esc(f[1]) + '</b><br><span class="fd">' + esc(f[2]) +
+          "</span></span></div>";
+      }).join("");
+    } else {
+      block += '<div class="okrow">' + t("sess_ok") + "</div>";
+    }
+    var obs = lab.obs || [];
+    if (obs.length) {
+      block += '<div class="obsbox"><div class="oh">' + t("obs_head") + "</div>" +
+        obs.map(function(o){
+          var txt = t.apply(null, ["obs_" + o.code].concat(o.args || []));
+          if (txt === "obs_" + o.code) txt = esc(o.code + " " + (o.args || []).join(" "));
+          return '<div class="obs"><span class="oi">!</span><span>' + txt + "</span></div>";
+        }).join("") + "</div>";
+    }
+    if (!ran.length) {
+      block += '<div class="scannote" style="margin-top:9px">' + t("ai_off") + "</div>";
+    } else {
+      /* show every model that ran, so "raised no alert" is visible as its own
+         answer rather than an absence */
+      block += '<div class="aihits"><span class="scannote" style="margin:0">' + t("ai_by") +
+        "</span>" + ran.map(function(d){
+          var h = (hits || {})[d];
+          return h
+            ? '<span class="aihit" data-tip="' + esc(h.reason || "") + '">' +
+              esc(DETN[d] || d) + " +" + fmtDur(h.t - lab.t_start) + "</span>"
+            : '<span class="aihit miss">' + esc(DETN[d] || d) + " " + t("ai_nohit") + "</span>";
+        }).join("") + "</div>";
+    }
+    return block + "</div>";
+  }).join("") + "</div>";
+
+  html += '<p class="scannote">' + t("scan_clockwarn") + "</p>";
+  if ((r.notes || []).length) {
+    html += '<p class="scannote">' + r.notes.map(esc).join(" · ") + "</p>";
+  }
+  box.innerHTML = html;
+}
+
+/* a small handle for the browser console: inspect or re-render the last
+   analysis without re-uploading (handy when a result looks wrong) */
+window.__egat = { scan: scan, renderScan: function(){ renderScanResult(); },
+                  showView: function(v){ showView(v); } };
+
+function showView(v){
+  document.getElementById("view-dash").hidden = v !== "dash";
+  document.getElementById("view-scan").hidden = v !== "scan";
+  document.getElementById("view-ref").hidden = v !== "ref";
+  Array.prototype.forEach.call(document.querySelectorAll("#tabs button"), function(b){
+    b.setAttribute("aria-selected", String(b.getAttribute("data-view") === v));
+  });
+  if (v === "scan") renderScanShell();
+}
+
+/* ---------------------------------------------------------------- wiring */
+document.getElementById("tabs").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-view]");
+  if (b) showView(b.getAttribute("data-view"));
+});
+document.getElementById("picker").addEventListener("change", function(e){
+  addFiles(e.target.files); e.target.value = "";
+});
+document.getElementById("drop").addEventListener("click", function(){
+  document.getElementById("picker").click();
+});
+document.getElementById("drop").addEventListener("keydown", function(e){
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); document.getElementById("picker").click(); }
+});
+["dragenter", "dragover"].forEach(function(k){
+  document.getElementById("drop").addEventListener(k, function(e){
+    e.preventDefault(); this.classList.add("over");
+  });
+});
+["dragleave", "drop"].forEach(function(k){
+  document.getElementById("drop").addEventListener(k, function(e){
+    e.preventDefault(); this.classList.remove("over");
+    if (k === "drop" && e.dataTransfer) addFiles(e.dataTransfer.files);
+  });
+});
+document.getElementById("filelist").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-rm]");
+  if (!b || scan.busy) return;
+  scan.files.splice(+b.getAttribute("data-rm"), 1);
+  renderFileList();
+});
+document.getElementById("mpchips").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-m]");
+  if (!b || scan.busy) return;
+  var m = b.getAttribute("data-m"), i = scan.models.indexOf(m);
+  if (i >= 0) scan.models.splice(i, 1); else scan.models.push(m);
+  scan.models = DETS.filter(function(d){ return scan.models.indexOf(d) >= 0; });
+  saveModels(); renderModels();
+});
+document.getElementById("mpall").addEventListener("click", function(){
+  if (scan.busy) return;
+  scan.models = DETS.slice(); saveModels(); renderModels();
+});
+document.getElementById("mpnone").addEventListener("click", function(){
+  if (scan.busy) return;
+  scan.models = []; saveModels(); renderModels();
+});
+document.getElementById("runscan").addEventListener("click", runScan);
+document.getElementById("clearscan").addEventListener("click", function(){
+  if (scan.busy) return;
+  scan.files = []; scan.res = null; scan.job = null;
+  document.getElementById("scanres").innerHTML = "";
+  setRunState(""); renderFileList();
+});
+document.getElementById("q").addEventListener("input", function(e){
+  state.q = e.target.value; renderTable();
+});
+document.getElementById("grp").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-g]");
+  if (!b) return;
+  state.g = b.getAttribute("data-g");
+  Array.prototype.forEach.call(this.querySelectorAll("button"), function(x){
+    x.setAttribute("aria-pressed", String(x === b));
+  });
+  renderTable();
+});
+document.getElementById("langbar").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-lang]");
+  if (b) setLang(b.getAttribute("data-lang"));
+});
+document.getElementById("themebtn").addEventListener("click", function(){
+  setTheme(theme === "dark" ? "light" : "dark");
+});
+document.getElementById("piesw").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-pie]");
+  if (!b) return;
+  pieMode = b.getAttribute("data-pie");
+  state.slice = null;              /* a filter from the other view would lie */
+  Array.prototype.forEach.call(this.querySelectorAll("button"), function(x){
+    x.setAttribute("aria-pressed", String(x === b));
+  });
+  renderPie(); renderTable();
+});
+document.getElementById("pieblock").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-slice]");
+  if (!b) return;
+  var raw = b.getAttribute("data-slice");
+  var k = pieMode === "prio" ? +raw : raw;   /* prio keys are numeric tiers */
+  var on = state.slice && state.slice.m === pieMode && state.slice.k === k;
+  state.slice = on ? null : { m: pieMode, k: k };
+  renderPie(); renderTable();
+});
+document.getElementById("onlyflag").addEventListener("click", function(){
+  state.flag = !state.flag;
+  this.setAttribute("aria-pressed", String(state.flag));
+  renderTable();
+});
+document.querySelector("thead").addEventListener("click", function(e){
+  var th = e.target.closest("th[data-k]");
+  if (!th) return;
+  var k = th.getAttribute("data-k");
+  if (state.sort === k) state.dir = -state.dir;
+  else { state.sort = k; state.dir = (k === "name" || k === "top" || k === "stat") ? 1 : -1; }
+  Array.prototype.forEach.call(this.querySelectorAll("th"), function(x){
+    x.setAttribute("data-active", x === th ? "1" : "0");
+  });
+  renderTable();
+});
+function select(i, scroll){
+  if (i === undefined || i === null || !ST[i]) return;
+  state.sel = i;
+  /* the address bar becomes a shareable link to this station */
+  try { history.replaceState(null, "", "#s=" + encodeURIComponent(ST[i].key)); }
+  catch (e) { /* sandboxed frame: skip the deep link, everything else works */ }
+  renderTable(); renderDetail();
+  if (scroll) {
+    var el = document.querySelector('#rows tr[data-i="' + i + '"]');
+    if (el) { el.scrollIntoView({ block: "nearest" }); el.focus(); }
+  }
+}
+
+function step(delta){
+  if (!shown.length) return;
+  var pos = -1;
+  for (var k = 0; k < shown.length; k++) { if (shown[k].i === state.sel) { pos = k; break; } }
+  pos = pos < 0 ? 0 : Math.max(0, Math.min(shown.length - 1, pos + delta));
+  select(shown[pos].i, true);
+}
+
+document.getElementById("rows").addEventListener("click", function(e){
+  var tr = e.target.closest("tr[data-i]");
+  if (tr) select(+tr.getAttribute("data-i"), false);
+});
+document.getElementById("rows").addEventListener("keydown", function(e){
+  var tr = e.target.closest("tr[data-i]");
+  if (e.key === "ArrowDown") { e.preventDefault(); step(1); return; }
+  if (e.key === "ArrowUp") { e.preventDefault(); step(-1); return; }
+  if (e.key === "Home") { e.preventDefault(); if (shown.length) select(shown[0].i, true); return; }
+  if (e.key === "End") { e.preventDefault(); if (shown.length) select(shown[shown.length-1].i, true); return; }
+  if ((e.key === "Enter" || e.key === " ") && tr) { e.preventDefault(); select(+tr.getAttribute("data-i"), false); }
+});
+
+var tip = document.getElementById("tip");
+document.addEventListener("mousemove", function(e){
+  var el = e.target.closest ? e.target.closest("[data-tip]") : null;
+  if (el) {
+    tip.textContent = el.getAttribute("data-tip");
+    tip.style.opacity = "1";
+    tip.style.left = Math.min(e.clientX + 14, window.innerWidth - 262) + "px";
+    tip.style.top = Math.min(e.clientY + 14, window.innerHeight - 70) + "px";
+  } else tip.style.opacity = "0";
+});
+document.addEventListener("mouseleave", function(){ tip.style.opacity = "0"; });
+
+document.querySelector('thead th[data-k="rate"]').setAttribute("data-active", "1");
+/* a link like #s=003_7Eleven_Latphrao126 opens straight on that station */
+(function(){
+  var m = /(?:^|[#&])s=([^&]+)/.exec(location.hash || "");
+  if (!m) return;
+  var want = decodeURIComponent(m[1]);
+  for (var i = 0; i < ST.length; i++) { if (ST[i].key === want) { state.sel = i; return; } }
+})();
+applyTheme();
+applyStatic();
+renderKpi(); renderTable(); renderDetail(); renderFamily(); renderSkew(); renderAI();
+renderPie(); renderMode(); renderRef(); wireLocalBar();
+renderFileList(); renderModels(); initStore();
+try { history.replaceState(null, "", "#s=" + encodeURIComponent(ST[state.sel].key)); }
+catch (e) { /* sandboxed frame */ }
+})();
+</script>

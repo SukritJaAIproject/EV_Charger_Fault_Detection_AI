@@ -1,0 +1,1172 @@
+<title>ISO 15118-2 Ablation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --paper:        #f4f6f8;
+  --surface:      #ffffff;
+  --surface-2:    #eef1f5;
+  --ink:          #10151b;
+  --ink-2:        #3d4854;
+  --muted:        #667484;
+  --rule:         #d8dee6;
+  --rule-strong:  #b6c0cc;
+  --s1:           #2a78d6;
+  --s1-soft:      #dce9f9;
+  --s2:           #eb6834;
+  --s2-soft:      #fbe3d8;
+  --good:         #167f5b;
+  --good-soft:    #dbf0e8;
+  --bad:          #b3352f;
+  --bad-soft:     #f8e0de;
+  --shadow:       0 1px 2px rgba(16,21,27,.06), 0 8px 24px -16px rgba(16,21,27,.28);
+  --measure:      68ch;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper:       #0d1116;
+    --surface:     #151b23;
+    --surface-2:   #1c242e;
+    --ink:         #e7ecf2;
+    --ink-2:       #b3bec9;
+    --muted:       #8593a2;
+    --rule:        #29323d;
+    --rule-strong: #3a4551;
+    --s1:          #3987e5;
+    --s1-soft:     #16304d;
+    --s2:          #d95926;
+    --s2-soft:     #43220f;
+    --good:        #199e70;
+    --good-soft:   #10322a;
+    --bad:         #e66767;
+    --bad-soft:    #3a1d1d;
+    --shadow:      0 1px 2px rgba(0,0,0,.5), 0 10px 28px -18px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper:       #0d1116;
+  --surface:     #151b23;
+  --surface-2:   #1c242e;
+  --ink:         #e7ecf2;
+  --ink-2:       #b3bec9;
+  --muted:       #8593a2;
+  --rule:        #29323d;
+  --rule-strong: #3a4551;
+  --s1:          #3987e5;
+  --s1-soft:     #16304d;
+  --s2:          #d95926;
+  --s2-soft:     #43220f;
+  --good:        #199e70;
+  --good-soft:   #10322a;
+  --bad:         #e66767;
+  --bad-soft:    #3a1d1d;
+  --shadow:      0 1px 2px rgba(0,0,0,.5), 0 10px 28px -18px rgba(0,0,0,.8);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 96px; }
+.col  { max-width: var(--measure); }
+h1, h2, h3, .ui {
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  text-wrap: balance;
+}
+.mono, code, th, .num {
+  font-family: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- masthead ---------- */
+header { padding: 56px 0 28px; border-bottom: 2px solid var(--ink); }
+.kicker {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px; letter-spacing: .13em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 14px;
+}
+h1 { font-size: clamp(34px, 5.2vw, 54px); line-height: 1.04; font-weight: 700;
+     letter-spacing: -.022em; margin: 0 0 18px; }
+.dek { font-size: 20px; line-height: 1.5; color: var(--ink-2); margin: 0; max-width: 60ch; }
+
+/* ---------- the experiment strip: the arrows ARE the design ---------- */
+.arms { display: grid; gap: 10px; grid-template-columns: 1fr; margin: 34px 0 0; }
+@media (min-width: 760px) { .arms { grid-template-columns: 1fr 1fr 1fr; } }
+.arm {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 3px;
+  padding: 16px 18px 18px; position: relative;
+}
+.arm.r { border-left: 3px solid var(--s1); }
+.arm.f { border-left: 3px solid var(--s2); }
+.arm .step {
+  font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 6px;
+}
+.arm .name { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 15px;
+             color: var(--ink); display: block; margin-bottom: 8px; }
+.arm p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--ink-2); }
+
+section { margin: 60px 0 0; }
+h2 { font-size: clamp(23px, 3vw, 30px); font-weight: 600; letter-spacing: -.014em;
+     margin: 0 0 6px; }
+.sub { color: var(--muted); font-size: 15px; margin: 0 0 22px;
+       font-family: Archivo, sans-serif; }
+p { margin: 0 0 18px; }
+strong { font-weight: 600; }
+.lede { font-size: 19px; line-height: 1.55; }
+
+/* ---------- data blocks break out of the measure ---------- */
+.block {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+  box-shadow: var(--shadow); padding: 22px 24px 24px; margin: 26px 0 30px;
+  overflow-x: auto;
+}
+.block h3 { font-size: 14px; font-weight: 600; letter-spacing: .04em;
+            text-transform: uppercase; color: var(--muted); margin: 0 0 4px; }
+.block .cap { font-size: 14px; color: var(--muted); margin: 0 0 18px;
+              font-family: Archivo, sans-serif; }
+
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+caption { text-align: left; caption-side: top; font-family: Archivo, sans-serif;
+          font-size: 14px; color: var(--muted); padding-bottom: 12px; }
+th {
+  font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--muted); text-align: right; padding: 0 10px 8px;
+  border-bottom: 1px solid var(--rule-strong); white-space: nowrap;
+}
+th:first-child, td:first-child { text-align: left; padding-left: 0; }
+th.l, td.l { text-align: left; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--rule); text-align: right;
+     white-space: nowrap; }
+tbody tr:last-child td { border-bottom: none; }
+td.name { font-family: "IBM Plex Mono", monospace; font-size: 13.5px; font-weight: 500;
+          color: var(--ink); }
+td.num, th.num { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+.d-pos { color: var(--good); font-weight: 600; }
+.d-neg { color: var(--bad); font-weight: 600; }
+.d-nil { color: var(--muted); }
+.win { background: var(--s2-soft); }
+tr.hi td { background: color-mix(in srgb, var(--s2-soft) 60%, transparent); }
+
+/* ---------- chart ---------- */
+.legend { display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+          margin: 0 0 16px; font-family: Archivo, sans-serif; font-size: 13.5px;
+          color: var(--ink-2); }
+.swatch { width: 13px; height: 13px; border-radius: 2px; display: inline-block;
+          margin-right: 7px; vertical-align: -1px; }
+.chart-wrap { overflow-x: auto; }
+svg { display: block; }
+.bar { transition: opacity .12s ease; }
+@media (prefers-reduced-motion: reduce) { .bar { transition: none; } }
+.bar:hover { opacity: .78; }
+.tip {
+  position: fixed; pointer-events: none; z-index: 40; opacity: 0;
+  background: var(--ink); color: var(--paper); border-radius: 3px;
+  padding: 7px 10px; font-family: "IBM Plex Mono", monospace; font-size: 12px;
+  line-height: 1.45; white-space: nowrap; box-shadow: var(--shadow);
+}
+.tip.on { opacity: 1; }
+
+/* ---------- verdict pills ---------- */
+.pill {
+  display: inline-block; font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  font-weight: 600; letter-spacing: .03em; padding: 2px 8px; border-radius: 2px;
+  white-space: nowrap;
+}
+.pill.ok  { background: var(--good-soft); color: var(--good); }
+.pill.no  { background: var(--bad-soft);  color: var(--bad); }
+.pill.mid { background: var(--surface-2); color: var(--ink-2); }
+
+.callout {
+  border-left: 3px solid var(--rule-strong); padding: 4px 0 4px 20px;
+  margin: 26px 0; color: var(--ink-2);
+}
+.callout.key { border-left-color: var(--s2); }
+
+ul { padding-left: 22px; margin: 0 0 18px; }
+li { margin: 0 0 9px; }
+
+footer { margin: 72px 0 0; padding-top: 26px; border-top: 1px solid var(--rule);
+         font-size: 14px; color: var(--muted); }
+footer h3 { font-family: Archivo, sans-serif; font-size: 13px; letter-spacing: .06em;
+            text-transform: uppercase; color: var(--ink-2); margin: 0 0 10px; }
+footer p { margin: 0 0 12px; }
+.fnote { font-size: 13.5px; }
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="kicker">EGAT DC fleet &middot; 37 stations &middot; held-out test</p>
+  <h1>What the standard actually adds</h1>
+  <p class="dek">Five fault-detection architectures, one ground truth, one held-out
+  sample &mdash; run three times, changing only how much of ISO&nbsp;15118‑2:2014
+  the system was allowed to know.</p>
+
+  <div class="arms">
+    <div class="arm">
+      <span class="step">arm 1 &middot; control</span>
+      <span class="name">baseline</span>
+      <p>33 features. Every threshold found by looking at this fleet's own data.</p>
+    </div>
+    <div class="arm r">
+      <span class="step">arm 2 &middot; + rules</span>
+      <span class="name">iso_rules</span>
+      <p>The <em>same trained weights</em>. Only change: the rule layers can read a
+      conformance state whose every branch cites a requirement id.</p>
+    </div>
+    <div class="arm f">
+      <span class="step">arm 3 &middot; + features</span>
+      <span class="name">iso</span>
+      <p>27 further features, each a ratio against a published normative limit,
+      and all five models retrained on them.</p>
+    </div>
+  </div>
+</header>
+
+<section class="col">
+  <p class="lede">The results differ &mdash; but the useful finding is not the
+  headline number. It is that the standard's two halves helped
+  <em>completely different architectures</em>, and neither half helped both.</p>
+</section>
+
+<section>
+  <h2>The split</h2>
+  <p class="sub">Change in competition score, decomposed</p>
+
+  <div class="block">
+    <h3>Score contribution by source</h3>
+    <p class="cap">Left of the line is a loss, right is a gain. Blue is what the
+    standard's rules were worth; orange is what its features added on top.</p>
+
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--s1)"></span>rules
+        &nbsp;<span class="mono" style="color:var(--muted)">iso_rules &minus; baseline</span></span>
+      <span><span class="swatch" style="background:var(--s2)"></span>features
+        &nbsp;<span class="mono" style="color:var(--muted)">iso &minus; iso_rules</span></span>
+    </div>
+
+    <div class="chart-wrap">
+      <svg id="chart" viewBox="0 0 760 300" width="760" height="300"
+           role="img" aria-label="Score change per detector, split into the contribution from ISO rules and from ISO features. MultiAgent gains 6.2 from rules and nothing from features; RL gains 2.6 from features and nothing from rules.">
+      </svg>
+    </div>
+  </div>
+
+  <div class="col">
+    <p><strong>The rules lift the architectures built to fuse evidence.</strong>
+    MultiAgent&nbsp;+6.2 and AIAgent&nbsp;+3.7 &mdash; both keep a blackboard or an
+    evidence board that a cited, graded conformance signal drops straight into.
+    They gave the reinforcement learner exactly <span class="mono">0.0</span>,
+    because it has no rule layer to put them in.</p>
+
+    <p><strong>The features lift the pure learner, and only it.</strong>
+    RL gains <span class="mono">+2.6</span> score and
+    <span class="mono">+3.8pp</span> recall from the same knowledge expressed as
+    27 numbers, and its false-alarm rate <em>falls</em>. They gave MultiAgent
+    <span class="mono">+0.0</span>: it had already extracted that information
+    through its rules. For AgenticAI they are a net loss (&minus;2.5, false
+    alarms +10pp) &mdash; the retrained 60-feature anomaly tools fire more often
+    and its investigation loop believes them.</p>
+
+    <div class="callout key">
+      <p style="margin:0">The form you hand a model the standard in decides which
+      architecture can use it at all. A rule book is invisible to a policy network;
+      a feature vector is invisible to a rule engine.</p>
+    </div>
+  </div>
+
+  <div class="block">
+    <table>
+      <caption>All three arms scored the identical 472-session sample under the
+      corrected ground truth with every learned layer retrained on it &mdash;
+      182 faulty, 290 clean, same seed, same order, verified byte-identical.</caption>
+      <thead>
+        <tr>
+          <th>detector</th>
+          <th class="num">base</th><th class="num">+rules</th><th class="num">+feat</th>
+          <th class="num">recall base</th><th class="num">recall +feat</th>
+          <th class="num">FAR base</th><th class="num">FAR +feat</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="name">AgenticAI</td>
+          <td class="num">72.0</td><td class="num">71.5</td><td class="num d-neg">69.0</td>
+          <td class="num">90.1%</td><td class="num d-nil">90.7%</td>
+          <td class="num">26.6%</td><td class="num d-neg">38.3%</td></tr>
+        <tr><td class="name">TraditionalAI</td>
+          <td class="num">69.4</td><td class="num">69.5</td><td class="num">69.2</td>
+          <td class="num">79.1%</td><td class="num d-nil">79.7%</td>
+          <td class="num">25.9%</td><td class="num">27.9%</td></tr>
+        <tr class="hi"><td class="name">MultiAgent</td>
+          <td class="num">57.2</td><td class="num d-pos">63.4</td><td class="num">63.4</td>
+          <td class="num">61.5%</td><td class="num d-pos">74.2%</td>
+          <td class="num">22.1%</td><td class="num">24.5%</td></tr>
+        <tr><td class="name">AIAgent</td>
+          <td class="num">54.0</td><td class="num d-pos">57.7</td><td class="num">57.9</td>
+          <td class="num">64.8%</td><td class="num d-pos">74.2%</td>
+          <td class="num">42.1%</td><td class="num d-neg">47.6%</td></tr>
+        <tr class="hi"><td class="name">RL (DQN)</td>
+          <td class="num">49.9</td><td class="num d-nil">49.9</td><td class="num d-pos">52.5</td>
+          <td class="num">33.0%</td><td class="num d-pos">36.8%</td>
+          <td class="num">5.5%</td><td class="num">4.5%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>RL's <span class="mono">0.0 / 0.0 / 0.0</span> across every metric in the
+    middle arm is the control working: it is policy-only, receives no rules, and
+    therefore <em>must</em> come out identical. That it does is the evidence the
+    harness is not leaking differences between arms.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Where it lands</h2>
+  <p class="sub">Per-fault-family recall, baseline &rarr; +rules &rarr; +features</p>
+
+  <div class="block">
+    <table>
+      <caption>Every point of movement is in <span class="mono">SESSION_ABORT</span>.
+      Two families had no headroom; one is outside this standard entirely.</caption>
+      <thead>
+        <tr><th>detector</th>
+          <th class="num">SESSION_ABORT <span style="color:var(--muted)">n=78</span></th>
+          <th class="num">SLAC_FAILURE <span style="color:var(--muted)">n=44</span></th>
+          <th class="num">PROTOCOL_FAILED <span style="color:var(--muted)">n=69</span></th>
+          <th class="num">EV_ERROR <span style="color:var(--muted)">n=31</span></th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="name">TraditionalAI</td>
+          <td class="num">69 &rarr; 72 &rarr; <strong class="d-pos">78</strong></td>
+          <td class="num d-nil">20 &rarr; 20 &rarr; 20</td>
+          <td class="num d-nil">100 &rarr; 100 &rarr; 100</td>
+          <td class="num d-nil">100 &rarr; 100 &rarr; 100</td></tr>
+        <tr><td class="name">AgenticAI</td>
+          <td class="num d-nil">59 &rarr; 59 &rarr; 59</td>
+          <td class="num d-nil">77 &rarr; 77 &rarr; 77</td>
+          <td class="num d-nil">100 &rarr; 100 &rarr; 100</td>
+          <td class="num d-nil">100 &rarr; 100 &rarr; 100</td></tr>
+        <tr class="hi"><td class="name">MultiAgent</td>
+          <td class="num">29 &rarr; <strong class="d-pos">65</strong> &rarr; 65</td>
+          <td class="num d-nil">5 &rarr; 5 &rarr; 5</td>
+          <td class="num d-nil">100 &rarr; 100 &rarr; 100</td>
+          <td class="num d-nil">100 &rarr; 100 &rarr; 100</td></tr>
+        <tr><td class="name">AIAgent</td>
+          <td class="num">49 &rarr; <strong class="d-pos">76</strong> &rarr; 76</td>
+          <td class="num d-nil">0 &rarr; 0 &rarr; 0</td>
+          <td class="num d-nil">100 &rarr; 100 &rarr; 100</td>
+          <td class="num d-nil">100 &rarr; 100 &rarr; 100</td></tr>
+        <tr><td class="name">RL (DQN)</td>
+          <td class="num">13 &rarr; 13 &rarr; <strong class="d-pos">32</strong></td>
+          <td class="num d-nil">0 &rarr; 0 &rarr; 0</td>
+          <td class="num">41 &rarr; 41 &rarr; <strong class="d-pos">57</strong></td>
+          <td class="num">3 &rarr; 3 &rarr; <strong class="d-pos">16</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p><span class="mono">PROTOCOL_FAILED</span> and <span class="mono">EV_ERROR</span>
+    sat at 100% for four of five detectors before the standard arrived &mdash; a
+    <code>FAILED</code> response code needs no help being noticed.
+    <span class="mono">SLAC_FAILURE</span> moved zero points for every detector in
+    every arm, which is exactly right: PLC link establishment is specified in
+    <strong>ISO 15118‑3</strong>, a different document.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Which clause did the work</h2>
+  <p class="sub">First-alert attribution, <span class="mono">iso_rules</span> arm</p>
+
+  <div class="block">
+    <table>
+      <caption>Of MultiAgent's 153 on-time detections, 52 were produced by an ISO
+      rule. Each row names the requirement that fired.</caption>
+      <thead><tr><th>clause</th><th class="num">MultiAgent</th><th class="num">AIAgent</th><th class="l">catches</th></tr></thead>
+      <tbody>
+        <tr><td class="name">[V2G2-711/713] EVSEProcessing Ongoing</td>
+            <td class="num">19</td><td class="num">22</td><td class="l">PROTOCOL_FAILED, SESSION_ABORT</td></tr>
+        <tr><td class="name">Table 109 message timeout</td>
+            <td class="num">14</td><td class="num">&mdash;</td><td class="l">SESSION_ABORT</td></tr>
+        <tr><td class="name">[V2G2-443] sequence timer</td>
+            <td class="num">7</td><td class="num">8</td><td class="l">SESSION_ABORT</td></tr>
+        <tr><td class="name">[V2G2-706] PreCharge <span style="color:var(--muted)">(graded only)</span></td>
+            <td class="num">6</td><td class="num">&mdash;</td><td class="l">mixed &mdash; and 9 false alarms</td></tr>
+        <tr><td class="name">Fig.102 sequence legality</td>
+            <td class="num">4</td><td class="num">&mdash;</td><td class="l">PROTOCOL_FAILED</td></tr>
+        <tr><td class="name">[V2G2-448] communication setup</td>
+            <td class="num">1</td><td class="num">1</td><td class="l">SESSION_ABORT</td></tr>
+        <tr><td class="name">[V2G2-702] CableCheck</td>
+            <td class="num">1</td><td class="num">&mdash;</td><td class="l">SESSION_ABORT</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <div class="callout">
+      <p style="margin:0 0 10px"><strong>The second row is a bug I nearly shipped.</strong>
+      My first implementation reported the message timer only once a response
+      arrived &mdash; so the standard's central error case, the SECC simply
+      ceasing to answer <span class="mono">[V2G2-438]</span>, produced no signal at
+      all, because the response that would have closed the timer never came.</p>
+      <p style="margin:0">Making the timer report while a request is still
+      outstanding cost a full matrix rebuild and is worth 14 of MultiAgent's
+      SESSION_ABORT catches &mdash; the largest single ISO contribution to that
+      family. Left as it was, the standard would have looked materially weaker
+      than it is.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What the standard cannot see</h2>
+  <p class="sub">Ground-truth audit over all 6,443 sessions</p>
+
+  <div class="col">
+    <p>The benchmark asks whether ISO knowledge helps a detector. The complementary
+    question is whether the standard's own error criteria would even <em>identify</em>
+    these faults. Reducing every conformance ratio per session gives a direct answer.</p>
+  </div>
+
+  <div class="block">
+    <table>
+      <caption>Held-out split. A criterion that fires on clean sessions is not a
+      detector, however normative it is.</caption>
+      <thead><tr><th>ISO criterion</th><th class="num">sessions hit</th>
+        <th class="num">on clean</th><th class="num">% clean</th><th class="l">verdict</th></tr></thead>
+      <tbody>
+        <tr><td class="name">[V2G2-711] Ongoing &gt; 60 s</td><td class="num">10</td><td class="num">0</td><td class="num">0.0%</td><td><span class="pill ok">clean signal</span></td></tr>
+        <tr><td class="name">[V2G2-702] CableCheck &gt; 40 s</td><td class="num">3</td><td class="num">0</td><td class="num">0.0%</td><td><span class="pill ok">clean signal</span></td></tr>
+        <tr><td class="name">Fig.102 dialog reopened</td><td class="num">6</td><td class="num">0</td><td class="num">0.0%</td><td><span class="pill ok">clean signal</span></td></tr>
+        <tr><td class="name">[V2G2-443] sequence idle &gt; 60 s</td><td class="num">1</td><td class="num">0</td><td class="num">0.0%</td><td><span class="pill ok">clean signal</span></td></tr>
+        <tr><td class="name">[V2G2-448] no SessionSetupRes in 20 s</td><td class="num">1</td><td class="num">0</td><td class="num">0.0%</td><td><span class="pill ok">clean signal</span></td></tr>
+        <tr><td class="name">Table 109 message timeout</td><td class="num">7</td><td class="num">2</td><td class="num">28.6%</td><td><span class="pill mid">usable</span></td></tr>
+        <tr><td class="name">[V2G2-706] PreCharge &gt; 7 s</td><td class="num">81</td><td class="num">72</td><td class="num">88.9%</td><td><span class="pill no">noise</span></td></tr>
+        <tr><td class="name">Fig.102 illegal successor</td><td class="num">255</td><td class="num">193</td><td class="num">75.7%</td><td><span class="pill no">noise</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p><strong>Two normative rules had to be demoted from hard rules to mere
+    features</strong> because this fleet breaks them while working perfectly.
+    Under clause 8.8.4.3.3 <span class="mono">[V2G2-593]</span> the only legal
+    successors of <code>CurrentDemandRes</code> are <code>CurrentDemandReq</code>
+    and <code>PowerDeliveryReq</code> &mdash; the EV must send
+    <code>PowerDelivery(Stop)</code> before <code>SessionStopReq</code>. These
+    vehicles jump straight to <code>SessionStopReq</code> in sessions that charge
+    and close beautifully, and the charger answers <code>OK</code> instead of the
+    <code>FAILED_SequenceError</code> that <span class="mono">[V2G2-459]</span>
+    requires. The 75.7% figure is identical on train and test, so it is systematic
+    fleet behaviour, not a sampling artefact.</p>
+
+    <p>Likewise <span class="mono">[V2G2-706]</span> allows PreCharge 7 seconds.
+    Clean sessions here run past 19 seconds with the output still far from the EV
+    target, then charge normally.</p>
+
+    <div class="callout key">
+      <p style="margin:0 0 10px"><strong>104 of the 222 faulty held-out sessions
+      trip no ISO criterion at all.</strong></p>
+      <p style="margin:0"><span class="mono">SLAC_FAILURE</span> &mdash; 44 of 44
+      missed, because PLC matching lives in ISO 15118‑3.
+      <span class="mono">SESSION_ABORT</span> &mdash; 60 of 78 missed, because the
+      capture simply stops and no timer can expire when no further events arrive.
+      ISO 15118‑2 covers roughly half of this fault population, and specifically
+      the half made of protocol timers and response codes.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Fixing the labels</h2>
+  <p class="sub">The family carrying the whole result was the one we labelled worst</p>
+
+  <div class="col">
+    <p>All of the movement above is in <span class="mono">SESSION_ABORT</span>,
+    and that was the shakiest label in the set.
+    <span class="mono">ground_truth.py</span> raised it whenever a session never
+    produced a <code>SessionStopRes</code> &mdash; but on this fleet idle means
+    <em>zero packets</em> and nearly every session ends at a ring-buffer
+    boundary, so "the dialog stopped" and "the capture stopped" looked
+    identical. Splitting the held-out family by whether anything positive
+    actually happened on the wire:</p>
+  </div>
+
+  <div class="block">
+    <table>
+      <caption>78 held-out sessions labelled SESSION_ABORT, by the evidence they carried.</caption>
+      <thead><tr><th>positive evidence</th><th class="num">sessions</th><th class="num">share</th></tr></thead>
+      <tbody>
+        <tr><td class="name">TCP RST on the wire</td><td class="num">19</td><td class="num">24.4%</td></tr>
+        <tr><td class="name">re-SLAC mid-session (link drop)</td><td class="num">10</td><td class="num">12.8%</td></tr>
+        <tr><td class="name">[V2G2-711] EVSEProcessing stuck Ongoing</td><td class="num">7</td><td class="num">9.0%</td></tr>
+        <tr><td class="name">[8.8.1] the dialog reopened</td><td class="num">6</td><td class="num">7.7%</td></tr>
+        <tr><td class="name">Table 109 request unanswered</td><td class="num">2</td><td class="num">2.6%</td></tr>
+        <tr><td class="name">[V2G2-443] 60 s with no request</td><td class="num">1</td><td class="num">1.3%</td></tr>
+        <tr class="hi"><td class="name">none &mdash; only the missing SessionStopRes</td>
+            <td class="num"><strong>44</strong></td><td class="num"><strong>56.4%</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>A second tell: on those 44 the median detection <em>lead</em> ran to
+    <span class="mono">616&ndash;1633 s</span>, against
+    <span class="mono">0&ndash;106 s</span> on the corroborated ones &mdash; the
+    signature of a fault time pinned to the last captured packet rather than to
+    an event. Any earlier alert booked an enormous lead.</p>
+
+    <p>So the labeller now requires a positive anchor: a TCP RST, a re-SLAC, or
+    one of the standard's own timers expiring <em>while the link was still
+    delivering packets</em> (the PLC poll runs at ~20 Hz through a dead V2G
+    stream, so a genuine stall keeps producing rows and an ended capture does
+    not). Over all 6,443 sessions:</p>
+  </div>
+
+  <div class="block">
+    <table>
+      <caption>Ground truth before and after requiring evidence. No family other
+      than SESSION_ABORT moved by a single session.</caption>
+      <thead><tr><th>family</th><th class="num">before</th><th class="num">after</th><th class="num">diff</th></tr></thead>
+      <tbody>
+        <tr class="hi"><td class="name">SESSION_ABORT</td><td class="num">264</td><td class="num">123</td><td class="num d-neg">&minus;141</td></tr>
+        <tr><td class="name">PROTOCOL_FAILED</td><td class="num">234</td><td class="num">234</td><td class="num d-nil">0</td></tr>
+        <tr><td class="name">SLAC_FAILURE</td><td class="num">122</td><td class="num">122</td><td class="num d-nil">0</td></tr>
+        <tr><td class="name">EV_ERROR</td><td class="num">76</td><td class="num">76</td><td class="num d-nil">0</td></tr>
+        <tr><td class="name">EVSE_FAULT</td><td class="num">11</td><td class="num">11</td><td class="num d-nil">0</td></tr>
+        <tr><td class="name">COMM_FREEZE</td><td class="num">1</td><td class="num">1</td><td class="num d-nil">0</td></tr>
+        <tr><td class="name">TOTAL FAULTY</td><td class="num"><strong>708</strong></td><td class="num"><strong>567</strong></td><td class="num d-neg"><strong>&minus;141</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p><strong>53% of the abort family &mdash; 141 sessions, a fifth of every
+    fault in the dataset &mdash; were not faults.</strong> They were captures
+    that ended. A further 34 surviving aborts had their fault time re-anchored a
+    median 38 s earlier, onto the event that actually broke the dialog.</p>
+
+    <p>Labels never enter the feature matrices and detectors never see them
+    during replay, so the corrected truth could be applied to the alert records
+    already produced &mdash; no replay, no retraining, no sampling. The headline
+    table above is scored that way.</p>
+
+    <div class="callout key">
+      <p style="margin:0 0 10px"><strong>The thesis is unchanged; one supporting
+      claim died.</strong> The rules-versus-features split survives intact
+      &mdash; MultiAgent still takes its gain entirely from rules
+      (<span class="mono">+6.2</span> / <span class="mono">+0.0</span>), RL
+      entirely from features (<span class="mono">+0.0</span> /
+      <span class="mono">+2.6</span> once retrained; the next section says why
+      that number came down).</p>
+      <p style="margin:0">But TraditionalAI's apparent improvement was an
+      artefact of the bad labels. Under the corrected truth it gains nothing
+      from either half of the standard (&minus;0.2 / &minus;1.3, recall exactly
+      0.0pp) &mdash; on aborts with real evidence it was already saturated in
+      every arm.</p>
+    </div>
+
+    <p>One honest cost: false-alarm rates rose 1&ndash;4 points across the board,
+    because the 141 reclassified sessions moved into the clean pool and the
+    detectors do alert on some of them. Truncated captures genuinely look
+    anomalous; they are simply not charger faults.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What retraining on the truth was worth</h2>
+  <p class="sub">The same five detectors, refitted on the corrected labels</p>
+
+  <div class="col">
+    <p>Fixing the labels changes two things: how sessions are <em>scored</em>,
+    and what the learned layers are <em>trained on</em>. The section above
+    separated the first. This isolates the second &mdash; identical scoring,
+    only the weights changed.</p>
+  </div>
+
+  <div class="block">
+    <table>
+      <caption>Score under the corrected labels: weights trained on the old
+      truth &rarr; weights trained on the corrected truth.</caption>
+      <thead><tr><th>detector</th><th class="num">baseline</th><th class="num">iso_rules</th><th class="num">iso</th><th class="l">reading</th></tr></thead>
+      <tbody>
+        <tr class="hi"><td class="name">RL (DQN)</td>
+          <td class="num">41.7 &rarr; <strong class="d-pos">49.9</strong></td>
+          <td class="num">41.7 &rarr; <strong class="d-pos">49.9</strong></td>
+          <td class="num">49.8 &rarr; 52.5</td>
+          <td class="l">recall 20.3% &rarr; 33.0% from labels alone &mdash; <strong>larger than any ISO gain in this study</strong></td></tr>
+        <tr><td class="name">AgenticAI</td>
+          <td class="num">71.8 &rarr; 72.0</td><td class="num">71.3 &rarr; 71.5</td>
+          <td class="num">72.3 &rarr; <strong class="d-neg">69.0</strong></td>
+          <td class="l">retrained ISO anomaly tools raise its false alarms 28% &rarr; 38%</td></tr>
+        <tr><td class="name">TraditionalAI</td>
+          <td class="num">70.0 &rarr; 69.4</td><td class="num">69.8 &rarr; 69.5</td><td class="num">68.5 &rarr; 69.2</td>
+          <td class="l">flat</td></tr>
+        <tr><td class="name">AIAgent</td>
+          <td class="num">55.4 &rarr; 54.0</td><td class="num">58.7 &rarr; 57.7</td><td class="num">57.7 &rarr; 57.9</td>
+          <td class="l">flat</td></tr>
+        <tr><td class="name">MultiAgent</td>
+          <td class="num">57.2 &rarr; 57.2</td><td class="num">63.4 &rarr; 63.4</td><td class="num">63.4 &rarr; 63.4</td>
+          <td class="l">identical &mdash; it has no trained weights, which is the control that the re-score is right</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <div class="callout key">
+      <p style="margin:0 0 10px"><strong>Label quality beat the standard.</strong>
+      RL&rsquo;s +8.2 from correct labels alone, in the arm with no ISO knowledge
+      at all, exceeds every contribution the standard made to any detector. Its
+      reward was being computed against faults that were not faults, at times
+      after the dialog had already ended.</p>
+      <p style="margin:0">It also shrinks a claim made earlier in this report:
+      RL&rsquo;s gain from the ISO <em>features</em> is +2.6, not the +8.1
+      measured before retraining. Much of what looked like the features
+      informing the learner was the features compensating for the labels. The
+      direction of the finding is unchanged through all three generations
+      &mdash; rules reach the evidence-fusers, features reach the learner, nobody
+      gets both &mdash; but the features&rsquo; share for RL was overstated by
+      the bad ground truth.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Does it replicate at fleet scale?</h2>
+  <p class="sub">The rules arm, replayed over 212 stations instead of 37</p>
+
+  <div class="col">
+    <p>Everything above rests on 182 faulty sessions from 10 held-out stations.
+    The full-fleet pipeline &mdash; 44,198 captures, 212 stations, 40,542
+    sessions, strict labels &mdash; had already trained and benchmarked the
+    baseline arm on a held-out split of <strong>957 faulty and 7,863 clean
+    sessions across 45 stations never seen in training</strong>. The rules arm
+    needs no new weights, so it is one replay against exactly the same fleet
+    models, sessions and labels: a five-times larger test of the headline
+    claim, on hardware from a second operator and a second capture era.</p>
+  </div>
+
+  <div class="block">
+    <table>
+      <caption>Full-fleet held-out split, fleet-trained weights, ISO rule layer
+      on vs off. The right-hand column is the same delta on the 37-station
+      sample for comparison.</caption>
+      <thead><tr><th>detector</th>
+        <th class="num">base</th><th class="num">+rules</th><th class="num">diff</th>
+        <th class="num">recall diff</th><th class="num">FAR diff</th>
+        <th class="num">SESSION_ABORT <span style="color:var(--muted)">n=234</span></th>
+        <th class="num">37-station diff</th></tr></thead>
+      <tbody>
+        <tr class="hi"><td class="name">MultiAgent</td>
+          <td class="num">56.3</td><td class="num">62.5</td><td class="num d-pos">+6.2</td>
+          <td class="num d-pos">+11.6pp</td><td class="num">+0.9pp</td>
+          <td class="num">36% &rarr; <strong class="d-pos">83%</strong></td>
+          <td class="num">+6.2</td></tr>
+        <tr class="hi"><td class="name">AIAgent</td>
+          <td class="num">52.2</td><td class="num">58.8</td><td class="num d-pos">+6.6</td>
+          <td class="num d-pos">+13.7pp</td><td class="num d-neg">+4.9pp</td>
+          <td class="num">29% &rarr; <strong class="d-pos">84%</strong></td>
+          <td class="num">+3.7</td></tr>
+        <tr><td class="name">TraditionalAI</td>
+          <td class="num">68.0</td><td class="num">69.1</td><td class="num">+1.1</td>
+          <td class="num">+2.3pp</td><td class="num">+0.3pp</td>
+          <td class="num">81% &rarr; 90%</td>
+          <td class="num">+0.1</td></tr>
+        <tr><td class="name">AgenticAI</td>
+          <td class="num">69.9</td><td class="num">69.9</td><td class="num d-nil">+0.0</td>
+          <td class="num d-nil">+0.5pp</td><td class="num">+0.9pp</td>
+          <td class="num">74% &rarr; 76%</td>
+          <td class="num">&minus;0.5</td></tr>
+        <tr><td class="name">RL (DQN)</td>
+          <td class="num">49.5</td><td class="num">49.5</td><td class="num d-nil">+0.0</td>
+          <td class="num d-nil">+0.0pp</td><td class="num d-nil">+0.0pp</td>
+          <td class="num d-nil">51% &rarr; 51%</td>
+          <td class="num">+0.0</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>MultiAgent replicates to the decimal. RL is exactly zero again, as it
+    must be with no rule layer. <span class="mono">SLAC_FAILURE</span> did not
+    move for any detector, as it cannot. And the effect once more lands entirely
+    in <span class="mono">SESSION_ABORT</span>, where the two evidence-fusing
+    architectures go from catching a third of aborts to catching five in six.</p>
+
+    <p>Attribution at this scale names the clause even more sharply. Of
+    AIAgent&rsquo;s 696 on-time detections, <strong>191 came from the Ongoing
+    timer alone</strong> <span class="mono">[V2G2-711/713]</span> &mdash; 97
+    aborts, 50 protocol failures, 40 EVSE faults &mdash; a single requirement
+    id accounting for 27% of everything it caught. MultiAgent tells the same
+    story: 103 of its 710 from the Ongoing timer (72 aborts, 31 protocol
+    failures), 44 more aborts from the live message timer
+    <span class="mono">[Table 109]</span>, and roughly 200 of the 710 from an
+    ISO clause of one kind or another.</p>
+
+    <div class="callout">
+      <p style="margin:0">One cost appears only at scale. The PreCharge criterion
+      <span class="mono">[V2G2-706]</span> was demoted from a hard rule to graded
+      evidence early on; in MultiAgent&rsquo;s standards agent it still raised
+      348 false alarms against 12 catches over the fleet. It is now worth
+      removing from that agent entirely rather than keeping as a weak vote.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The blind spot, and the rule that closes it</h2>
+  <p class="sub"><span class="mono">SLAC_FAILURE</span> &mdash; 23% of held-out
+  faults, and outside this document</p>
+
+  <div class="col">
+    <p>Every table above has the same hole in it.
+    <span class="mono">SLAC_FAILURE</span> does not move &mdash; not in any arm,
+    not for any detector &mdash; because PLC matching is specified in
+    <strong>ISO&nbsp;15118&#8209;3</strong>. At fleet scale that is
+    <strong>224 of the 957 held-out faults</strong>, the largest family after
+    protocol failures, and four of the five detectors score between 0% and 21%
+    on it. These sessions contain no V2G frame at all, so all 33 features are
+    identically zero and there is nothing for a model to be right about.</p>
+
+    <p>We do not have part&nbsp;3. So this rule was not transcribed from a
+    document; it was measured off the wire, the way this fleet's own thresholds
+    were:</p>
+
+    <ul>
+      <li>A healthy <code>CM_SLAC_MATCH.REQ</code> is confirmed in
+        <strong>7&nbsp;ms</strong> (p50; p99 14&nbsp;ms over 5,129 matches).
+        There is no gradual degradation &mdash; the charger answers essentially
+        instantly, or never.</li>
+      <li>71.9% of SLAC failures stop at the match request, and 80.2% of those
+        never see a <code>.CNF</code>.</li>
+      <li>The rule has to be gated on <em>this</em> session having produced no
+        V2G of its own. The neighbouring connector shares the powerline, so its
+        matching frames land in our capture too; without the gate the rule
+        charges 685 healthy charges whose own match simply predates the capture
+        window.</li>
+    </ul>
+
+    <p>The whole rule is: a match request has stood unanswered for
+    <span class="mono">W</span> seconds and this session has produced no V2G.
+    It adds no feature columns, so the fleet's own weights load unchanged and
+    the arm is one replay rather than a retrain.</p>
+  </div>
+
+  <div class="block">
+    <table>
+      <caption>Full-fleet held-out split &mdash; 957 faulty, 7,863 clean, 45
+      unseen stations. The middle column is the entire ISO&nbsp;15118&#8209;2
+      rule layer from the section above; the right-hand column is this one
+      rule. Replayed in full over all 8,820 sessions, 2026-09-16.</caption>
+      <thead><tr><th>detector</th>
+        <th class="num">base</th>
+        <th class="num">+ ISO&nbsp;15118-2 <span style="color:var(--muted)">773 rules</span></th>
+        <th class="num">+ SLAC <span style="color:var(--muted)">1 rule</span></th>
+        <th class="num">recall</th>
+        <th class="num">SLAC_FAILURE <span style="color:var(--muted)">n=224</span></th>
+        <th class="num">FAR cost</th></tr></thead>
+      <tbody>
+        <tr class="hi"><td class="name">TraditionalAI</td>
+          <td class="num">68.0</td>
+          <td class="num">69.1 <span class="d-nil">+1.1</span></td>
+          <td class="num"><strong class="d-pos">77.0 &nbsp;+9.0</strong></td>
+          <td class="num d-pos">+15.5pp</td>
+          <td class="num">21% &rarr; <strong class="d-pos">87%</strong></td>
+          <td class="num d-nil">+0.1pp</td></tr>
+        <tr class="hi"><td class="name">AIAgent</td>
+          <td class="num">52.2</td>
+          <td class="num">58.8 <span class="d-pos">+6.6</span></td>
+          <td class="num"><strong class="d-pos">62.3 &nbsp;+10.1</strong></td>
+          <td class="num d-pos">+17.2pp</td>
+          <td class="num">0% &rarr; <strong class="d-pos">72%</strong></td>
+          <td class="num d-nil">+0.0pp</td></tr>
+        <tr class="hi"><td class="name">MultiAgent</td>
+          <td class="num">56.3</td>
+          <td class="num">62.5 <span class="d-pos">+6.2</span></td>
+          <td class="num"><strong class="d-pos">65.7 &nbsp;+9.4</strong></td>
+          <td class="num d-pos">+16.2pp</td>
+          <td class="num">7% &rarr; <strong class="d-pos">75%</strong></td>
+          <td class="num">+0.2pp</td></tr>
+        <tr><td class="name">AgenticAI</td>
+          <td class="num">69.9</td>
+          <td class="num">69.9 <span class="d-nil">+0.0</span></td>
+          <td class="num">71.0 <span class="d-pos">+1.0</span></td>
+          <td class="num">+0.9pp</td>
+          <td class="num">88% &rarr; 92%</td>
+          <td class="num d-nil">+0.0pp</td></tr>
+        <tr><td class="name">RL (DQN)</td>
+          <td class="num">49.5</td>
+          <td class="num d-nil">49.5 &nbsp;+0.0</td>
+          <td class="num d-nil">49.5 &nbsp;+0.0</td>
+          <td class="num d-nil">+0.0pp</td>
+          <td class="num d-nil">12% &rarr; 12%</td>
+          <td class="num d-nil">0.0pp</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <div class="callout key">
+      <p style="margin:0 0 10px"><strong>One rule measured off the wire beat 773
+      rules transcribed from the standard.</strong> On the same sessions, the
+      same weights and the same ground truth, it is worth +9 score points to
+      three of the five architectures where the entire ISO&nbsp;15118&#8209;2
+      rule layer was worth +1.1, +6.6 and +6.2.</p>
+      <p style="margin:0 0 10px">That is not a verdict on the standard. It is a verdict
+      on <em>scope</em>: part&nbsp;2 describes the V2G dialog, and this fleet's
+      largest untouched fault family happens before the dialog exists. A
+      document cannot help with what it does not cover, however well written it
+      is &mdash; and the cost of the gap is measured in whole detectors, not in
+      decimal places.</p>
+      <p style="margin:0">Attribution says the same thing from the other side.
+      Of TraditionalAI's 882 on-time detections, 359 now come from the PLC/SLAC
+      layer and <strong>194 of those are the SLAC family itself</strong>; for
+      AgenticAI it is 184, MultiAgent 161, AIAgent 162. The rule does not merely
+      raise a score &mdash; it is the thing that speaks first.</p>
+    </div>
+
+    <p>RL is once more exactly <span class="mono">0.0</span>, for the third
+    time in this report and for the same reason: no rule layer. AgenticAI barely
+    moves because it was already at 88% on this family &mdash; it reaches the
+    same conclusion indirectly, through per-station memory of how long matching
+    normally takes, which is the one architecture here that can learn a
+    fleet-specific fact nobody wrote down.</p>
+  </div>
+
+  <div class="block">
+    <h3>The threshold is not doing the work</h3>
+    <p class="cap">Mean score change across the five detectors, sweeping the
+    rule's only free parameter.</p>
+    <table>
+      <thead><tr><th class="l">W &mdash; seconds a match may stand unanswered</th>
+        <th class="num">1</th><th class="num">2</th><th class="num">5</th>
+        <th class="num">10</th><th class="num">20</th><th class="num">30</th>
+        <th class="num">45</th><th class="num">60</th></tr></thead>
+      <tbody>
+        <tr><td class="name">mean &Delta; score</td>
+          <td class="num">+6.24</td><td class="num">+6.18</td><td class="num">+6.08</td>
+          <td class="num"><strong>+5.88</strong></td><td class="num">+5.51</td>
+          <td class="num">+5.15</td><td class="num">+4.74</td>
+          <td class="num d-neg">+0.38</td></tr>
+        <tr><td class="name">clean sessions charged</td>
+          <td class="num">46</td><td class="num">46</td><td class="num">35</td>
+          <td class="num"><strong>31</strong></td><td class="num">19</td>
+          <td class="num">15</td><td class="num">6</td><td class="num">1</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p><strong>W was chosen on the held-out split, which is test-set
+    selection</strong>, so the honest thing is to show what that bought. The
+    answer is <span class="mono">+0.36</span> points: the best value on this
+    holdout (W&nbsp;=&nbsp;1&nbsp;s) beats the 10&nbsp;s actually shipped by
+    almost nothing, and anything from 1&nbsp;to&nbsp;45 seconds lands within
+    1.5 points. The signal is doing the work, not the tuning.</p>
+
+    <p>The collapse at 60&nbsp;s is an artefact worth naming, because it is the
+    kind of thing that looks like physics: sessions are cut at a 60-second idle
+    gap by the sessionizer, so a rule that waits 60&nbsp;s is waiting for
+    something that has already been sliced off. The apparent "EVs give up after
+    a minute" pattern in the raw timings is the same artefact.</p>
+
+    <div class="callout">
+      <p style="margin:0 0 10px">These numbers were computed rather than
+      replayed, which is exact here rather than approximate. The SLAC layer is a
+      pure early return in every detector that has one, so a detector's first
+      alert becomes <span class="mono">min(baseline alert, rule fire time)</span>
+      &mdash; Traditional returns from layer 0b, MultiAgent's bump is 0.95
+      against a 0.95 critical bar, AgenticAI's is a reflex, and RL has no rule
+      layer at all.</p>
+      <p style="margin:0 0 10px">The full replay has since run &mdash; 8,820
+      sessions, 155 minutes &mdash; and the projection was exact to the decimal
+      for <strong>TraditionalAI 77.0, MultiAgent 65.7, AgenticAI 71.0 and RL
+      49.5</strong>. Every per-family recall matched too.</p>
+      <p style="margin:0"><strong>AIAgent was the exception, and the argument I
+      made for it was wrong.</strong> I claimed its graded evidence could never
+      fire first, because a session with no V2G hands every tool the same
+      evidence family and the two-family route is then unreachable. The board
+      does not forget that fast: evidence decays with a 20-second half-life, so a
+      session that stumbles through matching and <em>then</em> succeeds carries
+      live <span class="mono">comm</span> evidence into its V2G phase, where the
+      anomaly tool supplies the second family. 212 of the 8,820 sessions (2.4%)
+      can take that path, and 9 actually did &mdash; every one of them alerting
+      <em>earlier</em> than predicted, which is why the projection was a lower
+      bound rather than simply wrong: 62.1 projected, <strong>62.3
+      measured</strong>. None of the 212 is a
+      <span class="mono">SLAC_FAILURE</span>, which by definition never reaches
+      V2G, so the per-family figures were never at risk.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The fleet against the clock</h2>
+  <p class="sub">Measured behaviour vs the published limits, 1,000 sessions</p>
+
+  <div class="block">
+    <table>
+      <caption>Before trusting any ISO threshold, measure what the hardware
+      actually does against it.</caption>
+      <thead><tr><th>normative limit</th><th class="num">clean</th><th class="num">faulty</th><th class="l">reading</th></tr></thead>
+      <tbody>
+        <tr><td class="name">every Table 109 message timeout</td><td class="num">0.00%</td><td class="num">0.00%</td>
+            <td class="l"><span class="pill mid">never fires</span> charger answers in ~10&nbsp;ms against 0.25&ndash;5&nbsp;s limits</td></tr>
+        <tr><td class="name">CurrentDemandRes 25 ms performance time</td><td class="num">28.4%</td><td class="num">21.6%</td>
+            <td class="l"><span class="pill no">anti-correlated</span> fires <em>more</em> on healthy sessions</td></tr>
+        <tr><td class="name">[V2G2-713] Ongoing &gt; 55 s</td><td class="num">0.0%</td><td class="num">8.4%</td>
+            <td class="l"><span class="pill ok">separates cleanly</span></td></tr>
+        <tr><td class="name">[V2G2-711] Ongoing &gt; 60 s</td><td class="num">0.0%</td><td class="num">8.0%</td>
+            <td class="l"><span class="pill ok">separates cleanly</span></td></tr>
+        <tr><td class="name">sequence gap &gt; 40 s</td><td class="num">0.0%</td><td class="num">1.4%</td>
+            <td class="l"><span class="pill ok">separates cleanly</span></td></tr>
+        <tr><td class="name">[V2G2-443] sequence gap &gt; 60 s</td><td class="num">0.0%</td><td class="num">1.0%</td>
+            <td class="l"><span class="pill ok">separates cleanly</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>Healthy sessions never exceed a <span class="mono">9.6 s</span> sequence gap
+    or a <span class="mono">22.6 s</span> Ongoing span; faulty ones reach
+    <span class="mono">85.8 s</span> and <span class="mono">353.4 s</span>. That gap
+    is why the Ongoing timer is the single most valuable thing in the document
+    &mdash; and why the per-message timeouts, the part of the standard one would
+    reach for first, are worthless on this hardware.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What I would do next</h2>
+  <div class="col">
+    <ul>
+      <li><strong>Ship the Ongoing timer as a production alarm.</strong>
+        <span class="mono">[V2G2-711]/[V2G2-713]</span>, zero false alarms across
+        6,443 sessions, catches 8&ndash;10% of faults, and it is a five-line rule.</li>
+      <li><strong>Still get ISO 15118‑3.</strong> The measured rule above
+        recovers 72&ndash;87% of <span class="mono">SLAC_FAILURE</span> from one
+        signal, which is most of the headroom part&nbsp;2 could never reach. What
+        the document would add is the rest of the sequence &mdash; sounding,
+        attenuation characterisation, the NMK exchange &mdash; where we currently
+        have stage counts and no normative limits to compare them against.</li>
+      <li><strong>Retrain on the corrected labels.</strong> The labels are
+        fixed and the leaderboard above is scored against them, but the learned
+        layers &mdash; XGBoost's horizon targets, the DQN's rewards, the
+        autoencoder's clean-session pool &mdash; were still fitted against the
+        old truth, in which a fifth of the "faults" were truncated captures.
+        Every arm is equally affected so the comparison holds, but all five are
+        leaving accuracy on the table.</li>
+      <li><strong>Work through the rest of the rule book.</strong> 34 more
+        quantified label proposals remain, several measured against this fleet
+        &mdash; among them splitting COMM_FREEZE by which party owes the next
+        message, and refusing to follow the standard's 250 ms CurrentDemand
+        bound as a label threshold.</li>
+      <li><strong>Do not give AgenticAI the standard.</strong> It is the one
+        architecture that got worse (&minus;0.6): already at 81.1% recall, the ISO
+        expectations only opened investigations that added false alarms.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="col">
+    <h3>Method &amp; caveats</h3>
+    <p><strong>Data.</strong> DIN 70121 V2G captures from 37 EGAT DC stations,
+    6,443 sessions, 708 faulty (11.0%). Trained on 27 stations, scored on 10
+    never-seen stations. The previous leaderboard for this project is void: a
+    review found the re-SLAC rule mislabelled about half of all "faulty" sessions,
+    because the powerline is shared and the neighbouring connector's SLAC frames
+    are captured here too. Fixing it changed the ranking on its own.</p>
+
+    <p><strong>Sample.</strong> Each arm scored 472 of the 1,909 held-out sessions
+    &mdash; every one of the 222 faulty plus a fixed random 250 clean. Recall, lead
+    time and the family breakdown are therefore at full resolution; the false-alarm
+    rate carries roughly &plusmn;3pp. A full replay is ~9 h per arm on this machine,
+    which three arms could not afford.</p>
+
+    <p><strong>Dialect.</strong> The captures speak DIN 70121, the German
+    predecessor. 82 of 435 observed <code>supportedAppProtocolReq</code> offers
+    also carry <code>urn:iso:15118:2:2013:MsgDef</code>, and the DC message set,
+    state machine and timing model are the same shape; three message names differ.
+    Rules that are ISO-only &mdash; TLS, Plug&amp;Charge, the MeteringReceipt
+    branch &mdash; were excluded as out-of-set for DC&nbsp;EIM per Table&nbsp;104.</p>
+
+    <p><strong>Provenance.</strong> All 46 timing constants were transcribed from
+    the PDF and then cross-checked against an independent seven-reader
+    extract-and-verify pass over the same document: 46 agree, 0 disagree. That pass
+    produced 773 normative rules &mdash; 615 confirmed on adversarial re-read, 45
+    corrected, and 113 found only by the verifier after the first reader missed
+    them.</p>
+
+    <p><strong>Inference.</strong> The tree traversals were vectorised part-way
+    through this work &mdash; all 300 XGBoost and 200 IsolationForest trees are
+    now walked at once, looping over depth rather than over trees (7.7&times; and
+    7.5&times;, 1.49&times; end to end). The per-tree loops remain in the file as
+    <span class="mono">margin_ref</span> / <span class="mono">score_ref</span> and
+    are asserted bit-identical on 3,000 real feature vectors in both arms, so no
+    number here moved because of it. Getting that identity required accumulating
+    with <span class="mono">cumsum</span> rather than <span class="mono">sum</span>
+    (order) and in float32 rather than float64 (dtype &mdash; under NEP 50 a
+    Python float is weak, so the original loop was float32 all along and
+    "improving" it to float64 drifted 5e-6).</p>
+
+    <p class="fnote">Numbers in this report come from
+    <span class="mono">results/ab_test_s250.json</span>,
+    <span class="mono">results/attribution_test_s250.json</span>,
+    <span class="mono">results/iso_label_audit.json</span> and
+    <span class="mono">results/iso_evidence.json</span>, plus <span class="mono">results/session_abort_audit_test.json</span> and <span class="mono">results/robustness_test.json</span> and <span class="mono">results/rescored_test.json</span>, <span class="mono">results/rescored_v2_test.json</span> and <span class="mono">results/generations.json</span> for the label and retrain work, and <span class="mono">results/slac_projection.json</span> plus <span class="mono">results/slac_wait_sweep.json</span> for the SLAC section.</p>
+  </div>
+</footer>
+
+</div>
+
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  // Final generation: labels corrected (SESSION_ABORT requires evidence) AND
+  // every learned layer retrained on them. See "Fixing the labels" below.
+  var DATA = [
+    { name: "MultiAgent",    rules:  6.2, feats:  0.0 },
+    { name: "AIAgent",       rules:  3.7, feats:  0.2 },
+    { name: "RL (DQN)",      rules:  0.0, feats:  2.6 },
+    { name: "TraditionalAI", rules:  0.1, feats: -0.2 },
+    { name: "AgenticAI",     rules: -0.5, feats: -2.5 }
+  ];
+
+  var W = 760, H = 300;
+  var M = { top: 26, right: 26, bottom: 34, left: 132 };
+  var iw = W - M.left - M.right;
+  var ih = H - M.top - M.bottom;
+
+  var MINV = -3, MAXV = 8;                    // ticks land on real values
+  var x = function (v) { return M.left + (v - MINV) / (MAXV - MINV) * iw; };
+  var rowH = ih / DATA.length;
+  var barH = 13, gap = 2;                      // 2px surface gap between the pair
+
+  var svg = document.getElementById("chart");
+  var NS = "http://www.w3.org/2000/svg";
+  function el(t, a) {
+    var n = document.createElementNS(NS, t);
+    for (var k in a) n.setAttribute(k, a[k]);
+    return n;
+  }
+
+  // zero-anchored ticks
+  [-2, 0, 2, 4, 6].forEach(function (t) {
+    var isZero = t === 0;
+    svg.appendChild(el("line", {
+      x1: x(t), x2: x(t), y1: M.top - 8, y2: M.top + ih,
+      stroke: isZero ? "var(--rule-strong)" : "var(--rule)",
+      "stroke-width": isZero ? 1.5 : 1
+    }));
+    var lab = el("text", {
+      x: x(t), y: M.top + ih + 20, "text-anchor": "middle",
+      fill: "var(--muted)", "font-size": "11.5px",
+      "font-family": "'IBM Plex Mono', monospace"
+    });
+    lab.textContent = (t > 0 ? "+" : "") + t;
+    svg.appendChild(lab);
+  });
+
+  var axisTitle = el("text", {
+    x: M.left + iw / 2, y: H - 4, "text-anchor": "middle",
+    fill: "var(--muted)", "font-size": "11.5px",
+    "font-family": "Archivo, sans-serif"
+  });
+  axisTitle.textContent = "change in competition score (points)";
+  svg.appendChild(axisTitle);
+
+  var tip = document.getElementById("tip");
+  function showTip(e, html) {
+    tip.innerHTML = html;
+    tip.classList.add("on");
+    var pad = 14;
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var left = e.clientX + pad, top = e.clientY - h - 8;
+    if (left + w > window.innerWidth - 8) left = e.clientX - w - pad;
+    if (top < 8) top = e.clientY + pad;
+    tip.style.left = left + "px";
+    tip.style.top = top + "px";
+  }
+  function hideTip() { tip.classList.remove("on"); }
+
+  DATA.forEach(function (d, i) {
+    var cy = M.top + i * rowH + rowH / 2;
+
+    var nameEl = el("text", {
+      x: M.left - 14, y: cy + 4, "text-anchor": "end", fill: "var(--ink)",
+      "font-size": "13px", "font-weight": "500",
+      "font-family": "'IBM Plex Mono', monospace"
+    });
+    nameEl.textContent = d.name;
+    svg.appendChild(nameEl);
+
+    [["rules", d.rules, "var(--s1)"], ["features", d.feats, "var(--s2)"]]
+      .forEach(function (s, j) {
+        var label = s[0], v = s[1], fill = s[2];
+        var y = cy - barH - gap / 2 + j * (barH + gap);
+        var x0 = x(0), x1 = x(v);
+        var left = Math.min(x0, x1), w = Math.abs(x1 - x0);
+        var r = 3.5;
+
+        if (w < 0.6) {                       // an exact zero still needs a mark
+          var z = el("rect", {
+            x: x0 - 1, y: y, width: 2, height: barH,
+            fill: "var(--rule-strong)"
+          });
+          svg.appendChild(z);
+        } else {
+          var bar = el("rect", {
+            x: left, y: y, width: w, height: barH, fill: fill,
+            rx: r, ry: r, "class": "bar"
+          });
+          svg.appendChild(bar);
+          // square off the baseline end so the bar is anchored, not floating
+          var sq = el("rect", {
+            x: v > 0 ? x0 : x0 - r, y: y, width: r, height: barH, fill: fill
+          });
+          svg.appendChild(sq);
+          bar.addEventListener("mousemove", function (e) {
+            showTip(e, d.name + "<br>" + label + " &nbsp;" +
+              (v > 0 ? "+" : "") + v.toFixed(1) + " pts");
+          });
+          bar.addEventListener("mouseleave", hideTip);
+          sq.addEventListener("mousemove", function (e) {
+            showTip(e, d.name + "<br>" + label + " &nbsp;" +
+              (v > 0 ? "+" : "") + v.toFixed(1) + " pts");
+          });
+          sq.addEventListener("mouseleave", hideTip);
+        }
+
+        var txt = el("text", {
+          y: y + barH - 2.5, fill: Math.abs(v) < 0.05 ? "var(--muted)" : "var(--ink-2)",
+          "font-size": "11.5px", "font-family": "'IBM Plex Mono', monospace"
+        });
+        if (v >= 0) {
+          txt.setAttribute("x", x1 + 7);
+          txt.setAttribute("text-anchor", "start");
+        } else {
+          txt.setAttribute("x", x1 - 7);
+          txt.setAttribute("text-anchor", "end");
+        }
+        txt.textContent = (v > 0 ? "+" : "") + v.toFixed(1);
+        svg.appendChild(txt);
+      });
+  });
+})();
+</script>
+

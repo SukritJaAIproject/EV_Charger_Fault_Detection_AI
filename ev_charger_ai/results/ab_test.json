@@ -1,0 +1,172 @@
+{
+ "split": "test",
+ "n_faulty": 957,
+ "n_clean": 7863,
+ "arms": [
+  "fleet_baseline",
+  "fleet_slac",
+  "fleet_iso_rules"
+ ],
+ "detectors": {
+  "AgenticAI": {
+   "score": {
+    "fleet_baseline": 69.94334611919759,
+    "fleet_slac": 70.99069831886618,
+    "fleet_iso_rules": 69.93604381617168
+   },
+   "recall": {
+    "fleet_baseline": 0.9070010449320794,
+    "fleet_slac": 0.9164054336468129,
+    "fleet_iso_rules": 0.9122257053291536
+   },
+   "far": {
+    "fleet_baseline": 0.34808597227521304,
+    "fleet_slac": 0.3482131501971258,
+    "fleet_iso_rules": 0.3573699605748442
+   },
+   "earliness": {
+    "fleet_baseline": 0.2517936520425003,
+    "fleet_slac": 0.28084105712196544,
+    "fleet_iso_rules": 0.2522928683479665
+   },
+   "median_lead_s": {
+    "fleet_baseline": 16.832000017166138,
+    "fleet_slac": 21.80400002002716,
+    "fleet_iso_rules": 15.92799997329712
+   },
+   "wins": {
+    "fleet_baseline": 258.6,
+    "fleet_slac": 153.02,
+    "fleet_iso_rules": 251.6
+   }
+  },
+  "TraditionalAI": {
+   "score": {
+    "fleet_baseline": 68.01408901835117,
+    "fleet_slac": 77.00569403178311,
+    "fleet_iso_rules": 69.07576537101828
+   },
+   "recall": {
+    "fleet_baseline": 0.7669801462904912,
+    "fleet_slac": 0.9216300940438872,
+    "fleet_iso_rules": 0.7899686520376176
+   },
+   "far": {
+    "fleet_baseline": 0.2661833905633982,
+    "fleet_slac": 0.2669464580948747,
+    "fleet_iso_rules": 0.2691084827673916
+   },
+   "earliness": {
+    "fleet_baseline": 0.3825291710364282,
+    "fleet_slac": 0.44662915362174954,
+    "fleet_iso_rules": 0.3825293626079571
+   },
+   "median_lead_s": {
+    "fleet_baseline": 57.461000084877014,
+    "fleet_slac": 49.474000096321106,
+    "fleet_iso_rules": 56.00999999046326
+   },
+   "wins": {
+    "fleet_baseline": 368.1,
+    "fleet_slac": 403.68,
+    "fleet_iso_rules": 366.27
+   }
+  },
+  "MultiAgent": {
+   "score": {
+    "fleet_baseline": 56.32171447549856,
+    "fleet_slac": 65.74566373183545,
+    "fleet_iso_rules": 62.511171896686804
+   },
+   "recall": {
+    "fleet_baseline": 0.625914315569488,
+    "fleet_slac": 0.7878787878787878,
+    "fleet_iso_rules": 0.741901776384535
+   },
+   "far": {
+    "fleet_baseline": 0.2832252320997075,
+    "fleet_slac": 0.2853872567722243,
+    "fleet_iso_rules": 0.29225486455551314
+   },
+   "earliness": {
+    "fleet_baseline": 0.17613778300076913,
+    "fleet_slac": 0.24566710205313952,
+    "fleet_iso_rules": 0.20918645070627234
+   },
+   "median_lead_s": {
+    "fleet_baseline": 0.0,
+    "fleet_slac": 0.0019998550415039062,
+    "fleet_iso_rules": 0.0
+   },
+   "wins": {
+    "fleet_baseline": 108.77,
+    "fleet_slac": 146.35,
+    "fleet_iso_rules": 107.93
+   }
+  },
+  "AIAgent": {
+   "score": {
+    "fleet_baseline": 52.204092648586375,
+    "fleet_slac": 62.27158910550001,
+    "fleet_iso_rules": 58.7947714181355
+   },
+   "recall": {
+    "fleet_baseline": 0.5903866248693835,
+    "fleet_slac": 0.7628004179728317,
+    "fleet_iso_rules": 0.7272727272727273
+   },
+   "far": {
+    "fleet_baseline": 0.3928526007885031,
+    "fleet_slac": 0.3934884903980669,
+    "fleet_iso_rules": 0.4421976344906524
+   },
+   "earliness": {
+    "fleet_baseline": 0.2235169714386145,
+    "fleet_slac": 0.29681114594002145,
+    "fleet_iso_rules": 0.2848532044609349
+   },
+   "median_lead_s": {
+    "fleet_baseline": 0.0,
+    "fleet_slac": 46.86900019645691,
+    "fleet_iso_rules": 4.273000001907349
+   },
+   "wins": {
+    "fleet_baseline": 97.1,
+    "fleet_slac": 137.52,
+    "fleet_iso_rules": 112.77
+   }
+  },
+  "RL": {
+   "score": {
+    "fleet_baseline": 49.499687986334266,
+    "fleet_slac": 49.499687986334266,
+    "fleet_iso_rules": 49.499687986334266
+   },
+   "recall": {
+    "fleet_baseline": 0.3448275862068966,
+    "fleet_slac": 0.3448275862068966,
+    "fleet_iso_rules": 0.3448275862068966
+   },
+   "far": {
+    "fleet_baseline": 0.05392343889100852,
+    "fleet_slac": 0.05392343889100852,
+    "fleet_iso_rules": 0.05392343889100852
+   },
+   "earliness": {
+    "fleet_baseline": 0.19380059213598438,
+    "fleet_slac": 0.19380059213598438,
+    "fleet_iso_rules": 0.19380059213598438
+   },
+   "median_lead_s": {
+    "fleet_baseline": 60.771000027656555,
+    "fleet_slac": 60.771000027656555,
+    "fleet_iso_rules": 60.771000027656555
+   },
+   "wins": {
+    "fleet_baseline": 74.43,
+    "fleet_slac": 74.43,
+    "fleet_iso_rules": 74.43
+   }
+  }
+ }
+}

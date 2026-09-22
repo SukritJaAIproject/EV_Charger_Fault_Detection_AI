@@ -1,0 +1,239 @@
+{
+ "n_faulty": 957,
+ "n_clean": 7863,
+ "detectors": {
+  "TraditionalAI": {
+   "recall": 0.7899686520376176,
+   "far": 0.2691084827673916,
+   "earliness": 0.3825293626079571,
+   "score": 69.07576537101828,
+   "tp": 756,
+   "late": 22,
+   "miss": 179,
+   "fp": 2116,
+   "median_lead_s": 56.00999999046326,
+   "mean_lead_s": 566.9658187877716,
+   "wins": 366.27,
+   "by_family": {
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 310,
+     "n": 310
+    },
+    "SESSION_ABORT": {
+     "recall": 0.9017094017094017,
+     "tp": 211,
+     "n": 234
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.20535714285714285,
+     "tp": 46,
+     "n": 224
+    },
+    "EVSE_FAULT": {
+     "recall": 1.0,
+     "tp": 93,
+     "n": 93
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 91,
+     "n": 91
+    },
+    "COMM_FREEZE": {
+     "recall": 1.0,
+     "tp": 5,
+     "n": 5
+    }
+   }
+  },
+  "RL": {
+   "recall": 0.3448275862068966,
+   "far": 0.05392343889100852,
+   "earliness": 0.19380059213598438,
+   "score": 49.499687986334266,
+   "tp": 330,
+   "late": 32,
+   "miss": 595,
+   "fp": 424,
+   "median_lead_s": 60.771000027656555,
+   "mean_lead_s": 700.2669636433775,
+   "wins": 74.43,
+   "by_family": {
+    "PROTOCOL_FAILED": {
+     "recall": 0.5387096774193548,
+     "tp": 167,
+     "n": 310
+    },
+    "SESSION_ABORT": {
+     "recall": 0.5128205128205128,
+     "tp": 120,
+     "n": 234
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.11607142857142858,
+     "tp": 26,
+     "n": 224
+    },
+    "EVSE_FAULT": {
+     "recall": 0.053763440860215055,
+     "tp": 5,
+     "n": 93
+    },
+    "EV_ERROR": {
+     "recall": 0.08791208791208792,
+     "tp": 8,
+     "n": 91
+    },
+    "COMM_FREEZE": {
+     "recall": 0.8,
+     "tp": 4,
+     "n": 5
+    }
+   }
+  },
+  "AIAgent": {
+   "recall": 0.7272727272727273,
+   "far": 0.4421976344906524,
+   "earliness": 0.2848532044609349,
+   "score": 58.7947714181355,
+   "tp": 696,
+   "late": 31,
+   "miss": 230,
+   "fp": 3477,
+   "median_lead_s": 4.273000001907349,
+   "mean_lead_s": 526.8956494267987,
+   "wins": 112.77,
+   "by_family": {
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 310,
+     "n": 310
+    },
+    "SESSION_ABORT": {
+     "recall": 0.8418803418803419,
+     "tp": 197,
+     "n": 234
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.0,
+     "tp": 0,
+     "n": 224
+    },
+    "EVSE_FAULT": {
+     "recall": 1.0,
+     "tp": 93,
+     "n": 93
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 91,
+     "n": 91
+    },
+    "COMM_FREEZE": {
+     "recall": 1.0,
+     "tp": 5,
+     "n": 5
+    }
+   }
+  },
+  "AgenticAI": {
+   "recall": 0.9122257053291536,
+   "far": 0.3573699605748442,
+   "earliness": 0.2522928683479665,
+   "score": 69.93604381617168,
+   "tp": 873,
+   "late": 36,
+   "miss": 48,
+   "fp": 2810,
+   "median_lead_s": 15.92799997329712,
+   "mean_lead_s": 211.21039633766864,
+   "wins": 251.6,
+   "by_family": {
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 310,
+     "n": 310
+    },
+    "SESSION_ABORT": {
+     "recall": 0.7606837606837606,
+     "tp": 178,
+     "n": 234
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.875,
+     "tp": 196,
+     "n": 224
+    },
+    "EVSE_FAULT": {
+     "recall": 1.0,
+     "tp": 93,
+     "n": 93
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 91,
+     "n": 91
+    },
+    "COMM_FREEZE": {
+     "recall": 1.0,
+     "tp": 5,
+     "n": 5
+    }
+   }
+  },
+  "MultiAgent": {
+   "recall": 0.741901776384535,
+   "far": 0.29225486455551314,
+   "earliness": 0.20918645070627234,
+   "score": 62.511171896686804,
+   "tp": 710,
+   "late": 31,
+   "miss": 216,
+   "fp": 2298,
+   "median_lead_s": 0.0,
+   "mean_lead_s": 328.21792112614,
+   "wins": 107.93,
+   "by_family": {
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 310,
+     "n": 310
+    },
+    "SESSION_ABORT": {
+     "recall": 0.8333333333333334,
+     "tp": 195,
+     "n": 234
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.07142857142857142,
+     "tp": 16,
+     "n": 224
+    },
+    "EVSE_FAULT": {
+     "recall": 1.0,
+     "tp": 93,
+     "n": 93
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 91,
+     "n": 91
+    },
+    "COMM_FREEZE": {
+     "recall": 1.0,
+     "tp": 5,
+     "n": 5
+    }
+   }
+  }
+ },
+ "wall_seconds": {
+  "TraditionalAI": 28088.6,
+  "RL": 12184.7,
+  "AIAgent": 89978.2,
+  "AgenticAI": 88871.3,
+  "MultiAgent": 4735.1
+ },
+ "split": "test"
+}

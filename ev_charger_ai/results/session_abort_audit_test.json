@@ -1,0 +1,392 @@
+{
+ "split": "test",
+ "n_aborts": 78,
+ "n_uncorroborated": 44,
+ "evidence_counts": {
+  "tcp_rst": 19,
+  "re_slac": 10,
+  "iso_msg_timeout": 2,
+  "iso_seq_timeout": 1,
+  "iso_ongoing": 7,
+  "redialog": 6
+ },
+ "uncorroborated_keys": [
+  "003_7Eleven_Latphrao126__connector1__0005",
+  "003_7Eleven_Latphrao126__connector1__0053",
+  "003_7Eleven_Latphrao126__connector2__0090",
+  "007_Banbueng1__connector1__0023",
+  "007_Banbueng1__connector1__0059",
+  "007_Banbueng1__connector1__0060",
+  "007_Banbueng1__connector1__0091",
+  "007_Banbueng1__connector2__0003",
+  "007_Banbueng1__connector2__0016",
+  "007_Banbueng1__connector2__0071",
+  "010_BangBuaThong4__connector1__0034",
+  "010_BangBuaThong4__connector1__0059",
+  "010_BangBuaThong4__connector1__0077",
+  "010_BangBuaThong4__connector1__0085",
+  "010_BangBuaThong4__connector2__0002",
+  "010_BangBuaThong4__connector2__0041",
+  "010_BangBuaThong4__connector2__0086",
+  "013_BangKhla4__connector1__0037",
+  "013_BangKhla4__connector2__0068",
+  "013_BangKhla4__connector2__0077",
+  "013_BangKhla4__connector2__0097",
+  "016_BangnaTrad1__connector1__0016",
+  "016_BangnaTrad1__connector2__0011",
+  "016_BangnaTrad1__connector2__0030",
+  "016_BangnaTrad1__connector2__0048",
+  "016_BangnaTrad1__connector2__0085",
+  "016_BangnaTrad1__connector2__0095",
+  "019_BangPahan4__connector1__0036",
+  "019_BangPahan4__connector1__0071",
+  "019_BangPahan4__connector2__0017",
+  "023_Bangphra2_bangpha__connector1__0063",
+  "023_Bangphra2_bangpha__connector2__0035",
+  "023_Bangphra2_bangpha__connector2__0073",
+  "028_BanNaDoem__connector2__0039",
+  "028_BanNaDoem__connector2__0077",
+  "031_BanTai__connector1__0024",
+  "031_BanTai__connector1__0056",
+  "031_BanTai__connector2__0006",
+  "031_BanTai__connector2__0019",
+  "037_Chachoengsao10__connector1__0092",
+  "037_Chachoengsao10__connector2__0005",
+  "037_Chachoengsao10__connector2__0023",
+  "037_Chachoengsao10__connector2__0024",
+  "037_Chachoengsao10__connector2__0028"
+ ],
+ "corroborated_keys": [
+  "003_7Eleven_Latphrao126__connector1__0076",
+  "003_7Eleven_Latphrao126__connector2__0053",
+  "003_7Eleven_Latphrao126__connector2__0084",
+  "007_Banbueng1__connector1__0017",
+  "007_Banbueng1__connector1__0033",
+  "007_Banbueng1__connector2__0005",
+  "007_Banbueng1__connector2__0058",
+  "010_BangBuaThong4__connector1__0012",
+  "010_BangBuaThong4__connector1__0083",
+  "010_BangBuaThong4__connector2__0029",
+  "010_BangBuaThong4__connector2__0096",
+  "013_BangKhla4__connector1__0004",
+  "013_BangKhla4__connector1__0062",
+  "013_BangKhla4__connector2__0000",
+  "013_BangKhla4__connector2__0057",
+  "016_BangnaTrad1__connector2__0031",
+  "016_BangnaTrad1__connector2__0096",
+  "019_BangPahan4__connector1__0032",
+  "019_BangPahan4__connector1__0034",
+  "019_BangPahan4__connector1__0040",
+  "019_BangPahan4__connector1__0043",
+  "019_BangPahan4__connector1__0099",
+  "023_Bangphra2_bangpha__connector1__0065",
+  "023_Bangphra2_bangpha__connector2__0037",
+  "023_Bangphra2_bangpha__connector2__0049",
+  "023_Bangphra2_bangpha__connector2__0050",
+  "028_BanNaDoem__connector2__0013",
+  "031_BanTai__connector1__0001",
+  "031_BanTai__connector1__0021",
+  "031_BanTai__connector2__0016",
+  "037_Chachoengsao10__connector1__0036",
+  "037_Chachoengsao10__connector1__0081",
+  "037_Chachoengsao10__connector2__0058",
+  "037_Chachoengsao10__connector2__0082"
+ ],
+ "evidence_by_session": {
+  "003_7Eleven_Latphrao126__connector1__0076": [
+   "tcp_rst"
+  ],
+  "003_7Eleven_Latphrao126__connector2__0053": [
+   "tcp_rst"
+  ],
+  "003_7Eleven_Latphrao126__connector2__0084": [
+   "tcp_rst"
+  ],
+  "007_Banbueng1__connector1__0017": [
+   "re_slac",
+   "iso_ongoing",
+   "redialog"
+  ],
+  "007_Banbueng1__connector1__0033": [
+   "re_slac",
+   "redialog"
+  ],
+  "007_Banbueng1__connector2__0005": [
+   "re_slac"
+  ],
+  "007_Banbueng1__connector2__0058": [
+   "tcp_rst"
+  ],
+  "010_BangBuaThong4__connector1__0012": [
+   "re_slac",
+   "iso_msg_timeout",
+   "iso_ongoing",
+   "redialog"
+  ],
+  "010_BangBuaThong4__connector1__0083": [
+   "tcp_rst"
+  ],
+  "010_BangBuaThong4__connector2__0029": [
+   "iso_ongoing"
+  ],
+  "010_BangBuaThong4__connector2__0096": [
+   "tcp_rst"
+  ],
+  "013_BangKhla4__connector1__0004": [
+   "tcp_rst"
+  ],
+  "013_BangKhla4__connector1__0062": [
+   "re_slac",
+   "redialog"
+  ],
+  "013_BangKhla4__connector2__0000": [
+   "tcp_rst"
+  ],
+  "013_BangKhla4__connector2__0057": [
+   "tcp_rst"
+  ],
+  "016_BangnaTrad1__connector2__0031": [
+   "tcp_rst"
+  ],
+  "016_BangnaTrad1__connector2__0096": [
+   "tcp_rst"
+  ],
+  "019_BangPahan4__connector1__0032": [
+   "re_slac"
+  ],
+  "019_BangPahan4__connector1__0034": [
+   "re_slac"
+  ],
+  "019_BangPahan4__connector1__0040": [
+   "tcp_rst"
+  ],
+  "019_BangPahan4__connector1__0043": [
+   "tcp_rst",
+   "iso_msg_timeout"
+  ],
+  "019_BangPahan4__connector1__0099": [
+   "tcp_rst"
+  ],
+  "023_Bangphra2_bangpha__connector1__0065": [
+   "re_slac",
+   "redialog"
+  ],
+  "023_Bangphra2_bangpha__connector2__0037": [
+   "re_slac",
+   "iso_seq_timeout"
+  ],
+  "023_Bangphra2_bangpha__connector2__0049": [
+   "tcp_rst"
+  ],
+  "023_Bangphra2_bangpha__connector2__0050": [
+   "tcp_rst"
+  ],
+  "028_BanNaDoem__connector2__0013": [
+   "tcp_rst"
+  ],
+  "031_BanTai__connector1__0001": [
+   "tcp_rst"
+  ],
+  "031_BanTai__connector1__0021": [
+   "tcp_rst"
+  ],
+  "031_BanTai__connector2__0016": [
+   "re_slac",
+   "redialog"
+  ],
+  "037_Chachoengsao10__connector1__0036": [
+   "iso_ongoing"
+  ],
+  "037_Chachoengsao10__connector1__0081": [
+   "iso_ongoing"
+  ],
+  "037_Chachoengsao10__connector2__0058": [
+   "iso_ongoing"
+  ],
+  "037_Chachoengsao10__connector2__0082": [
+   "iso_ongoing"
+  ]
+ },
+ "detectors": {
+  "baseline/AIAgent": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.5294117647058824,
+    "median_lead_s": 5.781000018119812
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.45454545454545453,
+    "median_lead_s": 36.21300005912781
+   }
+  },
+  "baseline/AgenticAI": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.7647058823529411,
+    "median_lead_s": 0.0
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.45454545454545453,
+    "median_lead_s": 60.8160001039505
+   }
+  },
+  "baseline/MultiAgent": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.23529411764705885,
+    "median_lead_s": 33.371999979019165
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.34090909090909094,
+    "median_lead_s": 65.91600000858307
+   }
+  },
+  "baseline/RL": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.2058823529411765,
+    "median_lead_s": 0.0
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.06818181818181818,
+    "median_lead_s": 829.0499999523163
+   }
+  },
+  "baseline/TraditionalAI": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.9411764705882354,
+    "median_lead_s": 106.35699999332428
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.5,
+    "median_lead_s": 616.3980000019073
+   }
+  },
+  "iso_rules/AIAgent": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.9117647058823529,
+    "median_lead_s": 5.689999938011169
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.6363636363636364,
+    "median_lead_s": 36.21300005912781
+   }
+  },
+  "iso_rules/AgenticAI": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.7647058823529411,
+    "median_lead_s": 0.0
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.45454545454545453,
+    "median_lead_s": 60.8160001039505
+   }
+  },
+  "iso_rules/MultiAgent": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.8529411764705883,
+    "median_lead_s": 0.0
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.5,
+    "median_lead_s": 40.80200004577637
+   }
+  },
+  "iso_rules/RL": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.2058823529411765,
+    "median_lead_s": 0.0
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.06818181818181818,
+    "median_lead_s": 829.0499999523163
+   }
+  },
+  "iso_rules/TraditionalAI": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.9411764705882354,
+    "median_lead_s": 106.35699999332428
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.5454545454545454,
+    "median_lead_s": 579.7610001564026
+   }
+  },
+  "iso/AIAgent": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.9117647058823529,
+    "median_lead_s": 5.7850000858306885
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.6363636363636364,
+    "median_lead_s": 36.026999950408936
+   }
+  },
+  "iso/AgenticAI": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.7647058823529411,
+    "median_lead_s": 36.334999799728394
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.45454545454545453,
+    "median_lead_s": 60.8160001039505
+   }
+  },
+  "iso/MultiAgent": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.8529411764705883,
+    "median_lead_s": 0.0
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.5,
+    "median_lead_s": 40.80200004577637
+   }
+  },
+  "iso/RL": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.5294117647058824,
+    "median_lead_s": 1633.029000043869
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.1590909090909091,
+    "median_lead_s": 1185.4449999332428
+   }
+  },
+  "iso/TraditionalAI": {
+   "corroborated": {
+    "n": 34,
+    "recall": 0.9411764705882354,
+    "median_lead_s": 88.317999958992
+   },
+   "uncorroborated": {
+    "n": 44,
+    "recall": 0.6590909090909091,
+    "median_lead_s": 69.46200001239777
+   }
+  }
+ }
+}

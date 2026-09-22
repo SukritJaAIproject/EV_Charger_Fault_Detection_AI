@@ -1,0 +1,146 @@
+[
+ {
+  "split": "train",
+  "n": 4534,
+  "n_faulty": 486,
+  "iso_any": 701,
+  "iso_any_on_clean": 440,
+  "iso_new": 619,
+  "iso_new_on_clean": 440,
+  "faulty_no_iso_hit": 225,
+  "per_criterion": {
+   "V2G2-711 EVSEProcessing Ongoing > 60 s": {
+    "sessions": 51,
+    "on_faulty": 50,
+    "on_clean": 1
+   },
+   "V2G2-443 sequence idle > 60 s": {
+    "sessions": 6,
+    "on_faulty": 6,
+    "on_clean": 0
+   },
+   "V2G2-448 no SessionSetupRes in 20 s": {
+    "sessions": 4,
+    "on_faulty": 4,
+    "on_clean": 0
+   },
+   "V2G2-702 CableCheck > 40 s": {
+    "sessions": 12,
+    "on_faulty": 12,
+    "on_clean": 0
+   },
+   "V2G2-706 PreCharge > 7 s": {
+    "sessions": 135,
+    "on_faulty": 7,
+    "on_clean": 128
+   },
+   "Table 109 message timeout": {
+    "sessions": 8,
+    "on_faulty": 8,
+    "on_clean": 0
+   },
+   "Fig.102 illegal successor": {
+    "sessions": 567,
+    "on_faulty": 138,
+    "on_clean": 429
+   },
+   "Fig.102 dialog reopened": {
+    "sessions": 16,
+    "on_faulty": 16,
+    "on_clean": 0
+   },
+   "8.8.3 ResponseCode FAILED": {
+    "sessions": 172,
+    "on_faulty": 172,
+    "on_clean": 0
+   },
+   "Table 98 EVSE hard status": {
+    "sessions": 15,
+    "on_faulty": 15,
+    "on_clean": 0
+   },
+   "8.5 isolation Fault": {
+    "sessions": 0,
+    "on_faulty": 0,
+    "on_clean": 0
+   },
+   "8.5 EVErrorCode set": {
+    "sessions": 45,
+    "on_faulty": 45,
+    "on_clean": 0
+   }
+  }
+ },
+ {
+  "split": "test",
+  "n": 1909,
+  "n_faulty": 222,
+  "iso_any": 314,
+  "iso_any_on_clean": 196,
+  "iso_new": 275,
+  "iso_new_on_clean": 196,
+  "faulty_no_iso_hit": 104,
+  "per_criterion": {
+   "V2G2-711 EVSEProcessing Ongoing > 60 s": {
+    "sessions": 10,
+    "on_faulty": 10,
+    "on_clean": 0
+   },
+   "V2G2-443 sequence idle > 60 s": {
+    "sessions": 1,
+    "on_faulty": 1,
+    "on_clean": 0
+   },
+   "V2G2-448 no SessionSetupRes in 20 s": {
+    "sessions": 1,
+    "on_faulty": 1,
+    "on_clean": 0
+   },
+   "V2G2-702 CableCheck > 40 s": {
+    "sessions": 3,
+    "on_faulty": 3,
+    "on_clean": 0
+   },
+   "V2G2-706 PreCharge > 7 s": {
+    "sessions": 81,
+    "on_faulty": 9,
+    "on_clean": 72
+   },
+   "Table 109 message timeout": {
+    "sessions": 7,
+    "on_faulty": 5,
+    "on_clean": 2
+   },
+   "Fig.102 illegal successor": {
+    "sessions": 255,
+    "on_faulty": 62,
+    "on_clean": 193
+   },
+   "Fig.102 dialog reopened": {
+    "sessions": 6,
+    "on_faulty": 6,
+    "on_clean": 0
+   },
+   "8.8.3 ResponseCode FAILED": {
+    "sessions": 73,
+    "on_faulty": 73,
+    "on_clean": 0
+   },
+   "Table 98 EVSE hard status": {
+    "sessions": 3,
+    "on_faulty": 3,
+    "on_clean": 0
+   },
+   "8.5 isolation Fault": {
+    "sessions": 0,
+    "on_faulty": 0,
+    "on_clean": 0
+   },
+   "8.5 EVErrorCode set": {
+    "sessions": 31,
+    "on_faulty": 31,
+    "on_clean": 0
+   }
+  }
+ }
+]

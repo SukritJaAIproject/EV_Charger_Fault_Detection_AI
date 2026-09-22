@@ -1,0 +1,189 @@
+{
+ "n_faulty": 222,
+ "n_clean": 250,
+ "detectors": {
+  "TraditionalAI": {
+   "recall": 0.7342342342342343,
+   "far": 0.22,
+   "earliness": 0.3930865990954476,
+   "score": 67.97344369362067,
+   "tp": 163,
+   "late": 2,
+   "miss": 57,
+   "fp": 55,
+   "median_lead_s": 60.1599999666214,
+   "mean_lead_s": 657.3208220897277,
+   "wins": 91.78,
+   "by_family": {
+    "SESSION_ABORT": {
+     "recall": 0.6923076923076923,
+     "tp": 54,
+     "n": 78
+    },
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 69,
+     "n": 69
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.20454545454545456,
+     "tp": 9,
+     "n": 44
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 31,
+     "n": 31
+    }
+   }
+  },
+  "RL": {
+   "recall": 0.17567567567567569,
+   "far": 0.036,
+   "earliness": 0.12544376875187183,
+   "score": 40.21265915882122,
+   "tp": 39,
+   "late": 5,
+   "miss": 178,
+   "fp": 9,
+   "median_lead_s": 289.6080000400543,
+   "mean_lead_s": 937.5837435936317,
+   "wins": 4.2,
+   "by_family": {
+    "SESSION_ABORT": {
+     "recall": 0.1282051282051282,
+     "tp": 10,
+     "n": 78
+    },
+    "PROTOCOL_FAILED": {
+     "recall": 0.4057971014492754,
+     "tp": 28,
+     "n": 69
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.0,
+     "tp": 0,
+     "n": 44
+    },
+    "EV_ERROR": {
+     "recall": 0.03225806451612903,
+     "tp": 1,
+     "n": 31
+    }
+   }
+  },
+  "AIAgent": {
+   "recall": 0.6216216216216216,
+   "far": 0.396,
+   "earliness": 0.2276091591552929,
+   "score": 53.753264264186946,
+   "tp": 138,
+   "late": 3,
+   "miss": 81,
+   "fp": 99,
+   "median_lead_s": 0.7070000171661377,
+   "mean_lead_s": 550.0898478273033,
+   "wins": 31.28,
+   "by_family": {
+    "SESSION_ABORT": {
+     "recall": 0.48717948717948717,
+     "tp": 38,
+     "n": 78
+    },
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 69,
+     "n": 69
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.0,
+     "tp": 0,
+     "n": 44
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 31,
+     "n": 31
+    }
+   }
+  },
+  "AgenticAI": {
+   "recall": 0.8108108108108109,
+   "far": 0.252,
+   "earliness": 0.26056148647456556,
+   "score": 68.19177027003185,
+   "tp": 180,
+   "late": 4,
+   "miss": 38,
+   "fp": 63,
+   "median_lead_s": 20.36799991130829,
+   "mean_lead_s": 263.33556110858916,
+   "wins": 46.45,
+   "by_family": {
+    "SESSION_ABORT": {
+     "recall": 0.5897435897435898,
+     "tp": 46,
+     "n": 78
+    },
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 69,
+     "n": 69
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.7727272727272727,
+     "tp": 34,
+     "n": 44
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 31,
+     "n": 31
+    }
+   }
+  },
+  "MultiAgent": {
+   "recall": 0.5630630630630631,
+   "far": 0.208,
+   "earliness": 0.16405469220769298,
+   "score": 55.19424699730702,
+   "tp": 125,
+   "late": 5,
+   "miss": 92,
+   "fp": 52,
+   "median_lead_s": 0.0,
+   "mean_lead_s": 404.39802400779723,
+   "wins": 22.28,
+   "by_family": {
+    "SESSION_ABORT": {
+     "recall": 0.2948717948717949,
+     "tp": 23,
+     "n": 78
+    },
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 69,
+     "n": 69
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.045454545454545456,
+     "tp": 2,
+     "n": 44
+    },
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 31,
+     "n": 31
+    }
+   }
+  }
+ },
+ "wall_seconds": {
+  "TraditionalAI": 3611.3,
+  "RL": 438.3,
+  "AIAgent": 2910.4,
+  "AgenticAI": 2835.3,
+  "MultiAgent": 160.5
+ },
+ "split": "test"
+}

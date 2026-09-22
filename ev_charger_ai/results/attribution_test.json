@@ -1,0 +1,81 @@
+{
+ "fleet_slac": {
+  "AgenticAI": {
+   "FALSE ALARM|baseline rule: isolation": 148,
+   "FALSE ALARM|baseline rule: PLC/SLAC/TCP": 1396,
+   "on-time|baseline rule: PLC/SLAC/TCP": 342,
+   "FALSE ALARM|agent: investigation": 1194,
+   "on-time|agent: goal failure": 262,
+   "late|baseline rule: PLC/SLAC/TCP": 17,
+   "on-time|agent: investigation": 199,
+   "late|agent: investigation": 18,
+   "on-time|baseline rule: EVSE status": 67,
+   "on-time|baseline rule: isolation": 7
+  },
+  "MultiAgent": {
+   "FALSE ALARM|baseline rule: PLC/SLAC/TCP": 1149,
+   "on-time|baseline rule: dialog gap": 82,
+   "FALSE ALARM|other": 486,
+   "on-time|baseline rule: ResponseCode": 187,
+   "on-time|baseline rule: PLC/SLAC/TCP": 219,
+   "late|other": 24,
+   "FALSE ALARM|baseline rule: dialog gap": 304,
+   "FALSE ALARM|baseline rule: electrical": 295,
+   "on-time|baseline rule: EVSE status": 65,
+   "late|baseline rule: PLC/SLAC/TCP": 13,
+   "on-time|baseline rule: EV error": 86,
+   "on-time|other": 39,
+   "FALSE ALARM|baseline rule: cablecheck 40s": 10,
+   "late|baseline rule: ResponseCode": 9,
+   "on-time|baseline rule: cablecheck 40s": 17,
+   "on-time|baseline rule: electrical": 57,
+   "on-time|baseline rule: isolation": 2,
+   "late|baseline rule: cablecheck 40s": 1
+  },
+  "AIAgent": {
+   "on-time|baseline rule: PLC/SLAC/TCP": 297,
+   "FALSE ALARM|baseline rule: PLC/SLAC/TCP": 1687,
+   "FALSE ALARM|baseline rule: dialog gap": 940,
+   "on-time|baseline rule: ResponseCode": 184,
+   "late|baseline rule: PLC/SLAC/TCP": 16,
+   "FALSE ALARM|baseline rule: electrical": 318,
+   "on-time|baseline rule: EVSE status": 38,
+   "FALSE ALARM|learned: autoencoder / forecast": 140,
+   "on-time|baseline rule: EV error": 67,
+   "late|agent: belief fusion": 2,
+   "on-time|baseline rule: dialog gap": 112,
+   "FALSE ALARM|baseline rule: cablecheck 40s": 6,
+   "late|baseline rule: ResponseCode": 9,
+   "on-time|baseline rule: cablecheck 40s": 6,
+   "FALSE ALARM|agent: belief fusion": 3,
+   "on-time|learned: autoencoder / forecast": 1,
+   "on-time|agent: belief fusion": 4,
+   "late|baseline rule: cablecheck 40s": 3,
+   "late|baseline rule: electrical": 2,
+   "on-time|baseline rule: electrical": 21
+  },
+  "TraditionalAI": {
+   "on-time|baseline rule: PLC/SLAC/TCP": 359,
+   "FALSE ALARM|baseline rule: PLC/SLAC/TCP": 1000,
+   "late|baseline rule: PLC/SLAC/TCP": 24,
+   "FALSE ALARM|learned: xgboost": 352,
+   "FALSE ALARM|baseline rule: dialog gap": 205,
+   "FALSE ALARM|learned: isolation forest": 289,
+   "FALSE ALARM|baseline rule: electrical": 250,
+   "on-time|baseline rule: EVSE status": 33,
+   "on-time|learned: xgboost": 236,
+   "on-time|baseline rule: EV error": 44,
+   "on-time|baseline rule: ResponseCode": 100,
+   "on-time|baseline rule: dialog gap": 54,
+   "on-time|learned: isolation forest": 7,
+   "on-time|baseline rule: electrical": 48,
+   "on-time|baseline rule: cablecheck 40s": 1,
+   "FALSE ALARM|baseline rule: cablecheck 40s": 3
+  },
+  "RL": {
+   "on-time|learned: RL policy": 330,
+   "late|learned: RL policy": 32,
+   "FALSE ALARM|learned: RL policy": 424
+  }
+ }
+}
