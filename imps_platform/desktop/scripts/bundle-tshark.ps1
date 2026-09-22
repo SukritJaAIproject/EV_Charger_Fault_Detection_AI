@@ -174,6 +174,18 @@ $requiredRelativeFiles = @(
     "plugins\v2gtp.lua"
 )
 
+# Installer leftovers that serve no purpose inside a portable runtime and would
+# only offer to remove the build machine's own Wireshark installation.
+# unins000.exe is the unsigned Inno Setup uninstaller of the dsV2Gshark plugin
+# (unins000.dat is its uninstall log); uninstall-wireshark.exe is Wireshark's
+# NSIS uninstaller. The plugin's uninstaller is the only executable in the
+# installed tree without an Authenticode signature.
+$excludedFileNames = @(
+    "unins000.exe",
+    "unins000.dat",
+    "uninstall-wireshark.exe"
+)
+
 $missingFiles = @(
     $requiredRelativeFiles | Where-Object {
         -not (Test-Path -LiteralPath (Join-Path $source $_) -PathType Leaf)
@@ -201,11 +213,27 @@ try {
 
     # Copy the complete installed tree. TShark loads protocol data, Lua, native
     # dissectors, and DLLs relative to this tree; retaining all of it is more
-    # reliable than maintaining a fragile hand-written DLL allow-list.
-    & robocopy.exe $source $staging /E /COPY:DAT /DCOPY:DAT /R:2 /W:1 /XJ /NFL /NDL /NJH /NJS /NP | Out-Null
+    # reliable than maintaining a fragile hand-written DLL allow-list. The only
+    # exception is the upstream uninstallers, excluded by file name with /XF.
+    $robocopyArguments = @(
+        $source, $staging,
+        "/E", "/COPY:DAT", "/DCOPY:DAT", "/R:2", "/W:1", "/XJ",
+        "/NFL", "/NDL", "/NJH", "/NJS", "/NP",
+        "/XF"
+    ) + $excludedFileNames
+    & robocopy.exe @robocopyArguments | Out-Null
     $robocopyExitCode = $LASTEXITCODE
     if ($robocopyExitCode -gt 7) {
         throw "Robocopy failed with exit code $robocopyExitCode."
+    }
+
+    $leakedFiles = @(
+        Get-ChildItem -LiteralPath $staging -Recurse -File |
+            Where-Object { $excludedFileNames -contains $_.Name } |
+            ForEach-Object { $_.FullName.Substring($staging.Length + 1) }
+    )
+    if ($leakedFiles.Count -gt 0) {
+        throw "Bundled runtime still contains excluded installer files: $($leakedFiles -join ', ')"
     }
 
     # App-local deployment avoids a second UAC prompt and lets TShark run on a
@@ -323,6 +351,7 @@ try {
         }
         payloadFileCount = $payloadFiles.Count
         payloadBytesBeforeManifest = $payloadBytes
+        excludedInstallerFiles = @($excludedFileNames)
         licenses = @(
             "COPYING.txt",
             "README.txt",

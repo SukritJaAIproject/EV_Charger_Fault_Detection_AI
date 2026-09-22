@@ -181,6 +181,12 @@ Anyone distributing the installer must also satisfy the corresponding-source
 requirements for the exact GPL Wireshark binaries being shipped. See
 `desktop\licenses\THIRD_PARTY_NOTICES.md`.
 
+The upstream uninstallers (`uninstall-wireshark.exe`, `unins000.exe` and
+`unins000.dat`) are not copied into the portable runtime. They would only offer
+to remove the build machine's own Wireshark installation, and the dsV2Gshark
+one is the only unsigned executable in the installed tree. Every other file of
+the installed Wireshark directory is shipped unchanged.
+
 The legacy `Start-iMPS-FaultDetection.ps1` launcher remains available for local
 development against the external Conda environment. It is not used by the
 standalone installer.
