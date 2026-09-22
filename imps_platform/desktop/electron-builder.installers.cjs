@@ -32,6 +32,21 @@ if (includesOnline) {
   }
 }
 
+// Code signing is opt-in: set IMPS_SIGN_CERT_SHA1 to the thumbprint of a code-signing
+// certificate in the current user's store and electron-builder signs the app
+// executable, the uninstaller and both installers with it (SHA-256, RFC 3161
+// timestamp so the signature outlives the certificate). Nothing is signed when
+// the variable is unset, so team builds keep working without a certificate.
+const signCertSha1 = process.env.IMPS_SIGN_CERT_SHA1?.trim();
+const signtoolOptions = signCertSha1
+  ? {
+      certificateSha1: signCertSha1,
+      signingHashAlgorithms: ["sha256"],
+      rfc3161TimeStampServer:
+        process.env.IMPS_SIGN_TIMESTAMP_URL ?? "http://timestamp.digicert.com",
+    }
+  : undefined;
+
 const base = packageMetadata.build;
 const { artifactName: _unusedArtifactName, ...baseWindowsOptions } = base.win;
 const targets = [];
@@ -47,6 +62,7 @@ module.exports = {
   win: {
     ...baseWindowsOptions,
     target: targets,
+    ...(signtoolOptions ? { signtoolOptions } : {}),
   },
   nsis: {
     ...base.nsis,

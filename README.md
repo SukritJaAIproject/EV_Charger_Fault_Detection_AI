@@ -68,7 +68,9 @@ $env:IMPS_ONLINE_PACKAGE_URL = "https://github.com/SukritJaAIproject/EV_Charger_
 npm run desktop:build:online                        # Online bootstrapper + payload
 ```
 
-`imps_platform/desktop/README.md` is the full runbook (smoke tests, golden PCAP, known issues). Installers are unsigned; Windows SmartScreen shows *More info → Run anyway*.
+`imps_platform/desktop/README.md` is the full runbook (smoke tests, golden PCAP, known issues).
+
+**Code signing.** Released installers and executables are Authenticode-signed with an internal self-signed certificate (thumbprint `74C4795C67E81EFCCFFAAB2B946661F1003C7A3E`; public `.cer` attached to every release and kept in `imps_platform/desktop/signing/`). Machines that import it into *Trusted Root* and *Trusted Publishers* verify the signature as valid; elsewhere Windows SmartScreen still shows *More info → Run anyway*, because the certificate is not CA-issued. Set `IMPS_SIGN_CERT_SHA1` to sign a build; see `imps_platform/desktop/signing/README.md`.
 
 ## Provenance
 
