@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  getDesktopRuntimeStatus,
+  isDesktopFaultDetectionApi,
+  parseDesktopRuntimeStatus,
   parseFaultDetectionSummary,
   parsePcapAnalysisJob,
   resolveFaultDetectionApiBase,
@@ -282,5 +285,101 @@ describe("parsePcapAnalysisJob", () => {
       originalName: "capture.pcap",
       sizeBytes: 24,
     })).toThrow(/invalid response/i);
+  });
+});
+
+describe("isDesktopFaultDetectionApi", () => {
+  it("is true only when the page talks to the desktop sidecar", () => {
+    expect(isDesktopFaultDetectionApi("?desktop=1&desktopApiPort=43127")).toBe(true);
+    expect(isDesktopFaultDetectionApi("?desktop=1")).toBe(true);
+    expect(isDesktopFaultDetectionApi("")).toBe(false);
+    expect(isDesktopFaultDetectionApi("?desktop=0")).toBe(false);
+  });
+});
+
+describe("parseDesktopRuntimeStatus", () => {
+  it("reads the edition identity reported by the sidecar", () => {
+    const status = parseDesktopRuntimeStatus({
+      service: "fault-detection-portable",
+      status: "ok",
+      source: "full_fleet",
+      models: 5,
+      sessions: 8820,
+      inferenceReady: true,
+      ready: true,
+      missing: [],
+      productName: "iMPS Fault Detection Snapshot 2026-09-12",
+      appVersion: "1.1.1",
+      artifactVersion: "41ded2cdd5c2ba3f",
+      modelCreatedAt: "2026-09-19T08:04:53.267983Z",
+      summarySnapshotAt: "2026-09-12T00:52:33.536343Z",
+    });
+    expect(status.productName).toBe("iMPS Fault Detection Snapshot 2026-09-12");
+    expect(status.appVersion).toBe("1.1.1");
+    expect(status.artifactVersion).toBe("41ded2cdd5c2ba3f");
+    expect(status.summarySnapshotAt).toBe("2026-09-12T00:52:33.536343Z");
+  });
+
+  it("tolerates an older sidecar that reports no identity fields", () => {
+    const status = parseDesktopRuntimeStatus({ service: "fault-detection-portable", status: "degraded", ready: false, missing: ["models"] });
+    expect(status.productName).toBeUndefined();
+    expect(status.artifactVersion).toBeUndefined();
+  });
+
+  it("rejects payloads without the service marker", () => {
+    expect(() => parseDesktopRuntimeStatus({ status: "ok" })).toThrow(/unexpected shape/);
+  });
+});
+
+describe("parseDesktopRuntimeStatus degradation", () => {
+  it("drops a malformed optional identity field instead of rejecting the payload", () => {
+    const status = parseDesktopRuntimeStatus({
+      service: "fault-detection-portable",
+      status: "ok",
+      productName: "",
+      appVersion: 121,
+      artifactVersion: "53b6f14244c2e633",
+    });
+    expect(status.productName).toBeNull();
+    expect(status.appVersion).toBeNull();
+    expect(status.artifactVersion).toBe("53b6f14244c2e633");
+  });
+});
+
+describe("getDesktopRuntimeStatus", () => {
+  it("accepts a degraded sidecar's 503 body with explicit null identity fields", async () => {
+    const body = JSON.stringify({
+      service: "fault-detection-portable",
+      status: "degraded",
+      inferenceReady: false,
+      ready: false,
+      missing: ["models"],
+      productName: null,
+      appVersion: null,
+      artifactVersion: null,
+      modelCreatedAt: null,
+      summarySnapshotAt: "2026-09-21T08:11:19.459039Z",
+    });
+    const fetchMock = vi.fn(async () => new Response(body, { status: 503, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const status = await getDesktopRuntimeStatus();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/health$/), expect.objectContaining({ method: "GET" }));
+      expect(status.status).toBe("degraded");
+      expect(status.artifactVersion).toBeNull();
+      expect(status.summarySnapshotAt).toBe("2026-09-21T08:11:19.459039Z");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports malformed JSON as an invalid response", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>", { status: 200 })));
+    try {
+      await expect(getDesktopRuntimeStatus()).rejects.toThrow(/malformed JSON/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

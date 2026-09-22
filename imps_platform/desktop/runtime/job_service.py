@@ -112,6 +112,9 @@ class PcapJobService:
         self._futures: dict[str, Future[Any]] = {}
         self._processes: dict[str, subprocess.Popen[Any]] = {}
         self._closed = False
+        # Identity of the bundled model, reported on /health so the dashboard
+        # can show which edition is running. Filled in by _validate_dependencies.
+        self.model_info: dict[str, Any] = {"artifactVersion": None, "createdAt": None}
         self.jobs_root.mkdir(parents=True, exist_ok=True)
         self._recover_interrupted_jobs()
         self._cleanup_expired_jobs()
@@ -121,6 +124,8 @@ class PcapJobService:
         return {
             "ready": not self._dependency_errors,
             "missing": list(self._dependency_errors),
+            "artifactVersion": self.model_info["artifactVersion"],
+            "modelCreatedAt": self.model_info["createdAt"],
             "maxUploadBytes": self.max_upload_bytes,
             "maxQueuedJobs": self.max_queued_jobs,
             "retentionDays": self.retention_days,
@@ -157,6 +162,11 @@ class PcapJobService:
                 expected = (files.get(name) or {}).get("sha256")
                 if expected != self._sha256_file(self.model_dir / name):
                     raise ValueError(f"hash mismatch for {name}")
+            created_at = manifest.get("createdAt")
+            self.model_info = {
+                "artifactVersion": manifest["artifactVersion"],
+                "createdAt": created_at if isinstance(created_at, str) else None,
+            }
 
             import numpy as np
 

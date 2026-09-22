@@ -144,6 +144,23 @@ export type FaultDetectionSummary = {
 };
 
 /**
+ * Locale for benchmark snapshot dates. Thai UI uses the Gregorian calendar here
+ * so the date matches the one embedded in product names ("Snapshot 2026-09-12").
+ */
+export const snapshotDateLocale = (lang: "th" | "en"): string =>
+  lang === "th" ? "th-TH-u-ca-gregory" : "en-GB";
+
+/**
+ * The benchmark that ships inside this build of the app (data/summary.json in
+ * the desktop package). It is what makes two editions differ, so the Overview
+ * renders it instead of relying only on the fixed research constants.
+ */
+export type BundledBenchmark = Pick<
+  FaultDetectionSummary,
+  "source" | "snapshotAt" | "dataset" | "leaderboard"
+> & { faultFamilies: string[] };
+
+/**
  * Honest fallback shown while the live summary is loading or unavailable.
  * Evaluation fields stay null so an API outage can never surface invented
  * benchmark scores.

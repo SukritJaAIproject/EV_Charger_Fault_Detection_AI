@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -24,11 +24,14 @@ import useLanguage from "@/utils/useLanguage";
 import {
   MAX_PCAP_UPLOAD_BYTES,
   createPcapAnalysisJob,
+  getDesktopRuntimeStatus,
   getFaultDetectionSummary,
   getPcapAnalysisJob,
+  isDesktopFaultDetectionApi,
+  type DesktopRuntimeStatus,
   type PcapAnalysisJob,
 } from "./api";
-import type { StationAnalysis } from "./data";
+import { snapshotDateLocale, type BundledBenchmark, type StationAnalysis } from "./data";
 import FaultExplanationPanel, {
   FaultExplanationInline,
   ObservedStopAttribution,
@@ -122,6 +125,9 @@ const COPY = {
     faultGuide: "คู่มือ Fault",
     openFaultGuide: "เปิดคู่มือ Fault ทั้ง 7 ประเภท",
     visibleStations: "สถานีที่แสดง",
+    editionLabel: "รุ่นโปรแกรม",
+    modelLabel: "โมเดล",
+    dataAsOfLabel: "ข้อมูล benchmark ณ",
   },
   en: {
     eyebrow: "AI · CHARGER FAULT INTELLIGENCE",
@@ -205,6 +211,9 @@ const COPY = {
     faultGuide: "Fault guide",
     openFaultGuide: "Open the guide to all 7 fault families",
     visibleStations: "Stations shown",
+    editionLabel: "Edition",
+    modelLabel: "Model",
+    dataAsOfLabel: "Benchmark data as of",
   },
 } as const;
 
@@ -290,6 +299,20 @@ function PanelHeading({
   );
 }
 
+/** One identity chip in the hero: which edition, model and data snapshot is running. */
+function EditionChip({ id, label, value, mono = false }: { id: string; label: string; value: string; mono?: boolean }) {
+  return (
+    <span
+      className="fd-edition-chip tw-inline-flex tw-max-w-full tw-items-center tw-gap-2 tw-rounded-lg tw-bg-white/[0.06] tw-px-2.5 tw-py-1.5 tw-text-[11px] tw-font-semibold tw-text-slate-100 tw-ring-1 tw-ring-white/10"
+      data-testid={`fd-edition-chip-${id}`}
+      title={value}
+    >
+      <span className="tw-flex-shrink-0 tw-text-[9px] tw-font-extrabold tw-uppercase tw-tracking-[0.14em] tw-text-yellow-300/80">{label}</span>
+      <span className={`tw-min-w-0 tw-break-words ${mono ? "ai-mono" : ""}`}>{value}</span>
+    </span>
+  );
+}
+
 function SummaryMetric({
   icon,
   label,
@@ -337,6 +360,15 @@ export default function FaultDetectionPage() {
   const [stationHasLoaded, setStationHasLoaded] = useState(false);
   const [stationError, setStationError] = useState<string | null>(null);
   const [stationSnapshot, setStationSnapshot] = useState<string | null>(null);
+  const [bundled, setBundled] = useState<BundledBenchmark | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<DesktopRuntimeStatus | null>(null);
+  // Known from the launch query string / remembered loopback port, so it is
+  // stable for the life of the tab; the server snapshot is false (no window).
+  const desktopMode = useSyncExternalStore(
+    () => () => {},
+    () => isDesktopFaultDetectionApi(),
+    () => false,
+  );
   const [stationQuery, setStationQuery] = useState("");
   const [stationSort, setStationSort] = useState<StationSort>("station");
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
@@ -351,6 +383,13 @@ export default function FaultDetectionPage() {
       const summary = await getFaultDetectionSummary({ signal });
       setStations(summary.analysis.byStation);
       setStationSnapshot(summary.snapshotAt);
+      setBundled({
+        source: summary.source,
+        snapshotAt: summary.snapshotAt,
+        dataset: summary.dataset,
+        leaderboard: summary.leaderboard,
+        faultFamilies: summary.analysis.faultFamilies,
+      });
       setStationHasLoaded(true);
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") return;
@@ -366,6 +405,17 @@ export default function FaultDetectionPage() {
     void loadStations(controller.signal);
     return () => controller.abort();
   }, [activeView, loadStations, stationHasLoaded]);
+
+  // Edition identity (product name, version, model artifact) comes from the
+  // desktop sidecar's /health; the web deployment has no sidecar and shows none.
+  useEffect(() => {
+    if (!isDesktopFaultDetectionApi()) return;
+    const controller = new AbortController();
+    getDesktopRuntimeStatus({ signal: controller.signal })
+      .then(setRuntimeStatus)
+      .catch(() => setRuntimeStatus(null));
+    return () => controller.abort();
+  }, []);
 
   useEffect(
     () => () => {
@@ -477,7 +527,7 @@ export default function FaultDetectionPage() {
     [stations],
   );
   const stationSnapshotLabel = stationSnapshot
-    ? new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-GB", {
+    ? new Intl.DateTimeFormat(snapshotDateLocale(lang), {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(new Date(stationSnapshot))
@@ -486,6 +536,20 @@ export default function FaultDetectionPage() {
     () => stations.find((station) => station.station === selectedStationId) ?? null,
     [selectedStationId, stations],
   );
+  // Desktop only: the sidecar reports the snapshot date; an older sidecar
+  // without that field falls back to the summary it serves. The web build
+  // shows no edition strip at all.
+  const editionSnapshotAt = desktopMode ? runtimeStatus?.summarySnapshotAt ?? bundled?.snapshotAt ?? null : null;
+  const editionSnapshotLabel =
+    editionSnapshotAt && Number.isFinite(Date.parse(editionSnapshotAt))
+      ? new Intl.DateTimeFormat(snapshotDateLocale(lang), { dateStyle: "medium" }).format(new Date(editionSnapshotAt))
+      : null;
+  // "Bundled with this edition" wording only when the portable sidecar answered;
+  // the legacy dev launcher serves live results and the web build uses the API.
+  const bundledFromSidecar = runtimeStatus ? runtimeStatus.service === "fault-detection-portable" : desktopMode;
+  const editionName = runtimeStatus?.productName
+    ? `${runtimeStatus.productName}${runtimeStatus.appVersion ? ` v${runtimeStatus.appVersion}` : ""}`
+    : null;
 
   return (
     <main className={`ai-root fd-page fd-lang-${lang} tw-min-h-screen`}>
@@ -513,6 +577,13 @@ export default function FaultDetectionPage() {
                 </div>
                 <h1 className="fd-display tw-mt-5 tw-max-w-4xl tw-text-[28px] tw-font-black tw-leading-[1.12] tw-tracking-[-0.035em] tw-text-white sm:tw-text-4xl lg:tw-text-[42px] lg:tw-leading-[1.08]">{c.title}</h1>
                 <p className="tw-mt-3 tw-max-w-2xl tw-text-[13px] tw-font-medium tw-leading-6 tw-text-slate-300 sm:tw-mt-4 sm:tw-text-[15px] sm:tw-leading-7">{PCAP_ANALYSIS_ENABLED ? c.subtitle : c.desktopSubtitle}</p>
+                {(editionName || runtimeStatus?.artifactVersion || editionSnapshotLabel) && (
+                  <div className="fd-edition-strip tw-mt-4 tw-flex tw-flex-wrap tw-gap-2" data-testid="fd-edition-strip">
+                    {editionName && <EditionChip id="edition" label={c.editionLabel} value={editionName} />}
+                    {runtimeStatus?.artifactVersion && <EditionChip id="model" label={c.modelLabel} value={runtimeStatus.artifactVersion} mono />}
+                    {editionSnapshotLabel && <EditionChip id="snapshot" label={c.dataAsOfLabel} value={editionSnapshotLabel} />}
+                  </div>
+                )}
               </div>
               <div className="tw-grid tw-grid-cols-2 tw-gap-2 sm:tw-flex sm:tw-flex-wrap lg:tw-max-w-[270px] lg:tw-justify-end">
                 <span className="tw-inline-flex tw-min-h-10 tw-items-center tw-justify-center tw-gap-2 tw-rounded-xl tw-bg-emerald-400/10 tw-px-2.5 tw-text-center tw-text-[9px] tw-font-extrabold tw-uppercase tw-tracking-wider tw-text-emerald-300 tw-ring-1 tw-ring-emerald-300/20 sm:tw-px-3.5 sm:tw-text-[11px]">
@@ -579,6 +650,8 @@ export default function FaultDetectionPage() {
           >
             <ResearchDashboard
               lang={lang}
+              bundled={bundled}
+              desktop={bundledFromSidecar}
               stations={stations}
               stationLoading={stationLoading}
               stationError={stationError}

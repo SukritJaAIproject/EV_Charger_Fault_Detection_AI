@@ -6,8 +6,10 @@ Fault detection for DC EV chargers from raw PLC/V2G packet captures (DIN 70121 /
 
 | Edition | Release | App ID | Contents |
 |---|---|---|---|
-| `iMPS Fault Detection` 1.2.0 (current line) | `imps-fault-detection-v1.2.0` | `th.co.imps.faultdetection` | benchmark v4 weights, artifact `53b6f14244c2e633` |
-| `iMPS Fault Detection Snapshot 2026-09-12` 1.1.0 | `imps-fault-detection-v1.1.0` | `th.co.imps.faultdetection.snapshot20260912` | frozen 12 Sep 2026 snapshot, artifact `41ded2cdd5c2ba3f` |
+| `iMPS Fault Detection` 1.2.1 (current line) | `imps-fault-detection-v1.2.1` | `th.co.imps.faultdetection` | benchmark v4 weights, artifact `53b6f14244c2e633` |
+| `iMPS Fault Detection Snapshot 2026-09-12` 1.1.1 | `imps-fault-detection-v1.1.1` | `th.co.imps.faultdetection.snapshot20260912` | frozen 12 Sep 2026 snapshot, artifact `41ded2cdd5c2ba3f` |
+
+Since 1.2.1 / 1.1.1 the dashboard names the running edition (product, version, model artifact, snapshot date) in its header and opens the Overview with the benchmark bundled in that build, so the two editions are distinguishable on screen; earlier releases (`v1.2.0`, `v1.1.0`) stay available.
 
 ## Repository layout
 

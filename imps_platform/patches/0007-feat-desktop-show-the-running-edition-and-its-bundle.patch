@@ -1,0 +1,1052 @@
+From 65f958fea5dff229f8f69df681f3868f4f3704f6 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Tue, 22 Sep 2026 22:04:21 +0700
+Subject: [PATCH] feat(desktop): show the running edition and its bundled
+ benchmark
+
+Two editions of the desktop app (the current line and the 2026-09-12
+snapshot) were indistinguishable on screen: the Overview leaderboard was
+hard-coded research constants, no version or model id was shown, and
+both windows were titled "iMPS".
+
+- Sidecar /health now reports productName, appVersion (passed by the
+  Electron launcher as --product-name / --app-version), artifactVersion
+  and modelCreatedAt from models/manifest.json, and summarySnapshotAt.
+- Dashboard hero shows edition chips (product + version, model artifact,
+  benchmark data date) in desktop mode; api.ts gains
+  isDesktopFaultDetectionApi(), parseDesktopRuntimeStatus(),
+  getDesktopRuntimeStatus() (identity fields optional for old sidecars).
+- Overview opens with "Benchmark shipped with this edition" read from the
+  bundled data/summary.json (dataset counts, ranked 5-model leaderboard,
+  scoring basis stated); the fixed research panel is labelled as identical
+  in every edition. Web deployments get service wording instead.
+- The BrowserWindow keeps the product name as its title (page-title-updated
+  is suppressed) so two installed editions differ in the taskbar.
+- Version 1.2.1; README documents the header and the 1.1.1 snapshot recipe
+  (current dashboard + frozen 1.1.0 models/data).
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ iMPS_platform/desktop/README.md               |  54 +++++--
+ .../desktop/electron-builder.installers.cjs   |   6 +-
+ iMPS_platform/desktop/electron/main.cjs       |  12 ++
+ iMPS_platform/desktop/runtime/README.md       |  10 +-
+ .../desktop/runtime/imps_fault_runtime.py     |  13 ++
+ iMPS_platform/desktop/runtime/job_service.py  |  10 ++
+ .../desktop/scripts/build-installers.mjs      |   7 +-
+ .../scripts/stage-snapshot-resources.ps1      |  48 ++++++
+ iMPS_platform/package-lock.json               |   4 +-
+ iMPS_platform/package.json                    |   2 +-
+ .../dashboard/ai/fault-detection/api.test.ts  |  99 ++++++++++++
+ .../app/dashboard/ai/fault-detection/api.ts   |  73 +++++++++
+ .../app/dashboard/ai/fault-detection/data.ts  |  17 ++
+ .../app/dashboard/ai/fault-detection/page.tsx |  79 +++++++++-
+ .../ai/fault-detection/research-dashboard.tsx | 148 +++++++++++++++++-
+ 15 files changed, 557 insertions(+), 25 deletions(-)
+ create mode 100644 iMPS_platform/desktop/scripts/stage-snapshot-resources.ps1
+
+diff --git a/iMPS_platform/desktop/README.md b/iMPS_platform/desktop/README.md
+index 49e2fe60..ef9398c5 100644
+--- a/iMPS_platform/desktop/README.md
++++ b/iMPS_platform/desktop/README.md
+@@ -13,8 +13,8 @@ Npcap, or MongoDB.
+ 
+ ## Install and use
+ 
+-1. Run either `iMPS-Fault-Detection-Offline-Setup-1.2.0.exe` or
+-   `iMPS-Fault-Detection-Online-Setup-1.2.0.exe`.
++1. Run either `iMPS-Fault-Detection-Offline-Setup-1.2.1.exe` or
++   `iMPS-Fault-Detection-Online-Setup-1.2.1.exe`.
+ 2. Open **iMPS Fault Detection** from the Desktop or Start menu.
+ 3. Select **วิเคราะห์ PCAP / Analyze PCAP**.
+ 4. Choose a `.pcap` or `.pcapng` file up to 256 MiB and select
+@@ -24,6 +24,13 @@ The app shows the verdict, confidence, fault family, packet evidence, stop-party
+ analysis, and per-session details. It also includes the fleet and per-station
+ fault summaries from the audited benchmark snapshot.
+ 
++The hero of the dashboard names the running edition (product name and version),
++the model artifact and the benchmark snapshot date, all reported by the sidecar's
++`/health`; the Overview tab starts with the benchmark that is bundled with that
++build (`data\summary.json`), so two editions with different models show
++different rankings there. The research panel below it is a fixed research
++snapshot that is identical in every edition.
++
+ ## What is bundled
+ 
+ - Electron and a production Next.js standalone server
+@@ -62,7 +69,7 @@ npm install --legacy-peer-deps
+ npm run desktop:build:offline
+ 
+ $env:IMPS_ONLINE_PACKAGE_URL = `
+-  "https://downloads.example.org/imps/1.2.0/material-tailwind-dashboard-nextjs-pro-1.2.0-x64.nsis.7z"
++  "https://downloads.example.org/imps/1.2.1/material-tailwind-dashboard-nextjs-pro-1.2.1-x64.nsis.7z"
+ npm run desktop:build:online
+ ```
+ 
+@@ -95,9 +102,9 @@ To create both variants in one run, set `IMPS_ONLINE_PACKAGE_URL` and run
+ The release artifacts are written under `dist-desktop\release`:
+ 
+ ```text
+-dist-desktop\release\iMPS-Fault-Detection-Offline-Setup-1.2.0.exe
+-dist-desktop\release\iMPS-Fault-Detection-Online-Setup-1.2.0.exe
+-dist-desktop\release\material-tailwind-dashboard-nextjs-pro-1.2.0-x64.nsis.7z
++dist-desktop\release\iMPS-Fault-Detection-Offline-Setup-1.2.1.exe
++dist-desktop\release\iMPS-Fault-Detection-Online-Setup-1.2.1.exe
++dist-desktop\release\material-tailwind-dashboard-nextjs-pro-1.2.1-x64.nsis.7z
+ dist-desktop\release\release-manifest.json
+ dist-desktop\release\SHA256SUMS.txt
+ ```
+@@ -125,17 +132,26 @@ Published editions:
+ 
+ | Edition | Product name | App ID | Version |
+ |---|---|---|---|
+-| Current line | `iMPS Fault Detection` | `th.co.imps.faultdetection` | 1.2.0 (v4 benchmark, artifact `53b6f14244c2e633`) |
+-| Snapshot 2026-09-12 | `iMPS Fault Detection Snapshot 2026-09-12` | `th.co.imps.faultdetection.snapshot20260912` | 1.1.0 (artifact `41ded2cdd5c2ba3f`) |
++| Current line | `iMPS Fault Detection` | `th.co.imps.faultdetection` | 1.2.1 (v4 benchmark, artifact `53b6f14244c2e633`) |
++| Snapshot 2026-09-12 | `iMPS Fault Detection Snapshot 2026-09-12` | `th.co.imps.faultdetection.snapshot20260912` | 1.1.1 (artifact `41ded2cdd5c2ba3f`: the frozen 1.1.0 models and data with the current dashboard) |
+ 
+-The snapshot edition was packaged from the unpacked 1.1.0 build with
+-`package.json` temporarily at version 1.1.0:
++The snapshot edition is packaged from a staged resources directory that
++combines the current dashboard and sidecar (`.next-desktop\standalone` and
++`.desktop-build\runtime` after `npm run desktop:prepare`) with the frozen 1.1.0
++`data\summary.json` and `models\` (artifact `41ded2cdd5c2ba3f`). Its version
++comes from `IMPS_APP_VERSION`, so `package.json` is not edited:
+ 
+ ```powershell
++npm run desktop:prepare
++# resources\app <- .next-desktop\standalone, resources\runtime <- .desktop-build\runtime,
++# resources\data and resources\models <- the frozen 1.1.0 build (kept outside the repo)
++powershell -NoProfile -ExecutionPolicy Bypass -File desktop\scripts\stage-snapshot-resources.ps1 `
++  -Frozen "<path to the 1.1.0 win-unpacked>\resources" -ExpectedArtifact 41ded2cdd5c2ba3f
+ $env:IMPS_PRODUCT_NAME = "iMPS Fault Detection Snapshot 2026-09-12"
+ $env:IMPS_APP_ID = "th.co.imps.faultdetection.snapshot20260912"
+-$env:IMPS_RESOURCES_ROOT = "dist-desktop/final-build/win-unpacked/resources"
+-$env:IMPS_ONLINE_PACKAGE_URL = "https://github.com/SukritJaAIproject/EV_Charger_Fault_Detection_AI/releases/download/imps-fault-detection-v1.1.0/material-tailwind-dashboard-nextjs-pro-1.1.0-x64.nsis.7z"
++$env:IMPS_APP_VERSION = "1.1.1"
++$env:IMPS_RESOURCES_ROOT = "dist-desktop/snapshot-staging/resources"
++$env:IMPS_ONLINE_PACKAGE_URL = "https://github.com/SukritJaAIproject/EV_Charger_Fault_Detection_AI/releases/download/imps-fault-detection-v1.1.1/material-tailwind-dashboard-nextjs-pro-1.1.1-x64.nsis.7z"
+ node desktop/scripts/build-installers.mjs --kind both --output dist-desktop/release-snapshot
+ ```
+ 
+@@ -156,6 +172,20 @@ The expected golden result is `fault_detected / PROTOCOL_FAILED`, 1,106 events,
+ one session, and model artifact `53b6f14244c2e633`. The healthy reference must
+ return `no_fault_detected`, 534 events, and one session.
+ 
++For an edition built under another product name, run the same check on its
++executable and confirm the identity it reports, e.g. for the snapshot edition:
++
++```powershell
++& ".\dist-desktop\release-snapshot\win-unpacked\iMPS Fault Detection Snapshot 2026-09-12.exe" --smoke-test
++```
++
++then start it normally and check that `/health` on the API port printed in
++`%APPDATA%\<product name>\logs\desktop-runtime.log` reports the expected
++`productName`, `appVersion` and `artifactVersion` (`41ded2cdd5c2ba3f` for the
++snapshot, `53b6f14244c2e633` for the current line). `Test-Coexistence.ps1`
++(public repository, `imps_platform/desktop/signing/`) installs both editions
++side by side and verifies they stay distinct.
++
+ ## v4 model policy
+ 
+ The v4 held-out benchmark ranks Traditional AI first by the composite score
+diff --git a/iMPS_platform/desktop/electron-builder.installers.cjs b/iMPS_platform/desktop/electron-builder.installers.cjs
+index 2d54f84e..52b374d5 100644
+--- a/iMPS_platform/desktop/electron-builder.installers.cjs
++++ b/iMPS_platform/desktop/electron-builder.installers.cjs
+@@ -57,6 +57,10 @@ const signtoolOptions = signCertSha1
+ // at a previously prepared resources directory instead of .desktop-build.
+ const productName = process.env.IMPS_PRODUCT_NAME?.trim() || packageMetadata.build.productName;
+ const appId = process.env.IMPS_APP_ID?.trim() || packageMetadata.build.appId;
++// IMPS_APP_VERSION lets an edition carry its own version (e.g. 1.1.1 for the
++// snapshot) without editing package.json; electron-builder writes it into the
++// asar's package.json, so app.getVersion() reports it too.
++const version = process.env.IMPS_APP_VERSION?.trim() || packageMetadata.version;
+ const productSlug = productName.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
+ const resourcesRoot = process.env.IMPS_RESOURCES_ROOT?.trim();
+ const remapResource = (entry) => {
+@@ -100,7 +104,7 @@ module.exports = {
+   ...base,
+   appId,
+   productName,
+-  extraMetadata: { ...(base.extraMetadata ?? {}), productName },
++  extraMetadata: { ...(base.extraMetadata ?? {}), productName, version },
+   extraResources: (base.extraResources ?? []).map(remapResource),
+   directories: {
+     ...base.directories,
+diff --git a/iMPS_platform/desktop/electron/main.cjs b/iMPS_platform/desktop/electron/main.cjs
+index eb60409c..2c6beae3 100644
+--- a/iMPS_platform/desktop/electron/main.cjs
++++ b/iMPS_platform/desktop/electron/main.cjs
+@@ -116,6 +116,11 @@ function startInferenceRuntime(runtime, apiPort, webOrigin, jobsRoot, logStream)
+     cwd: path.dirname(runtime.runtimeExecutable),
+     env: {
+       ...process.env,
++      // Reported on /health so the dashboard header can name this edition.
++      // Passed through the environment (not argv) so a sidecar built before
++      // these fields existed still starts.
++      IMPS_PRODUCT_NAME: APP_NAME,
++      IMPS_APP_VERSION: app.getVersion(),
+       OMP_NUM_THREADS: "1",
+       MKL_NUM_THREADS: "1",
+       OPENBLAS_NUM_THREADS: "1",
+@@ -324,6 +329,13 @@ async function launch() {
+     }
+   });
+   mainWindow.once("ready-to-show", () => mainWindow?.show());
++  // The dashboard's <title> is the generic "iMPS"; keep the edition's product
++  // name in the title bar so two installed editions can be told apart. The
++  // event is emitted by the BrowserWindow, not by its webContents.
++  mainWindow.on("page-title-updated", (event) => {
++    event.preventDefault();
++    mainWindow?.setTitle(APP_NAME);
++  });
+   mainWindow.on("closed", () => {
+     mainWindow = null;
+   });
+diff --git a/iMPS_platform/desktop/runtime/README.md b/iMPS_platform/desktop/runtime/README.md
+index 54e6630e..53341b5c 100644
+--- a/iMPS_platform/desktop/runtime/README.md
++++ b/iMPS_platform/desktop/runtime/README.md
+@@ -28,9 +28,17 @@ Runtime CLI contract:
+ ```text
+ imps-fault-runtime.exe serve --host 127.0.0.1 --port PORT \
+   --origin http://127.0.0.1:WEB_PORT --summary SUMMARY_JSON \
+-  --model-dir MODELS --tshark TSHARK_EXE --jobs-root JOBS_DIR
++  --model-dir MODELS --tshark TSHARK_EXE --jobs-root JOBS_DIR \
++  [--product-name NAME] [--app-version VERSION]
+ ```
+ 
++The edition identity is optional: the Electron launcher passes it through the
++environment (`IMPS_PRODUCT_NAME`, `IMPS_APP_VERSION`), the flags override it.
++`GET /health` reports it together with the bundled model, so the dashboard can
++name what is running: `productName`, `appVersion`, `artifactVersion` and
++`modelCreatedAt` (from `models/manifest.json`) and `summarySnapshotAt` (from
++the summary file); all are `null` when unknown.
++
+ The server launches the same executable in `worker` mode for one queued PCAP
+ at a time. Uploads are limited to 256 MiB, validated by extension and capture
+ magic, and stored under a random 128-bit job ID. Raw PCAP/telemetry files are
+diff --git a/iMPS_platform/desktop/runtime/imps_fault_runtime.py b/iMPS_platform/desktop/runtime/imps_fault_runtime.py
+index ee9c31c2..fb16ba63 100644
+--- a/iMPS_platform/desktop/runtime/imps_fault_runtime.py
++++ b/iMPS_platform/desktop/runtime/imps_fault_runtime.py
+@@ -5,6 +5,7 @@ from __future__ import annotations
+ import argparse
+ import hashlib
+ import json
++import os
+ import signal
+ import sys
+ import threading
+@@ -79,6 +80,8 @@ def _make_handler(
+     job_service: PcapJobService,
+     allowed_origin: str,
+     port: int,
++    product_name: str | None = None,
++    app_version: str | None = None,
+ ):
+     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+ 
+@@ -221,6 +224,10 @@ def _make_handler(
+                         "models": len(summary["leaderboard"]),
+                         "sessions": summary["dataset"]["sessions"],
+                         "inferenceReady": health["ready"],
++                        # edition identity for the dashboard header
++                        "productName": product_name,
++                        "appVersion": app_version,
++                        "summarySnapshotAt": summary.get("snapshotAt"),
+                         **health,
+                     },
+                 )
+@@ -269,6 +276,10 @@ def _serve(argv: list[str]) -> int:
+     parser.add_argument("--model-dir", required=True, type=Path)
+     parser.add_argument("--tshark", required=True, type=Path)
+     parser.add_argument("--jobs-root", required=True, type=Path)
++    # Edition identity for /health. The Electron launcher passes it through the
++    # environment (IMPS_PRODUCT_NAME / IMPS_APP_VERSION); the flags override it.
++    parser.add_argument("--product-name", default=None)
++    parser.add_argument("--app-version", default=None)
+     args = parser.parse_args(argv)
+     if args.host not in {"127.0.0.1", "localhost"}:
+         raise SystemExit("The desktop API can bind only to loopback")
+@@ -290,6 +301,8 @@ def _serve(argv: list[str]) -> int:
+         job_service=service,
+         allowed_origin=origin,
+         port=args.port,
++        product_name=(args.product_name or os.environ.get("IMPS_PRODUCT_NAME") or "").strip() or None,
++        app_version=(args.app_version or os.environ.get("IMPS_APP_VERSION") or "").strip() or None,
+     )
+     server = ThreadingHTTPServer((args.host, args.port), handler)
+     server.daemon_threads = True
+diff --git a/iMPS_platform/desktop/runtime/job_service.py b/iMPS_platform/desktop/runtime/job_service.py
+index 9895de6a..bb3261fb 100644
+--- a/iMPS_platform/desktop/runtime/job_service.py
++++ b/iMPS_platform/desktop/runtime/job_service.py
+@@ -112,6 +112,9 @@ class PcapJobService:
+         self._futures: dict[str, Future[Any]] = {}
+         self._processes: dict[str, subprocess.Popen[Any]] = {}
+         self._closed = False
++        # Identity of the bundled model, reported on /health so the dashboard
++        # can show which edition is running. Filled in by _validate_dependencies.
++        self.model_info: dict[str, Any] = {"artifactVersion": None, "createdAt": None}
+         self.jobs_root.mkdir(parents=True, exist_ok=True)
+         self._recover_interrupted_jobs()
+         self._cleanup_expired_jobs()
+@@ -121,6 +124,8 @@ class PcapJobService:
+         return {
+             "ready": not self._dependency_errors,
+             "missing": list(self._dependency_errors),
++            "artifactVersion": self.model_info["artifactVersion"],
++            "modelCreatedAt": self.model_info["createdAt"],
+             "maxUploadBytes": self.max_upload_bytes,
+             "maxQueuedJobs": self.max_queued_jobs,
+             "retentionDays": self.retention_days,
+@@ -157,6 +162,11 @@ class PcapJobService:
+                 expected = (files.get(name) or {}).get("sha256")
+                 if expected != self._sha256_file(self.model_dir / name):
+                     raise ValueError(f"hash mismatch for {name}")
++            created_at = manifest.get("createdAt")
++            self.model_info = {
++                "artifactVersion": manifest["artifactVersion"],
++                "createdAt": created_at if isinstance(created_at, str) else None,
++            }
+ 
+             import numpy as np
+ 
+diff --git a/iMPS_platform/desktop/scripts/build-installers.mjs b/iMPS_platform/desktop/scripts/build-installers.mjs
+index 9c6836ea..78e46c42 100644
+--- a/iMPS_platform/desktop/scripts/build-installers.mjs
++++ b/iMPS_platform/desktop/scripts/build-installers.mjs
+@@ -19,8 +19,9 @@ const packageMetadata = JSON.parse(
+ const productName =
+   process.env.IMPS_PRODUCT_NAME?.trim() || packageMetadata.build?.productName || "iMPS Fault Detection";
+ const productSlug = productName.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
+-const offlineArtifact = `${productSlug}-Offline-Setup-${packageMetadata.version}.exe`;
+-const onlineArtifact = `${productSlug}-Online-Setup-${packageMetadata.version}.exe`;
++const version = process.env.IMPS_APP_VERSION?.trim() || packageMetadata.version;
++const offlineArtifact = `${productSlug}-Offline-Setup-${version}.exe`;
++const onlineArtifact = `${productSlug}-Online-Setup-${version}.exe`;
+ 
+ 
+ function parseArguments(argv) {
+@@ -148,7 +149,7 @@ async function writeReleaseManifest(output, onlinePackageUrl) {
+   const manifest = {
+     schemaVersion: 1,
+     createdAt: new Date().toISOString(),
+-    appVersion: packageMetadata.version,
++    appVersion: version,
+     platform: "win32",
+     arch: "x64",
+     onlinePackageUrl: onlinePackageUrl ?? null,
+diff --git a/iMPS_platform/desktop/scripts/stage-snapshot-resources.ps1 b/iMPS_platform/desktop/scripts/stage-snapshot-resources.ps1
+new file mode 100644
+index 00000000..9ea12c55
+--- /dev/null
++++ b/iMPS_platform/desktop/scripts/stage-snapshot-resources.ps1
+@@ -0,0 +1,48 @@
++# Assemble the resources directory for a snapshot edition: the current dashboard
++# and sidecar from a fresh `npm run desktop:prepare`, plus frozen benchmark data
++# and model weights from an earlier unpacked build. Point IMPS_RESOURCES_ROOT at
++# the staged directory when packaging (see desktop\README.md, "Editions").
++[CmdletBinding()]
++param(
++    # resources directory of the frozen build (contains data\summary.json and models\)
++    [Parameter(Mandatory = $true)][string]$Frozen,
++    [string]$Staging = "",
++    # refuse to stage anything but this model artifact
++    [string]$ExpectedArtifact = ""
++)
++$ErrorActionPreference = 'Stop'
++$projectRoot = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..\..")).Path
++if (-not $Staging) { $Staging = Join-Path $projectRoot 'dist-desktop\snapshot-staging\resources' }
++$app = Join-Path $projectRoot '.next-desktop\standalone'
++$runtime = Join-Path $projectRoot '.desktop-build\runtime'
++$buildManifest = Join-Path $projectRoot '.desktop-build\manifest.json'
++foreach ($p in $app, $runtime, $buildManifest, (Join-Path $Frozen 'data\summary.json'), (Join-Path $Frozen 'models\manifest.json')) {
++    if (-not (Test-Path -LiteralPath $p)) { throw "missing: $p" }
++}
++$serverEntry = (Get-Content $buildManifest -Raw | ConvertFrom-Json).nextServerRelativePath
++if ($serverEntry -ne 'server.js') { throw "unexpected standalone layout: server entry is $serverEntry" }
++
++if (Test-Path -LiteralPath $Staging) { [IO.Directory]::Delete($Staging, $true) }
++New-Item -ItemType Directory -Force (Join-Path $Staging 'data') | Out-Null
++function Mirror($from, $to) {
++    # robocopy exit codes below 8 mean success (1 = files copied)
++    & robocopy $from $to /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:2 | Out-Null
++    if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE): $from -> $to" }
++}
++Mirror $app (Join-Path $Staging 'app')
++Mirror $runtime (Join-Path $Staging 'runtime')
++Mirror (Join-Path $Frozen 'models') (Join-Path $Staging 'models')
++Copy-Item -LiteralPath (Join-Path $Frozen 'data\summary.json') -Destination (Join-Path $Staging 'data\summary.json') -Force
++
++$manifest = Get-Content (Join-Path $Staging 'models\manifest.json') -Raw | ConvertFrom-Json
++$summary = Get-Content (Join-Path $Staging 'data\summary.json') -Raw | ConvertFrom-Json
++"staged at $Staging"
++"  app files:      $((Get-ChildItem (Join-Path $Staging 'app') -Recurse -File | Measure-Object).Count)"
++"  runtime files:  $((Get-ChildItem (Join-Path $Staging 'runtime') -Recurse -File | Measure-Object).Count)"
++"  model artifact: $($manifest.artifactVersion)"
++"  summary:        snapshotAt=$($summary.snapshotAt) faulty=$($summary.dataset.faultySessions)"
++if ($ExpectedArtifact -and $manifest.artifactVersion -ne $ExpectedArtifact) {
++    throw "staged model artifact $($manifest.artifactVersion) is not the expected $ExpectedArtifact"
++}
++$global:LASTEXITCODE = 0
++exit 0
+diff --git a/iMPS_platform/package-lock.json b/iMPS_platform/package-lock.json
+index 989d01fe..bafeb5ef 100644
+--- a/iMPS_platform/package-lock.json
++++ b/iMPS_platform/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "material-tailwind-dashboard-nextjs-pro",
+-  "version": "1.2.0",
++  "version": "1.2.1",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "material-tailwind-dashboard-nextjs-pro",
+-      "version": "1.2.0",
++      "version": "1.2.1",
+       "dependencies": {
+         "@fortawesome/fontawesome-free": "^7.0.1",
+         "@fullcalendar/core": "6.1.10",
+diff --git a/iMPS_platform/package.json b/iMPS_platform/package.json
+index 32fc4498..98259516 100644
+--- a/iMPS_platform/package.json
++++ b/iMPS_platform/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "material-tailwind-dashboard-nextjs-pro",
+-  "version": "1.2.0",
++  "version": "1.2.1",
+   "description": "Offline Windows desktop application for EV charger fault detection and PCAP analysis.",
+   "author": "iMPS Project",
+   "private": true,
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/api.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/api.test.ts
+index 6bc8f912..5d6aa3de 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/api.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/api.test.ts
+@@ -1,6 +1,9 @@
+ import { describe, expect, it, vi } from "vitest";
+ 
+ import {
++  getDesktopRuntimeStatus,
++  isDesktopFaultDetectionApi,
++  parseDesktopRuntimeStatus,
+   parseFaultDetectionSummary,
+   parsePcapAnalysisJob,
+   resolveFaultDetectionApiBase,
+@@ -284,3 +287,99 @@ describe("parsePcapAnalysisJob", () => {
+     })).toThrow(/invalid response/i);
+   });
+ });
++
++describe("isDesktopFaultDetectionApi", () => {
++  it("is true only when the page talks to the desktop sidecar", () => {
++    expect(isDesktopFaultDetectionApi("?desktop=1&desktopApiPort=43127")).toBe(true);
++    expect(isDesktopFaultDetectionApi("?desktop=1")).toBe(true);
++    expect(isDesktopFaultDetectionApi("")).toBe(false);
++    expect(isDesktopFaultDetectionApi("?desktop=0")).toBe(false);
++  });
++});
++
++describe("parseDesktopRuntimeStatus", () => {
++  it("reads the edition identity reported by the sidecar", () => {
++    const status = parseDesktopRuntimeStatus({
++      service: "fault-detection-portable",
++      status: "ok",
++      source: "full_fleet",
++      models: 5,
++      sessions: 8820,
++      inferenceReady: true,
++      ready: true,
++      missing: [],
++      productName: "iMPS Fault Detection Snapshot 2026-09-12",
++      appVersion: "1.1.1",
++      artifactVersion: "41ded2cdd5c2ba3f",
++      modelCreatedAt: "2026-09-19T08:04:53.267983Z",
++      summarySnapshotAt: "2026-09-12T00:52:33.536343Z",
++    });
++    expect(status.productName).toBe("iMPS Fault Detection Snapshot 2026-09-12");
++    expect(status.appVersion).toBe("1.1.1");
++    expect(status.artifactVersion).toBe("41ded2cdd5c2ba3f");
++    expect(status.summarySnapshotAt).toBe("2026-09-12T00:52:33.536343Z");
++  });
++
++  it("tolerates an older sidecar that reports no identity fields", () => {
++    const status = parseDesktopRuntimeStatus({ service: "fault-detection-portable", status: "degraded", ready: false, missing: ["models"] });
++    expect(status.productName).toBeUndefined();
++    expect(status.artifactVersion).toBeUndefined();
++  });
++
++  it("rejects payloads without the service marker", () => {
++    expect(() => parseDesktopRuntimeStatus({ status: "ok" })).toThrow(/unexpected shape/);
++  });
++});
++
++describe("parseDesktopRuntimeStatus degradation", () => {
++  it("drops a malformed optional identity field instead of rejecting the payload", () => {
++    const status = parseDesktopRuntimeStatus({
++      service: "fault-detection-portable",
++      status: "ok",
++      productName: "",
++      appVersion: 121,
++      artifactVersion: "53b6f14244c2e633",
++    });
++    expect(status.productName).toBeNull();
++    expect(status.appVersion).toBeNull();
++    expect(status.artifactVersion).toBe("53b6f14244c2e633");
++  });
++});
++
++describe("getDesktopRuntimeStatus", () => {
++  it("accepts a degraded sidecar's 503 body with explicit null identity fields", async () => {
++    const body = JSON.stringify({
++      service: "fault-detection-portable",
++      status: "degraded",
++      inferenceReady: false,
++      ready: false,
++      missing: ["models"],
++      productName: null,
++      appVersion: null,
++      artifactVersion: null,
++      modelCreatedAt: null,
++      summarySnapshotAt: "2026-09-21T08:11:19.459039Z",
++    });
++    const fetchMock = vi.fn(async () => new Response(body, { status: 503, headers: { "Content-Type": "application/json" } }));
++    vi.stubGlobal("fetch", fetchMock);
++    try {
++      const status = await getDesktopRuntimeStatus();
++      expect(fetchMock).toHaveBeenCalledTimes(1);
++      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/health$/), expect.objectContaining({ method: "GET" }));
++      expect(status.status).toBe("degraded");
++      expect(status.artifactVersion).toBeNull();
++      expect(status.summarySnapshotAt).toBe("2026-09-21T08:11:19.459039Z");
++    } finally {
++      vi.unstubAllGlobals();
++    }
++  });
++
++  it("reports malformed JSON as an invalid response", async () => {
++    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>", { status: 200 })));
++    try {
++      await expect(getDesktopRuntimeStatus()).rejects.toThrow(/malformed JSON/);
++    } finally {
++      vi.unstubAllGlobals();
++    }
++  });
++});
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts
+index 4b94192b..e20131bb 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts
+@@ -4,6 +4,7 @@ import type { FaultDetectionSummary, StationRollupMetrics } from "./data";
+ 
+ export const FAULT_DETECTION_SUMMARY_PATH = "/ai/fault-detection/summary";
+ export const FAULT_DETECTION_JOBS_PATH = "/ai/fault-detection/jobs";
++export const FAULT_DETECTION_HEALTH_PATH = "/health";
+ export const MAX_PCAP_UPLOAD_BYTES = 256 * 1024 * 1024;
+ 
+ const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000").replace(/\/+$/, "");
+@@ -45,6 +46,15 @@ export function resolveFaultDetectionApiBase(search?: string): string {
+   return desktopMode === "1" ? DESKTOP_API_BASE : API_BASE;
+ }
+ 
++/**
++ * True when the page talks to the desktop sidecar (an Electron launch, or the
++ * loopback port remembered from one) rather than the web backend. Only the
++ * sidecar reports the edition identity shown in the dashboard header.
++ */
++export function isDesktopFaultDetectionApi(search?: string): boolean {
++  return resolveFaultDetectionApiBase(search) !== API_BASE;
++}
++
+ const finiteNumber = z.number().finite();
+ const nullableNumber = finiteNumber.nullable();
+ const nonNegativeNumber = finiteNumber.nonnegative();
+@@ -492,6 +502,69 @@ async function readJsonResponse(response: Response, label: string): Promise<unkn
+   }
+ }
+ 
++// A malformed identity value degrades to null instead of rejecting the whole payload.
++const optionalText = z.string().min(1).nullable().optional().catch(null);
++
++/**
++ * Subset of the desktop sidecar's /health payload that identifies the running
++ * edition. Every identity field is optional so older sidecars still parse.
++ */
++const desktopRuntimeStatusSchema = z.object({
++  service: z.string().min(1),
++  status: z.string().min(1),
++  inferenceReady: z.boolean().optional(),
++  productName: optionalText,
++  appVersion: optionalText,
++  artifactVersion: optionalText,
++  modelCreatedAt: optionalText,
++  summarySnapshotAt: optionalText,
++});
++
++export type DesktopRuntimeStatus = z.infer<typeof desktopRuntimeStatusSchema>;
++
++export function parseDesktopRuntimeStatus(payload: unknown): DesktopRuntimeStatus {
++  const parsed = desktopRuntimeStatusSchema.safeParse(payload);
++  if (!parsed.success) {
++    throw new FaultDetectionApiError("Desktop runtime status has an unexpected shape.", {
++      kind: "invalid_response",
++      details: parsed.error.issues,
++    });
++  }
++  return parsed.data;
++}
++
++/** Reads /health from the desktop sidecar. A degraded sidecar answers 503 with the same JSON body. */
++export async function getDesktopRuntimeStatus(options: { signal?: AbortSignal } = {}): Promise<DesktopRuntimeStatus> {
++  let response: Response;
++  try {
++    response = await fetch(`${resolveFaultDetectionApiBase()}${FAULT_DETECTION_HEALTH_PATH}`, {
++      method: "GET",
++      headers: { Accept: "application/json" },
++      cache: "no-store",
++      signal: options.signal,
++    });
++  } catch (error) {
++    if (isAbortError(error)) throw error;
++    throw new FaultDetectionApiError("Unable to connect to the desktop runtime.", {
++      kind: "network",
++      details: error,
++    });
++  }
++
++  const body = await response.text();
++  let payload: unknown;
++  try {
++    payload = JSON.parse(body);
++  } catch (error) {
++    throw new FaultDetectionApiError("Desktop runtime returned malformed JSON.", {
++      kind: "invalid_response",
++      status: response.status,
++      details: error,
++    });
++  }
++  return parseDesktopRuntimeStatus(payload);
++}
++
+ export async function getFaultDetectionSummary(options: { signal?: AbortSignal } = {}): Promise<FaultDetectionSummary> {
+   let response: Response;
+ 
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts
+index 41b23a7a..5b74f4b9 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts
+@@ -143,6 +143,23 @@ export type FaultDetectionSummary = {
+   analysis: FaultDetectionAnalysis;
+ };
+ 
++/**
++ * Locale for benchmark snapshot dates. Thai UI uses the Gregorian calendar here
++ * so the date matches the one embedded in product names ("Snapshot 2026-09-12").
++ */
++export const snapshotDateLocale = (lang: "th" | "en"): string =>
++  lang === "th" ? "th-TH-u-ca-gregory" : "en-GB";
++
++/**
++ * The benchmark that ships inside this build of the app (data/summary.json in
++ * the desktop package). It is what makes two editions differ, so the Overview
++ * renders it instead of relying only on the fixed research constants.
++ */
++export type BundledBenchmark = Pick<
++  FaultDetectionSummary,
++  "source" | "snapshotAt" | "dataset" | "leaderboard"
++> & { faultFamilies: string[] };
++
+ /**
+  * Honest fallback shown while the live summary is loading or unavailable.
+  * Evaluation fields stay null so an API outage can never surface invented
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+index 6328d449..f204a069 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+@@ -1,6 +1,6 @@
+ "use client";
+ 
+-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
++import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+ import {
+   Activity,
+   AlertTriangle,
+@@ -24,11 +24,14 @@ import useLanguage from "@/utils/useLanguage";
+ import {
+   MAX_PCAP_UPLOAD_BYTES,
+   createPcapAnalysisJob,
++  getDesktopRuntimeStatus,
+   getFaultDetectionSummary,
+   getPcapAnalysisJob,
++  isDesktopFaultDetectionApi,
++  type DesktopRuntimeStatus,
+   type PcapAnalysisJob,
+ } from "./api";
+-import type { StationAnalysis } from "./data";
++import { snapshotDateLocale, type BundledBenchmark, type StationAnalysis } from "./data";
+ import FaultExplanationPanel, {
+   FaultExplanationInline,
+   ObservedStopAttribution,
+@@ -122,6 +125,9 @@ const COPY = {
+     faultGuide: "คู่มือ Fault",
+     openFaultGuide: "เปิดคู่มือ Fault ทั้ง 7 ประเภท",
+     visibleStations: "สถานีที่แสดง",
++    editionLabel: "รุ่นโปรแกรม",
++    modelLabel: "โมเดล",
++    dataAsOfLabel: "ข้อมูล benchmark ณ",
+   },
+   en: {
+     eyebrow: "AI · CHARGER FAULT INTELLIGENCE",
+@@ -205,6 +211,9 @@ const COPY = {
+     faultGuide: "Fault guide",
+     openFaultGuide: "Open the guide to all 7 fault families",
+     visibleStations: "Stations shown",
++    editionLabel: "Edition",
++    modelLabel: "Model",
++    dataAsOfLabel: "Benchmark data as of",
+   },
+ } as const;
+ 
+@@ -290,6 +299,20 @@ function PanelHeading({
+   );
+ }
+ 
++/** One identity chip in the hero: which edition, model and data snapshot is running. */
++function EditionChip({ id, label, value, mono = false }: { id: string; label: string; value: string; mono?: boolean }) {
++  return (
++    <span
++      className="fd-edition-chip tw-inline-flex tw-max-w-full tw-items-center tw-gap-2 tw-rounded-lg tw-bg-white/[0.06] tw-px-2.5 tw-py-1.5 tw-text-[11px] tw-font-semibold tw-text-slate-100 tw-ring-1 tw-ring-white/10"
++      data-testid={`fd-edition-chip-${id}`}
++      title={value}
++    >
++      <span className="tw-flex-shrink-0 tw-text-[9px] tw-font-extrabold tw-uppercase tw-tracking-[0.14em] tw-text-yellow-300/80">{label}</span>
++      <span className={`tw-min-w-0 tw-break-words ${mono ? "ai-mono" : ""}`}>{value}</span>
++    </span>
++  );
++}
++
+ function SummaryMetric({
+   icon,
+   label,
+@@ -337,6 +360,15 @@ export default function FaultDetectionPage() {
+   const [stationHasLoaded, setStationHasLoaded] = useState(false);
+   const [stationError, setStationError] = useState<string | null>(null);
+   const [stationSnapshot, setStationSnapshot] = useState<string | null>(null);
++  const [bundled, setBundled] = useState<BundledBenchmark | null>(null);
++  const [runtimeStatus, setRuntimeStatus] = useState<DesktopRuntimeStatus | null>(null);
++  // Known from the launch query string / remembered loopback port, so it is
++  // stable for the life of the tab; the server snapshot is false (no window).
++  const desktopMode = useSyncExternalStore(
++    () => () => {},
++    () => isDesktopFaultDetectionApi(),
++    () => false,
++  );
+   const [stationQuery, setStationQuery] = useState("");
+   const [stationSort, setStationSort] = useState<StationSort>("station");
+   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
+@@ -351,6 +383,13 @@ export default function FaultDetectionPage() {
+       const summary = await getFaultDetectionSummary({ signal });
+       setStations(summary.analysis.byStation);
+       setStationSnapshot(summary.snapshotAt);
++      setBundled({
++        source: summary.source,
++        snapshotAt: summary.snapshotAt,
++        dataset: summary.dataset,
++        leaderboard: summary.leaderboard,
++        faultFamilies: summary.analysis.faultFamilies,
++      });
+       setStationHasLoaded(true);
+     } catch (caught) {
+       if (caught instanceof DOMException && caught.name === "AbortError") return;
+@@ -367,6 +406,17 @@ export default function FaultDetectionPage() {
+     return () => controller.abort();
+   }, [activeView, loadStations, stationHasLoaded]);
+ 
++  // Edition identity (product name, version, model artifact) comes from the
++  // desktop sidecar's /health; the web deployment has no sidecar and shows none.
++  useEffect(() => {
++    if (!isDesktopFaultDetectionApi()) return;
++    const controller = new AbortController();
++    getDesktopRuntimeStatus({ signal: controller.signal })
++      .then(setRuntimeStatus)
++      .catch(() => setRuntimeStatus(null));
++    return () => controller.abort();
++  }, []);
++
+   useEffect(
+     () => () => {
+       analysisAbortRef.current?.abort();
+@@ -477,7 +527,7 @@ export default function FaultDetectionPage() {
+     [stations],
+   );
+   const stationSnapshotLabel = stationSnapshot
+-    ? new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-GB", {
++    ? new Intl.DateTimeFormat(snapshotDateLocale(lang), {
+         dateStyle: "medium",
+         timeStyle: "short",
+       }).format(new Date(stationSnapshot))
+@@ -486,6 +536,20 @@ export default function FaultDetectionPage() {
+     () => stations.find((station) => station.station === selectedStationId) ?? null,
+     [selectedStationId, stations],
+   );
++  // Desktop only: the sidecar reports the snapshot date; an older sidecar
++  // without that field falls back to the summary it serves. The web build
++  // shows no edition strip at all.
++  const editionSnapshotAt = desktopMode ? runtimeStatus?.summarySnapshotAt ?? bundled?.snapshotAt ?? null : null;
++  const editionSnapshotLabel =
++    editionSnapshotAt && Number.isFinite(Date.parse(editionSnapshotAt))
++      ? new Intl.DateTimeFormat(snapshotDateLocale(lang), { dateStyle: "medium" }).format(new Date(editionSnapshotAt))
++      : null;
++  // "Bundled with this edition" wording only when the portable sidecar answered;
++  // the legacy dev launcher serves live results and the web build uses the API.
++  const bundledFromSidecar = runtimeStatus ? runtimeStatus.service === "fault-detection-portable" : desktopMode;
++  const editionName = runtimeStatus?.productName
++    ? `${runtimeStatus.productName}${runtimeStatus.appVersion ? ` v${runtimeStatus.appVersion}` : ""}`
++    : null;
+ 
+   return (
+     <main className={`ai-root fd-page fd-lang-${lang} tw-min-h-screen`}>
+@@ -513,6 +577,13 @@ export default function FaultDetectionPage() {
+                 </div>
+                 <h1 className="fd-display tw-mt-5 tw-max-w-4xl tw-text-[28px] tw-font-black tw-leading-[1.12] tw-tracking-[-0.035em] tw-text-white sm:tw-text-4xl lg:tw-text-[42px] lg:tw-leading-[1.08]">{c.title}</h1>
+                 <p className="tw-mt-3 tw-max-w-2xl tw-text-[13px] tw-font-medium tw-leading-6 tw-text-slate-300 sm:tw-mt-4 sm:tw-text-[15px] sm:tw-leading-7">{PCAP_ANALYSIS_ENABLED ? c.subtitle : c.desktopSubtitle}</p>
++                {(editionName || runtimeStatus?.artifactVersion || editionSnapshotLabel) && (
++                  <div className="fd-edition-strip tw-mt-4 tw-flex tw-flex-wrap tw-gap-2" data-testid="fd-edition-strip">
++                    {editionName && <EditionChip id="edition" label={c.editionLabel} value={editionName} />}
++                    {runtimeStatus?.artifactVersion && <EditionChip id="model" label={c.modelLabel} value={runtimeStatus.artifactVersion} mono />}
++                    {editionSnapshotLabel && <EditionChip id="snapshot" label={c.dataAsOfLabel} value={editionSnapshotLabel} />}
++                  </div>
++                )}
+               </div>
+               <div className="tw-grid tw-grid-cols-2 tw-gap-2 sm:tw-flex sm:tw-flex-wrap lg:tw-max-w-[270px] lg:tw-justify-end">
+                 <span className="tw-inline-flex tw-min-h-10 tw-items-center tw-justify-center tw-gap-2 tw-rounded-xl tw-bg-emerald-400/10 tw-px-2.5 tw-text-center tw-text-[9px] tw-font-extrabold tw-uppercase tw-tracking-wider tw-text-emerald-300 tw-ring-1 tw-ring-emerald-300/20 sm:tw-px-3.5 sm:tw-text-[11px]">
+@@ -579,6 +650,8 @@ export default function FaultDetectionPage() {
+           >
+             <ResearchDashboard
+               lang={lang}
++              bundled={bundled}
++              desktop={bundledFromSidecar}
+               stations={stations}
+               stationLoading={stationLoading}
+               stationError={stationError}
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+index e4e0f837..c2404084 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+@@ -32,7 +32,7 @@ import {
+   type ResearchModelId,
+   type ResearchProfileId,
+ } from "./research-data";
+-import type { StationAnalysis } from "./data";
++import { snapshotDateLocale, type BundledBenchmark, type FaultDetectionModelId, type StationAnalysis } from "./data";
+ 
+ type Lang = "th" | "en";
+ 
+@@ -119,6 +119,26 @@ const COPY = {
+     stationCta: "ผลรายสถานี",
+     pcapCta: "วิเคราะห์ PCAP",
+     updated: "ตรวจสอบล่าสุด",
++    bundledTag: "BENCHMARK ในรุ่นนี้",
++    bundledTitle: "ผล benchmark ที่มากับโปรแกรมรุ่นนี้",
++    bundledSub: "อ่านจากไฟล์ผลลัพธ์ที่ bundle มากับโปรแกรม (data/summary.json) จึงเปลี่ยนตามรุ่นและโมเดลที่ติดตั้ง",
++    bundledSessions: "Sessions ทดสอบ",
++    bundledFaulty: "Fault sessions",
++    bundledNormal: "Sessions ปกติ",
++    bundledStations: "สถานี",
++    bundledEmpty: "ยังไม่มีผล benchmark สำหรับโมเดลนี้",
++    bundledTagWeb: "BENCHMARK จากเซิร์ฟเวอร์",
++    bundledTitleWeb: "ผล benchmark จากบริการตรวจจับ fault",
++    bundledSubWeb: "อ่านจาก API ของบริการตรวจจับ fault ที่หน้านี้เชื่อมต่ออยู่",
++    bundledBasis: "คะแนนจาก label ของรุ่นนี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม · แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดก่อนบน label policy 3 แบบ ไม่ใช่ benchmark ของรุ่นนี้",
++    bundledExportedAt: "ข้อมูล ณ",
++    sourceFullFleet: "ทั้ง fleet",
++    sourcePreview: "ตัวอย่าง",
++    bundledLoading: "กำลังโหลดผล benchmark…",
++    bundledFailed: "โหลดผล benchmark ไม่สำเร็จ",
++    fixedResearchNote: "ชุดข้อมูลวิจัยคงที่ · เหมือนกันทุกรุ่นโปรแกรม",
++    f1: "F1",
++    bundledRetry: "ลองใหม่",
+   },
+   en: {
+     verified: "VERIFIED RESEARCH SNAPSHOT",
+@@ -202,6 +222,26 @@ const COPY = {
+     stationCta: "Station results",
+     pcapCta: "Analyze PCAP",
+     updated: "Verified",
++    bundledTag: "BENCHMARK IN THIS BUILD",
++    bundledTitle: "Benchmark shipped with this edition",
++    bundledSub: "Read from the result file bundled with the program (data/summary.json), so it changes with the edition and the installed model.",
++    bundledSessions: "Test sessions",
++    bundledFaulty: "Fault sessions",
++    bundledNormal: "Normal sessions",
++    bundledStations: "Stations",
++    bundledEmpty: "No benchmark result for this model yet",
++    bundledTagWeb: "BENCHMARK FROM THE SERVICE",
++    bundledTitleWeb: "Benchmark from the fault-detection service",
++    bundledSubWeb: "Read from the fault-detection API this page is connected to.",
++    bundledBasis: "Scored on this edition's own labels with the baseline detection policy, no ISO 15118 rule arms. The research panel below rescores earlier models under three label policies and is not this edition's benchmark.",
++    bundledExportedAt: "Data as of",
++    sourceFullFleet: "full fleet",
++    sourcePreview: "preview",
++    bundledLoading: "Loading the bundled benchmark…",
++    bundledFailed: "Could not load the bundled benchmark",
++    fixedResearchNote: "Fixed research dataset · identical in every edition",
++    f1: "F1",
++    bundledRetry: "Retry",
+   },
+ } as const;
+ 
+@@ -213,6 +253,20 @@ const MODEL_TONES: Record<ResearchModelId, { bar: string; badge: string }> = {
+   MultiAgent: { bar: "tw-bg-rose-500", badge: "tw-bg-rose-50 tw-text-rose-700 tw-ring-rose-100" },
+ };
+ 
++// Leaderboard ids used by data/summary.json -> ids of the research constants.
++const RESEARCH_ID_BY_MODEL_ID: Record<FaultDetectionModelId, ResearchModelId> = {
++  traditional: "TraditionalAI",
++  rl: "RL",
++  "ai-agent": "AIAgent",
++  "agentic-ai": "AgenticAI",
++  "multi-agent": "MultiAgent",
++};
++
++const formatNullableInt = (value: number | null) => (value === null ? "\u2014" : formatInt(value));
++const formatNullablePercent = (value: number | null) => (value === null ? "\u2014" : `${value.toFixed(1)}%`);
++const formatShare = (part: number | null, whole: number | null) =>
++  part === null || !whole ? "\u2014" : `${((part / whole) * 100).toFixed(1)}%`;
++
+ const FAULT_DISTRIBUTION_COLORS: Record<string, string> = {
+   NO_POWER_DELIVERED: "#dc2626",
+   PROTOCOL_FAILED: "#2563eb",
+@@ -662,6 +716,8 @@ function DashboardStat({
+ 
+ export default function ResearchDashboard({
+   lang,
++  bundled,
++  desktop,
+   stations,
+   stationLoading,
+   stationError,
+@@ -671,6 +727,9 @@ export default function ResearchDashboard({
+   onOpenPcap,
+ }: {
+   lang: Lang;
++  bundled: BundledBenchmark | null;
++  /** true when the summary came from the desktop sidecar (bundled file), false for the web API */
++  desktop: boolean;
+   stations: StationAnalysis[];
+   stationLoading: boolean;
+   stationError: string | null;
+@@ -711,12 +770,96 @@ export default function ResearchDashboard({
+     empirical: c.empirical,
+     normative: c.normative,
+   };
+-  const verifiedDate = new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-GB", {
++  const verifiedDate = new Intl.DateTimeFormat(snapshotDateLocale(lang), {
+     dateStyle: "medium",
+   }).format(new Date(RESEARCH_SNAPSHOT));
++  // The benchmark bundled with this build, ranked by score (unscored models last).
++  const bundledRows = useMemo(
++    () => (bundled ? [...bundled.leaderboard].sort((left, right) => (right.score ?? -1) - (left.score ?? -1)) : []),
++    [bundled],
++  );
++  const bundledDate = bundled && Number.isFinite(Date.parse(bundled.snapshotAt))
++    ? new Intl.DateTimeFormat(snapshotDateLocale(lang), { dateStyle: "medium", timeStyle: "short" }).format(new Date(bundled.snapshotAt))
++    : null;
++  const bundledHasScores = bundledRows.some((row) => row.score !== null);
++  const familiesDetail = bundled
++    ? lang === "th" ? `fault ${bundled.faultFamilies.length} ประเภท` : `${bundled.faultFamilies.length} fault families`
++    : "";
+ 
+   return (
+     <div className="tw-space-y-4 sm:tw-space-y-6">
++      <section className="fd-panel fd-bundled-benchmark tw-overflow-hidden" data-testid="fd-bundled-benchmark">
++        <div className="tw-border-b tw-border-slate-100 tw-p-5 sm:tw-p-6">
++          <div className="tw-flex tw-flex-wrap tw-items-center tw-gap-2">
++            <span className="tw-inline-flex tw-items-center tw-gap-1.5 tw-rounded-full tw-bg-blue-50 tw-px-2.5 tw-py-1 tw-text-[10px] tw-font-bold tw-uppercase tw-tracking-[0.14em] tw-text-blue-700 tw-ring-1 tw-ring-blue-100 sm:tw-text-[11px]">
++              <Database className="tw-h-3.5 tw-w-3.5" /> {desktop ? c.bundledTag : c.bundledTagWeb}
++            </span>
++            {bundledDate && (
++              <span className="ai-mono tw-text-[10px] tw-font-semibold tw-text-slate-400 sm:tw-text-[11px]">{c.bundledExportedAt}: {bundledDate}</span>
++            )}
++          </div>
++          <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{desktop ? c.bundledTitle : c.bundledTitleWeb}</h2>
++          <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{desktop ? c.bundledSub : c.bundledSubWeb}</p>
++          <p className="tw-mt-2 tw-max-w-3xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-400">{c.bundledBasis}</p>
++        </div>
++        {bundled && (
++          <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-bg-slate-50/70 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
++            <DashboardStat icon={<FileCheck2 className="tw-h-4 tw-w-4" />} label={c.bundledSessions} value={formatNullableInt(bundled.dataset.sessions)} detail={bundled.source === "full_fleet" ? c.sourceFullFleet : c.sourcePreview} tone="blue" />
++            <DashboardStat icon={<AlertTriangle className="tw-h-4 tw-w-4" />} label={c.bundledFaulty} value={formatNullableInt(bundled.dataset.faultySessions)} detail={formatShare(bundled.dataset.faultySessions, bundled.dataset.sessions)} tone="red" />
++            <DashboardStat icon={<ShieldCheck className="tw-h-4 tw-w-4" />} label={c.bundledNormal} value={formatNullableInt(bundled.dataset.normalSessions)} detail={formatShare(bundled.dataset.normalSessions, bundled.dataset.sessions)} tone="emerald" />
++            <DashboardStat icon={<MapPin className="tw-h-4 tw-w-4" />} label={c.bundledStations} value={formatNullableInt(bundled.dataset.stations)} detail={familiesDetail} tone="amber" />
++          </div>
++        )}
++        <div className="tw-space-y-1 tw-p-3 sm:tw-p-5">
++          {!bundled && stationLoading && (
++            <div role="status" aria-label={c.bundledLoading} className="tw-flex tw-items-center tw-gap-2 tw-p-3 tw-text-[12px] tw-font-semibold tw-text-slate-500">
++              <RefreshCw className="tw-h-4 tw-w-4 tw-animate-spin" /> {c.bundledLoading}
++            </div>
++          )}
++          {bundled && !bundledHasScores && (
++            <div role="status" className="tw-p-3 tw-text-[12px] tw-font-semibold tw-text-slate-500">{c.bundledEmpty}</div>
++          )}
++          {!bundled && !stationLoading && stationError && (
++            <div role="alert" className="tw-flex tw-flex-wrap tw-items-center tw-gap-3 tw-p-3 tw-text-[12px] tw-font-semibold tw-text-red-700">
++              <AlertTriangle className="tw-h-4 tw-w-4" /> {c.bundledFailed}
++              <button type="button" onClick={onRetryStations} className="tw-rounded-lg tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-py-1.5 tw-text-[11px] tw-font-bold tw-text-slate-700 hover:tw-border-blue-300 hover:tw-text-blue-700">{c.bundledRetry}</button>
++            </div>
++          )}
++          {bundledHasScores && bundledRows.map((row, index) => {
++            const researchId = RESEARCH_ID_BY_MODEL_ID[row.id];
++            const meta = MODEL_META[researchId];
++            const tone = MODEL_TONES[researchId];
++            const score = row.score;
++            return (
++              <div key={row.id} className="fd-model-row tw-grid tw-grid-cols-[42px_minmax(0,1fr)] tw-gap-3 tw-rounded-2xl tw-p-3 tw-transition sm:tw-grid-cols-[48px_170px_minmax(0,1fr)_82px] sm:tw-items-center" data-testid={`fd-bundled-row-${row.id}`}>
++                <div className={`ai-mono tw-flex tw-h-10 tw-w-10 tw-items-center tw-justify-center tw-rounded-xl tw-text-[11px] tw-font-black tw-ring-1 sm:tw-h-11 sm:tw-w-11 ${tone.badge}`}>{meta.short}</div>
++                <div className="tw-min-w-0">
++                  <div className="tw-flex tw-items-center tw-gap-2">
++                    <span className="ai-mono tw-text-[10px] tw-font-bold tw-text-slate-400">#{index + 1}</span>
++                    <span className="tw-truncate tw-text-[13px] tw-font-black tw-text-slate-900 sm:tw-text-sm">{row.name}</span>
++                  </div>
++                  <div className="tw-mt-0.5 tw-truncate tw-text-[11px] tw-font-medium tw-text-slate-400">{row.family}</div>
++                </div>
++                <div className="tw-col-span-2 sm:tw-col-span-1">
++                  <div className="tw-h-2.5 tw-overflow-hidden tw-rounded-full tw-bg-slate-100" role="img" aria-label={`${row.name}: ${score === null ? c.bundledEmpty : score.toFixed(1)}`}>
++                    <div className={`tw-h-full tw-rounded-full tw-transition-all tw-duration-500 ${tone.bar}`} style={{ width: `${Math.max(0, Math.min(100, score ?? 0))}%` }} />
++                  </div>
++                  <div className="tw-mt-2 tw-flex tw-flex-wrap tw-gap-x-4 tw-gap-y-1 tw-text-[11px] tw-font-medium tw-text-slate-500">
++                    <span>{c.recall} <strong className="ai-mono tw-text-slate-800">{formatNullablePercent(row.recall)}</strong></span>
++                    <span>{c.far} <strong className="ai-mono tw-text-slate-800">{formatNullablePercent(row.falseAlarmRate)}</strong></span>
++                    <span>{c.lead} <strong className="ai-mono tw-text-slate-800">{row.earlinessSeconds === null ? "\u2014" : `${row.earlinessSeconds.toFixed(1)}s`}</strong></span>
++                    <span>{c.f1} <strong className="ai-mono tw-text-slate-800">{formatNullablePercent(row.f1)}</strong></span>
++                  </div>
++                </div>
++                <div className="tw-col-start-2 tw-flex tw-items-baseline tw-justify-between tw-gap-3 sm:tw-col-start-auto sm:tw-block sm:tw-text-right">
++                  <span className="ai-mono tw-text-xl tw-font-black tw-text-slate-950">{score === null ? "\u2014" : score.toFixed(1)}</span>
++                </div>
++              </div>
++            );
++          })}
++        </div>
++      </section>
++
+       <section className="fd-panel tw-overflow-hidden">
+         <div className="tw-flex tw-flex-col tw-gap-5 tw-border-b tw-border-slate-100 tw-p-5 sm:tw-p-6 lg:tw-flex-row lg:tw-items-end lg:tw-justify-between">
+           <div>
+@@ -725,6 +868,7 @@ export default function ResearchDashboard({
+                 <CheckCircle2 className="tw-h-3.5 tw-w-3.5" /> {c.verified}
+               </span>
+               <span className="ai-mono tw-text-[10px] tw-font-semibold tw-text-slate-400 sm:tw-text-[11px]">{c.updated}: {verifiedDate}</span>
++              <span className="tw-inline-flex tw-items-center tw-rounded-full tw-bg-slate-100 tw-px-2.5 tw-py-1 tw-text-[10px] tw-font-semibold tw-text-slate-600 tw-ring-1 tw-ring-slate-200 sm:tw-text-[11px]">{c.fixedResearchNote}</span>
+             </div>
+             <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{c.title}</h2>
+             <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle}</p>
+-- 
+2.45.1.windows.1
+

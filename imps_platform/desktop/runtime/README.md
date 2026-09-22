@@ -28,8 +28,16 @@ Runtime CLI contract:
 ```text
 imps-fault-runtime.exe serve --host 127.0.0.1 --port PORT \
   --origin http://127.0.0.1:WEB_PORT --summary SUMMARY_JSON \
-  --model-dir MODELS --tshark TSHARK_EXE --jobs-root JOBS_DIR
+  --model-dir MODELS --tshark TSHARK_EXE --jobs-root JOBS_DIR \
+  [--product-name NAME] [--app-version VERSION]
 ```
+
+The edition identity is optional: the Electron launcher passes it through the
+environment (`IMPS_PRODUCT_NAME`, `IMPS_APP_VERSION`), the flags override it.
+`GET /health` reports it together with the bundled model, so the dashboard can
+name what is running: `productName`, `appVersion`, `artifactVersion` and
+`modelCreatedAt` (from `models/manifest.json`) and `summarySnapshotAt` (from
+the summary file); all are `null` when unknown.
 
 The server launches the same executable in `worker` mode for one queued PCAP
 at a time. Uploads are limited to 256 MiB, validated by extension and capture

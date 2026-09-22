@@ -3,8 +3,8 @@
 # uninstall entries, two %APPDATA% folders), start both headless, then remove
 # both and leave the machine as it was. Exit code 1 on any failed check.
 param(
-    [string]$Current = 'C:\Users\user1\Documents\GitHub\IMPS-Project\iMPS_platform\dist-desktop\release-gh-signed-v1.2.0\iMPS-Fault-Detection-Offline-Setup-1.2.0.exe',
-    [string]$Snapshot = 'C:\Users\user1\Documents\GitHub\IMPS-Project\iMPS_platform\dist-desktop\release-gh-snapshot-v1.1.0\iMPS-Fault-Detection-Snapshot-2026-09-12-Offline-Setup-1.1.0.exe',
+    [string]$Current = 'C:\Users\user1\Documents\GitHub\IMPS-Project\iMPS_platform\dist-desktop\release-gh-v1.2.1\iMPS-Fault-Detection-Offline-Setup-1.2.1.exe',
+    [string]$Snapshot = 'C:\Users\user1\Documents\GitHub\IMPS-Project\iMPS_platform\dist-desktop\release-gh-snapshot-v1.1.1\iMPS-Fault-Detection-Snapshot-2026-09-12-Offline-Setup-1.1.1.exe',
     [string]$Sandbox = 'C:\ev_fleet\coexist_smoke'
 )
 $ErrorActionPreference = 'Continue'

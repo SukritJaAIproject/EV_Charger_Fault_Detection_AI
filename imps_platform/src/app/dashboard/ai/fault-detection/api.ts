@@ -4,6 +4,7 @@ import type { FaultDetectionSummary, StationRollupMetrics } from "./data";
 
 export const FAULT_DETECTION_SUMMARY_PATH = "/ai/fault-detection/summary";
 export const FAULT_DETECTION_JOBS_PATH = "/ai/fault-detection/jobs";
+export const FAULT_DETECTION_HEALTH_PATH = "/health";
 export const MAX_PCAP_UPLOAD_BYTES = 256 * 1024 * 1024;
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000").replace(/\/+$/, "");
@@ -43,6 +44,15 @@ export function resolveFaultDetectionApiBase(search?: string): string {
   }
 
   return desktopMode === "1" ? DESKTOP_API_BASE : API_BASE;
+}
+
+/**
+ * True when the page talks to the desktop sidecar (an Electron launch, or the
+ * loopback port remembered from one) rather than the web backend. Only the
+ * sidecar reports the edition identity shown in the dashboard header.
+ */
+export function isDesktopFaultDetectionApi(search?: string): boolean {
+  return resolveFaultDetectionApiBase(search) !== API_BASE;
 }
 
 const finiteNumber = z.number().finite();
@@ -490,6 +500,69 @@ async function readJsonResponse(response: Response, label: string): Promise<unkn
       details: error,
     });
   }
+}
+
+// A malformed identity value degrades to null instead of rejecting the whole payload.
+const optionalText = z.string().min(1).nullable().optional().catch(null);
+
+/**
+ * Subset of the desktop sidecar's /health payload that identifies the running
+ * edition. Every identity field is optional so older sidecars still parse.
+ */
+const desktopRuntimeStatusSchema = z.object({
+  service: z.string().min(1),
+  status: z.string().min(1),
+  inferenceReady: z.boolean().optional(),
+  productName: optionalText,
+  appVersion: optionalText,
+  artifactVersion: optionalText,
+  modelCreatedAt: optionalText,
+  summarySnapshotAt: optionalText,
+});
+
+export type DesktopRuntimeStatus = z.infer<typeof desktopRuntimeStatusSchema>;
+
+export function parseDesktopRuntimeStatus(payload: unknown): DesktopRuntimeStatus {
+  const parsed = desktopRuntimeStatusSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new FaultDetectionApiError("Desktop runtime status has an unexpected shape.", {
+      kind: "invalid_response",
+      details: parsed.error.issues,
+    });
+  }
+  return parsed.data;
+}
+
+/** Reads /health from the desktop sidecar. A degraded sidecar answers 503 with the same JSON body. */
+export async function getDesktopRuntimeStatus(options: { signal?: AbortSignal } = {}): Promise<DesktopRuntimeStatus> {
+  let response: Response;
+  try {
+    response = await fetch(`${resolveFaultDetectionApiBase()}${FAULT_DETECTION_HEALTH_PATH}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to connect to the desktop runtime.", {
+      kind: "network",
+      details: error,
+    });
+  }
+
+  const body = await response.text();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch (error) {
+    throw new FaultDetectionApiError("Desktop runtime returned malformed JSON.", {
+      kind: "invalid_response",
+      status: response.status,
+      details: error,
+    });
+  }
+  return parseDesktopRuntimeStatus(payload);
 }
 
 export async function getFaultDetectionSummary(options: { signal?: AbortSignal } = {}): Promise<FaultDetectionSummary> {

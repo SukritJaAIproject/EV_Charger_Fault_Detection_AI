@@ -32,7 +32,7 @@ import {
   type ResearchModelId,
   type ResearchProfileId,
 } from "./research-data";
-import type { StationAnalysis } from "./data";
+import { snapshotDateLocale, type BundledBenchmark, type FaultDetectionModelId, type StationAnalysis } from "./data";
 
 type Lang = "th" | "en";
 
@@ -119,6 +119,26 @@ const COPY = {
     stationCta: "ผลรายสถานี",
     pcapCta: "วิเคราะห์ PCAP",
     updated: "ตรวจสอบล่าสุด",
+    bundledTag: "BENCHMARK ในรุ่นนี้",
+    bundledTitle: "ผล benchmark ที่มากับโปรแกรมรุ่นนี้",
+    bundledSub: "อ่านจากไฟล์ผลลัพธ์ที่ bundle มากับโปรแกรม (data/summary.json) จึงเปลี่ยนตามรุ่นและโมเดลที่ติดตั้ง",
+    bundledSessions: "Sessions ทดสอบ",
+    bundledFaulty: "Fault sessions",
+    bundledNormal: "Sessions ปกติ",
+    bundledStations: "สถานี",
+    bundledEmpty: "ยังไม่มีผล benchmark สำหรับโมเดลนี้",
+    bundledTagWeb: "BENCHMARK จากเซิร์ฟเวอร์",
+    bundledTitleWeb: "ผล benchmark จากบริการตรวจจับ fault",
+    bundledSubWeb: "อ่านจาก API ของบริการตรวจจับ fault ที่หน้านี้เชื่อมต่ออยู่",
+    bundledBasis: "คะแนนจาก label ของรุ่นนี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม · แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดก่อนบน label policy 3 แบบ ไม่ใช่ benchmark ของรุ่นนี้",
+    bundledExportedAt: "ข้อมูล ณ",
+    sourceFullFleet: "ทั้ง fleet",
+    sourcePreview: "ตัวอย่าง",
+    bundledLoading: "กำลังโหลดผล benchmark…",
+    bundledFailed: "โหลดผล benchmark ไม่สำเร็จ",
+    fixedResearchNote: "ชุดข้อมูลวิจัยคงที่ · เหมือนกันทุกรุ่นโปรแกรม",
+    f1: "F1",
+    bundledRetry: "ลองใหม่",
   },
   en: {
     verified: "VERIFIED RESEARCH SNAPSHOT",
@@ -202,6 +222,26 @@ const COPY = {
     stationCta: "Station results",
     pcapCta: "Analyze PCAP",
     updated: "Verified",
+    bundledTag: "BENCHMARK IN THIS BUILD",
+    bundledTitle: "Benchmark shipped with this edition",
+    bundledSub: "Read from the result file bundled with the program (data/summary.json), so it changes with the edition and the installed model.",
+    bundledSessions: "Test sessions",
+    bundledFaulty: "Fault sessions",
+    bundledNormal: "Normal sessions",
+    bundledStations: "Stations",
+    bundledEmpty: "No benchmark result for this model yet",
+    bundledTagWeb: "BENCHMARK FROM THE SERVICE",
+    bundledTitleWeb: "Benchmark from the fault-detection service",
+    bundledSubWeb: "Read from the fault-detection API this page is connected to.",
+    bundledBasis: "Scored on this edition's own labels with the baseline detection policy, no ISO 15118 rule arms. The research panel below rescores earlier models under three label policies and is not this edition's benchmark.",
+    bundledExportedAt: "Data as of",
+    sourceFullFleet: "full fleet",
+    sourcePreview: "preview",
+    bundledLoading: "Loading the bundled benchmark…",
+    bundledFailed: "Could not load the bundled benchmark",
+    fixedResearchNote: "Fixed research dataset · identical in every edition",
+    f1: "F1",
+    bundledRetry: "Retry",
   },
 } as const;
 
@@ -212,6 +252,20 @@ const MODEL_TONES: Record<ResearchModelId, { bar: string; badge: string }> = {
   AgenticAI: { bar: "tw-bg-amber-500", badge: "tw-bg-amber-50 tw-text-amber-800 tw-ring-amber-100" },
   MultiAgent: { bar: "tw-bg-rose-500", badge: "tw-bg-rose-50 tw-text-rose-700 tw-ring-rose-100" },
 };
+
+// Leaderboard ids used by data/summary.json -> ids of the research constants.
+const RESEARCH_ID_BY_MODEL_ID: Record<FaultDetectionModelId, ResearchModelId> = {
+  traditional: "TraditionalAI",
+  rl: "RL",
+  "ai-agent": "AIAgent",
+  "agentic-ai": "AgenticAI",
+  "multi-agent": "MultiAgent",
+};
+
+const formatNullableInt = (value: number | null) => (value === null ? "\u2014" : formatInt(value));
+const formatNullablePercent = (value: number | null) => (value === null ? "\u2014" : `${value.toFixed(1)}%`);
+const formatShare = (part: number | null, whole: number | null) =>
+  part === null || !whole ? "\u2014" : `${((part / whole) * 100).toFixed(1)}%`;
 
 const FAULT_DISTRIBUTION_COLORS: Record<string, string> = {
   NO_POWER_DELIVERED: "#dc2626",
@@ -662,6 +716,8 @@ function DashboardStat({
 
 export default function ResearchDashboard({
   lang,
+  bundled,
+  desktop,
   stations,
   stationLoading,
   stationError,
@@ -671,6 +727,9 @@ export default function ResearchDashboard({
   onOpenPcap,
 }: {
   lang: Lang;
+  bundled: BundledBenchmark | null;
+  /** true when the summary came from the desktop sidecar (bundled file), false for the web API */
+  desktop: boolean;
   stations: StationAnalysis[];
   stationLoading: boolean;
   stationError: string | null;
@@ -711,12 +770,96 @@ export default function ResearchDashboard({
     empirical: c.empirical,
     normative: c.normative,
   };
-  const verifiedDate = new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-GB", {
+  const verifiedDate = new Intl.DateTimeFormat(snapshotDateLocale(lang), {
     dateStyle: "medium",
   }).format(new Date(RESEARCH_SNAPSHOT));
+  // The benchmark bundled with this build, ranked by score (unscored models last).
+  const bundledRows = useMemo(
+    () => (bundled ? [...bundled.leaderboard].sort((left, right) => (right.score ?? -1) - (left.score ?? -1)) : []),
+    [bundled],
+  );
+  const bundledDate = bundled && Number.isFinite(Date.parse(bundled.snapshotAt))
+    ? new Intl.DateTimeFormat(snapshotDateLocale(lang), { dateStyle: "medium", timeStyle: "short" }).format(new Date(bundled.snapshotAt))
+    : null;
+  const bundledHasScores = bundledRows.some((row) => row.score !== null);
+  const familiesDetail = bundled
+    ? lang === "th" ? `fault ${bundled.faultFamilies.length} ประเภท` : `${bundled.faultFamilies.length} fault families`
+    : "";
 
   return (
     <div className="tw-space-y-4 sm:tw-space-y-6">
+      <section className="fd-panel fd-bundled-benchmark tw-overflow-hidden" data-testid="fd-bundled-benchmark">
+        <div className="tw-border-b tw-border-slate-100 tw-p-5 sm:tw-p-6">
+          <div className="tw-flex tw-flex-wrap tw-items-center tw-gap-2">
+            <span className="tw-inline-flex tw-items-center tw-gap-1.5 tw-rounded-full tw-bg-blue-50 tw-px-2.5 tw-py-1 tw-text-[10px] tw-font-bold tw-uppercase tw-tracking-[0.14em] tw-text-blue-700 tw-ring-1 tw-ring-blue-100 sm:tw-text-[11px]">
+              <Database className="tw-h-3.5 tw-w-3.5" /> {desktop ? c.bundledTag : c.bundledTagWeb}
+            </span>
+            {bundledDate && (
+              <span className="ai-mono tw-text-[10px] tw-font-semibold tw-text-slate-400 sm:tw-text-[11px]">{c.bundledExportedAt}: {bundledDate}</span>
+            )}
+          </div>
+          <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{desktop ? c.bundledTitle : c.bundledTitleWeb}</h2>
+          <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{desktop ? c.bundledSub : c.bundledSubWeb}</p>
+          <p className="tw-mt-2 tw-max-w-3xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-400">{c.bundledBasis}</p>
+        </div>
+        {bundled && (
+          <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-bg-slate-50/70 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
+            <DashboardStat icon={<FileCheck2 className="tw-h-4 tw-w-4" />} label={c.bundledSessions} value={formatNullableInt(bundled.dataset.sessions)} detail={bundled.source === "full_fleet" ? c.sourceFullFleet : c.sourcePreview} tone="blue" />
+            <DashboardStat icon={<AlertTriangle className="tw-h-4 tw-w-4" />} label={c.bundledFaulty} value={formatNullableInt(bundled.dataset.faultySessions)} detail={formatShare(bundled.dataset.faultySessions, bundled.dataset.sessions)} tone="red" />
+            <DashboardStat icon={<ShieldCheck className="tw-h-4 tw-w-4" />} label={c.bundledNormal} value={formatNullableInt(bundled.dataset.normalSessions)} detail={formatShare(bundled.dataset.normalSessions, bundled.dataset.sessions)} tone="emerald" />
+            <DashboardStat icon={<MapPin className="tw-h-4 tw-w-4" />} label={c.bundledStations} value={formatNullableInt(bundled.dataset.stations)} detail={familiesDetail} tone="amber" />
+          </div>
+        )}
+        <div className="tw-space-y-1 tw-p-3 sm:tw-p-5">
+          {!bundled && stationLoading && (
+            <div role="status" aria-label={c.bundledLoading} className="tw-flex tw-items-center tw-gap-2 tw-p-3 tw-text-[12px] tw-font-semibold tw-text-slate-500">
+              <RefreshCw className="tw-h-4 tw-w-4 tw-animate-spin" /> {c.bundledLoading}
+            </div>
+          )}
+          {bundled && !bundledHasScores && (
+            <div role="status" className="tw-p-3 tw-text-[12px] tw-font-semibold tw-text-slate-500">{c.bundledEmpty}</div>
+          )}
+          {!bundled && !stationLoading && stationError && (
+            <div role="alert" className="tw-flex tw-flex-wrap tw-items-center tw-gap-3 tw-p-3 tw-text-[12px] tw-font-semibold tw-text-red-700">
+              <AlertTriangle className="tw-h-4 tw-w-4" /> {c.bundledFailed}
+              <button type="button" onClick={onRetryStations} className="tw-rounded-lg tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-py-1.5 tw-text-[11px] tw-font-bold tw-text-slate-700 hover:tw-border-blue-300 hover:tw-text-blue-700">{c.bundledRetry}</button>
+            </div>
+          )}
+          {bundledHasScores && bundledRows.map((row, index) => {
+            const researchId = RESEARCH_ID_BY_MODEL_ID[row.id];
+            const meta = MODEL_META[researchId];
+            const tone = MODEL_TONES[researchId];
+            const score = row.score;
+            return (
+              <div key={row.id} className="fd-model-row tw-grid tw-grid-cols-[42px_minmax(0,1fr)] tw-gap-3 tw-rounded-2xl tw-p-3 tw-transition sm:tw-grid-cols-[48px_170px_minmax(0,1fr)_82px] sm:tw-items-center" data-testid={`fd-bundled-row-${row.id}`}>
+                <div className={`ai-mono tw-flex tw-h-10 tw-w-10 tw-items-center tw-justify-center tw-rounded-xl tw-text-[11px] tw-font-black tw-ring-1 sm:tw-h-11 sm:tw-w-11 ${tone.badge}`}>{meta.short}</div>
+                <div className="tw-min-w-0">
+                  <div className="tw-flex tw-items-center tw-gap-2">
+                    <span className="ai-mono tw-text-[10px] tw-font-bold tw-text-slate-400">#{index + 1}</span>
+                    <span className="tw-truncate tw-text-[13px] tw-font-black tw-text-slate-900 sm:tw-text-sm">{row.name}</span>
+                  </div>
+                  <div className="tw-mt-0.5 tw-truncate tw-text-[11px] tw-font-medium tw-text-slate-400">{row.family}</div>
+                </div>
+                <div className="tw-col-span-2 sm:tw-col-span-1">
+                  <div className="tw-h-2.5 tw-overflow-hidden tw-rounded-full tw-bg-slate-100" role="img" aria-label={`${row.name}: ${score === null ? c.bundledEmpty : score.toFixed(1)}`}>
+                    <div className={`tw-h-full tw-rounded-full tw-transition-all tw-duration-500 ${tone.bar}`} style={{ width: `${Math.max(0, Math.min(100, score ?? 0))}%` }} />
+                  </div>
+                  <div className="tw-mt-2 tw-flex tw-flex-wrap tw-gap-x-4 tw-gap-y-1 tw-text-[11px] tw-font-medium tw-text-slate-500">
+                    <span>{c.recall} <strong className="ai-mono tw-text-slate-800">{formatNullablePercent(row.recall)}</strong></span>
+                    <span>{c.far} <strong className="ai-mono tw-text-slate-800">{formatNullablePercent(row.falseAlarmRate)}</strong></span>
+                    <span>{c.lead} <strong className="ai-mono tw-text-slate-800">{row.earlinessSeconds === null ? "\u2014" : `${row.earlinessSeconds.toFixed(1)}s`}</strong></span>
+                    <span>{c.f1} <strong className="ai-mono tw-text-slate-800">{formatNullablePercent(row.f1)}</strong></span>
+                  </div>
+                </div>
+                <div className="tw-col-start-2 tw-flex tw-items-baseline tw-justify-between tw-gap-3 sm:tw-col-start-auto sm:tw-block sm:tw-text-right">
+                  <span className="ai-mono tw-text-xl tw-font-black tw-text-slate-950">{score === null ? "\u2014" : score.toFixed(1)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       <section className="fd-panel tw-overflow-hidden">
         <div className="tw-flex tw-flex-col tw-gap-5 tw-border-b tw-border-slate-100 tw-p-5 sm:tw-p-6 lg:tw-flex-row lg:tw-items-end lg:tw-justify-between">
           <div>
@@ -725,6 +868,7 @@ export default function ResearchDashboard({
                 <CheckCircle2 className="tw-h-3.5 tw-w-3.5" /> {c.verified}
               </span>
               <span className="ai-mono tw-text-[10px] tw-font-semibold tw-text-slate-400 sm:tw-text-[11px]">{c.updated}: {verifiedDate}</span>
+              <span className="tw-inline-flex tw-items-center tw-rounded-full tw-bg-slate-100 tw-px-2.5 tw-py-1 tw-text-[10px] tw-font-semibold tw-text-slate-600 tw-ring-1 tw-ring-slate-200 sm:tw-text-[11px]">{c.fixedResearchNote}</span>
             </div>
             <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{c.title}</h2>
             <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle}</p>

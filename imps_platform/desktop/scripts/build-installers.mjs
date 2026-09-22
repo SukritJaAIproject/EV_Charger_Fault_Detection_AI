@@ -19,8 +19,9 @@ const packageMetadata = JSON.parse(
 const productName =
   process.env.IMPS_PRODUCT_NAME?.trim() || packageMetadata.build?.productName || "iMPS Fault Detection";
 const productSlug = productName.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const offlineArtifact = `${productSlug}-Offline-Setup-${packageMetadata.version}.exe`;
-const onlineArtifact = `${productSlug}-Online-Setup-${packageMetadata.version}.exe`;
+const version = process.env.IMPS_APP_VERSION?.trim() || packageMetadata.version;
+const offlineArtifact = `${productSlug}-Offline-Setup-${version}.exe`;
+const onlineArtifact = `${productSlug}-Online-Setup-${version}.exe`;
 
 
 function parseArguments(argv) {
@@ -148,7 +149,7 @@ async function writeReleaseManifest(output, onlinePackageUrl) {
   const manifest = {
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
-    appVersion: packageMetadata.version,
+    appVersion: version,
     platform: "win32",
     arch: "x64",
     onlinePackageUrl: onlinePackageUrl ?? null,

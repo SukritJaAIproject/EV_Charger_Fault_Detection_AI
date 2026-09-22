@@ -13,8 +13,8 @@ Npcap, or MongoDB.
 
 ## Install and use
 
-1. Run either `iMPS-Fault-Detection-Offline-Setup-1.2.0.exe` or
-   `iMPS-Fault-Detection-Online-Setup-1.2.0.exe`.
+1. Run either `iMPS-Fault-Detection-Offline-Setup-1.2.1.exe` or
+   `iMPS-Fault-Detection-Online-Setup-1.2.1.exe`.
 2. Open **iMPS Fault Detection** from the Desktop or Start menu.
 3. Select **วิเคราะห์ PCAP / Analyze PCAP**.
 4. Choose a `.pcap` or `.pcapng` file up to 256 MiB and select
@@ -23,6 +23,13 @@ Npcap, or MongoDB.
 The app shows the verdict, confidence, fault family, packet evidence, stop-party
 analysis, and per-session details. It also includes the fleet and per-station
 fault summaries from the audited benchmark snapshot.
+
+The hero of the dashboard names the running edition (product name and version),
+the model artifact and the benchmark snapshot date, all reported by the sidecar's
+`/health`; the Overview tab starts with the benchmark that is bundled with that
+build (`data\summary.json`), so two editions with different models show
+different rankings there. The research panel below it is a fixed research
+snapshot that is identical in every edition.
 
 ## What is bundled
 
@@ -62,7 +69,7 @@ npm install --legacy-peer-deps
 npm run desktop:build:offline
 
 $env:IMPS_ONLINE_PACKAGE_URL = `
-  "https://downloads.example.org/imps/1.2.0/material-tailwind-dashboard-nextjs-pro-1.2.0-x64.nsis.7z"
+  "https://downloads.example.org/imps/1.2.1/material-tailwind-dashboard-nextjs-pro-1.2.1-x64.nsis.7z"
 npm run desktop:build:online
 ```
 
@@ -95,9 +102,9 @@ To create both variants in one run, set `IMPS_ONLINE_PACKAGE_URL` and run
 The release artifacts are written under `dist-desktop\release`:
 
 ```text
-dist-desktop\release\iMPS-Fault-Detection-Offline-Setup-1.2.0.exe
-dist-desktop\release\iMPS-Fault-Detection-Online-Setup-1.2.0.exe
-dist-desktop\release\material-tailwind-dashboard-nextjs-pro-1.2.0-x64.nsis.7z
+dist-desktop\release\iMPS-Fault-Detection-Offline-Setup-1.2.1.exe
+dist-desktop\release\iMPS-Fault-Detection-Online-Setup-1.2.1.exe
+dist-desktop\release\material-tailwind-dashboard-nextjs-pro-1.2.1-x64.nsis.7z
 dist-desktop\release\release-manifest.json
 dist-desktop\release\SHA256SUMS.txt
 ```
@@ -125,17 +132,26 @@ Published editions:
 
 | Edition | Product name | App ID | Version |
 |---|---|---|---|
-| Current line | `iMPS Fault Detection` | `th.co.imps.faultdetection` | 1.2.0 (v4 benchmark, artifact `53b6f14244c2e633`) |
-| Snapshot 2026-09-12 | `iMPS Fault Detection Snapshot 2026-09-12` | `th.co.imps.faultdetection.snapshot20260912` | 1.1.0 (artifact `41ded2cdd5c2ba3f`) |
+| Current line | `iMPS Fault Detection` | `th.co.imps.faultdetection` | 1.2.1 (v4 benchmark, artifact `53b6f14244c2e633`) |
+| Snapshot 2026-09-12 | `iMPS Fault Detection Snapshot 2026-09-12` | `th.co.imps.faultdetection.snapshot20260912` | 1.1.1 (artifact `41ded2cdd5c2ba3f`: the frozen 1.1.0 models and data with the current dashboard) |
 
-The snapshot edition was packaged from the unpacked 1.1.0 build with
-`package.json` temporarily at version 1.1.0:
+The snapshot edition is packaged from a staged resources directory that
+combines the current dashboard and sidecar (`.next-desktop\standalone` and
+`.desktop-build\runtime` after `npm run desktop:prepare`) with the frozen 1.1.0
+`data\summary.json` and `models\` (artifact `41ded2cdd5c2ba3f`). Its version
+comes from `IMPS_APP_VERSION`, so `package.json` is not edited:
 
 ```powershell
+npm run desktop:prepare
+# resources\app <- .next-desktop\standalone, resources\runtime <- .desktop-build\runtime,
+# resources\data and resources\models <- the frozen 1.1.0 build (kept outside the repo)
+powershell -NoProfile -ExecutionPolicy Bypass -File desktop\scripts\stage-snapshot-resources.ps1 `
+  -Frozen "<path to the 1.1.0 win-unpacked>\resources" -ExpectedArtifact 41ded2cdd5c2ba3f
 $env:IMPS_PRODUCT_NAME = "iMPS Fault Detection Snapshot 2026-09-12"
 $env:IMPS_APP_ID = "th.co.imps.faultdetection.snapshot20260912"
-$env:IMPS_RESOURCES_ROOT = "dist-desktop/final-build/win-unpacked/resources"
-$env:IMPS_ONLINE_PACKAGE_URL = "https://github.com/SukritJaAIproject/EV_Charger_Fault_Detection_AI/releases/download/imps-fault-detection-v1.1.0/material-tailwind-dashboard-nextjs-pro-1.1.0-x64.nsis.7z"
+$env:IMPS_APP_VERSION = "1.1.1"
+$env:IMPS_RESOURCES_ROOT = "dist-desktop/snapshot-staging/resources"
+$env:IMPS_ONLINE_PACKAGE_URL = "https://github.com/SukritJaAIproject/EV_Charger_Fault_Detection_AI/releases/download/imps-fault-detection-v1.1.1/material-tailwind-dashboard-nextjs-pro-1.1.1-x64.nsis.7z"
 node desktop/scripts/build-installers.mjs --kind both --output dist-desktop/release-snapshot
 ```
 
@@ -155,6 +171,20 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 The expected golden result is `fault_detected / PROTOCOL_FAILED`, 1,106 events,
 one session, and model artifact `53b6f14244c2e633`. The healthy reference must
 return `no_fault_detected`, 534 events, and one session.
+
+For an edition built under another product name, run the same check on its
+executable and confirm the identity it reports, e.g. for the snapshot edition:
+
+```powershell
+& ".\dist-desktop\release-snapshot\win-unpacked\iMPS Fault Detection Snapshot 2026-09-12.exe" --smoke-test
+```
+
+then start it normally and check that `/health` on the API port printed in
+`%APPDATA%\<product name>\logs\desktop-runtime.log` reports the expected
+`productName`, `appVersion` and `artifactVersion` (`41ded2cdd5c2ba3f` for the
+snapshot, `53b6f14244c2e633` for the current line). `Test-Coexistence.ps1`
+(public repository, `imps_platform/desktop/signing/`) installs both editions
+side by side and verifies they stay distinct.
 
 ## v4 model policy
 

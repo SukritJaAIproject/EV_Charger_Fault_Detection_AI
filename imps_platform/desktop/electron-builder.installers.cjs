@@ -57,6 +57,10 @@ const signtoolOptions = signCertSha1
 // at a previously prepared resources directory instead of .desktop-build.
 const productName = process.env.IMPS_PRODUCT_NAME?.trim() || packageMetadata.build.productName;
 const appId = process.env.IMPS_APP_ID?.trim() || packageMetadata.build.appId;
+// IMPS_APP_VERSION lets an edition carry its own version (e.g. 1.1.1 for the
+// snapshot) without editing package.json; electron-builder writes it into the
+// asar's package.json, so app.getVersion() reports it too.
+const version = process.env.IMPS_APP_VERSION?.trim() || packageMetadata.version;
 const productSlug = productName.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const resourcesRoot = process.env.IMPS_RESOURCES_ROOT?.trim();
 const remapResource = (entry) => {
@@ -100,7 +104,7 @@ module.exports = {
   ...base,
   appId,
   productName,
-  extraMetadata: { ...(base.extraMetadata ?? {}), productName },
+  extraMetadata: { ...(base.extraMetadata ?? {}), productName, version },
   extraResources: (base.extraResources ?? []).map(remapResource),
   directories: {
     ...base.directories,

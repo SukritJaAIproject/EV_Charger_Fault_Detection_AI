@@ -116,6 +116,11 @@ function startInferenceRuntime(runtime, apiPort, webOrigin, jobsRoot, logStream)
     cwd: path.dirname(runtime.runtimeExecutable),
     env: {
       ...process.env,
+      // Reported on /health so the dashboard header can name this edition.
+      // Passed through the environment (not argv) so a sidecar built before
+      // these fields existed still starts.
+      IMPS_PRODUCT_NAME: APP_NAME,
+      IMPS_APP_VERSION: app.getVersion(),
       OMP_NUM_THREADS: "1",
       MKL_NUM_THREADS: "1",
       OPENBLAS_NUM_THREADS: "1",
@@ -324,6 +329,13 @@ async function launch() {
     }
   });
   mainWindow.once("ready-to-show", () => mainWindow?.show());
+  // The dashboard's <title> is the generic "iMPS"; keep the edition's product
+  // name in the title bar so two installed editions can be told apart. The
+  // event is emitted by the BrowserWindow, not by its webContents.
+  mainWindow.on("page-title-updated", (event) => {
+    event.preventDefault();
+    mainWindow?.setTitle(APP_NAME);
+  });
   mainWindow.on("closed", () => {
     mainWindow = null;
   });

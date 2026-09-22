@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import signal
 import sys
 import threading
@@ -79,6 +80,8 @@ def _make_handler(
     job_service: PcapJobService,
     allowed_origin: str,
     port: int,
+    product_name: str | None = None,
+    app_version: str | None = None,
 ):
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
@@ -221,6 +224,10 @@ def _make_handler(
                         "models": len(summary["leaderboard"]),
                         "sessions": summary["dataset"]["sessions"],
                         "inferenceReady": health["ready"],
+                        # edition identity for the dashboard header
+                        "productName": product_name,
+                        "appVersion": app_version,
+                        "summarySnapshotAt": summary.get("snapshotAt"),
                         **health,
                     },
                 )
@@ -269,6 +276,10 @@ def _serve(argv: list[str]) -> int:
     parser.add_argument("--model-dir", required=True, type=Path)
     parser.add_argument("--tshark", required=True, type=Path)
     parser.add_argument("--jobs-root", required=True, type=Path)
+    # Edition identity for /health. The Electron launcher passes it through the
+    # environment (IMPS_PRODUCT_NAME / IMPS_APP_VERSION); the flags override it.
+    parser.add_argument("--product-name", default=None)
+    parser.add_argument("--app-version", default=None)
     args = parser.parse_args(argv)
     if args.host not in {"127.0.0.1", "localhost"}:
         raise SystemExit("The desktop API can bind only to loopback")
@@ -290,6 +301,8 @@ def _serve(argv: list[str]) -> int:
         job_service=service,
         allowed_origin=origin,
         port=args.port,
+        product_name=(args.product_name or os.environ.get("IMPS_PRODUCT_NAME") or "").strip() or None,
+        app_version=(args.app_version or os.environ.get("IMPS_APP_VERSION") or "").strip() or None,
     )
     server = ThreadingHTTPServer((args.host, args.port), handler)
     server.daemon_threads = True
