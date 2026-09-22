@@ -13,6 +13,15 @@ const packageMetadata = JSON.parse(
   await readFile(path.join(projectRoot, "package.json"), "utf8"),
 );
 
+// Same identity rules as desktop/electron-builder.installers.cjs: an edition can
+// be built under another product name (IMPS_PRODUCT_NAME) and its artifacts are
+// named after that product, so two editions never collide in one release folder.
+const productName =
+  process.env.IMPS_PRODUCT_NAME?.trim() || packageMetadata.build?.productName || "iMPS Fault Detection";
+const productSlug = productName.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const offlineArtifact = `${productSlug}-Offline-Setup-${packageMetadata.version}.exe`;
+const onlineArtifact = `${productSlug}-Online-Setup-${packageMetadata.version}.exe`;
+
 
 function parseArguments(argv) {
   const options = {
@@ -98,7 +107,7 @@ async function fileHashes(candidate) {
 
 
 async function copyOnlineArtifacts(source, output) {
-  const onlineName = `iMPS-Fault-Detection-Online-Setup-${packageMetadata.version}.exe`;
+  const onlineName = onlineArtifact;
   const onlineSource = path.join(source, onlineName);
   await assertNonEmptyFile(onlineSource, "Reusable online installer");
   await cp(onlineSource, path.join(output, onlineName), { force: true });
@@ -119,7 +128,7 @@ async function writeReleaseManifest(output, onlinePackageUrl) {
   const names = (await readdir(output)).sort((left, right) => left.localeCompare(right));
   const artifactNames = names.filter(
     (name) =>
-      /^iMPS-Fault-Detection-.*\.(?:exe|blockmap)$/i.test(name) ||
+      /-(?:Offline|Online)-Setup-.*\.(?:exe|blockmap)$/i.test(name) ||
       /\.nsis\.7z$/i.test(name) ||
       /^latest.*\.ya?ml$/i.test(name),
   );
@@ -172,7 +181,7 @@ async function main() {
   }
   if (options.prepackaged) {
     await assertNonEmptyFile(
-      path.join(options.prepackaged, "iMPS Fault Detection.exe"),
+      path.join(options.prepackaged, `${productName}.exe`),
       "Prepackaged desktop executable",
     );
   }
@@ -183,7 +192,7 @@ async function main() {
 
   if (includesOffline && options.reuseOffline) {
     await assertNonEmptyFile(options.reuseOffline, "Reusable offline installer");
-    const offlineName = `iMPS-Fault-Detection-Offline-Setup-${packageMetadata.version}.exe`;
+    const offlineName = offlineArtifact;
     await cp(options.reuseOffline, path.join(options.output, offlineName), { force: true });
     const reusableBlockmap = `${options.reuseOffline}.blockmap`;
     const blockmapDetails = await stat(reusableBlockmap).catch(() => null);
@@ -233,7 +242,7 @@ async function main() {
     });
 
     if (builderKind === "online" || builderKind === "both") {
-      const onlineName = `iMPS-Fault-Detection-Online-Setup-${packageMetadata.version}.exe`;
+      const onlineName = onlineArtifact;
       const onlineAtRoot = await stat(path.join(options.output, onlineName)).catch(() => null);
       if (!onlineAtRoot?.isFile()) {
         await copyOnlineArtifacts(path.join(options.output, "nsis-web"), options.output);
@@ -243,11 +252,11 @@ async function main() {
 
   const offlinePath = path.join(
     options.output,
-    `iMPS-Fault-Detection-Offline-Setup-${packageMetadata.version}.exe`,
+    offlineArtifact,
   );
   const onlinePath = path.join(
     options.output,
-    `iMPS-Fault-Detection-Online-Setup-${packageMetadata.version}.exe`,
+    onlineArtifact,
   );
   if (includesOffline) await assertNonEmptyFile(offlinePath, "Offline installer");
   if (includesOnline) await assertNonEmptyFile(onlinePath, "Online installer");

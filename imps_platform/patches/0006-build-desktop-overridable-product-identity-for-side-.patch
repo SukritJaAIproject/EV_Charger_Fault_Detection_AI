@@ -1,0 +1,283 @@
+From bc33e3e8401eec4b0e4994bd6971daba751212fa Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Tue, 22 Sep 2026 15:41:00 +0700
+Subject: [PATCH] build(desktop): overridable product identity for side-by-side
+ editions
+
+Let a second edition of the desktop app be built from the same tree and
+installed next to the current line as its own Windows application:
+
+- IMPS_PRODUCT_NAME / IMPS_APP_ID override build.productName / build.appId
+  (window title, shortcut, <name>.exe, uninstall entry, artifact names
+  <slug>-Offline-Setup-<version>.exe / <slug>-Online-Setup-<version>.exe);
+  IMPS_RESOURCES_ROOT reuses the resources of an earlier unpacked build.
+- main.cjs reads the product name from the package.json baked into the
+  asar, so each edition gets its own %APPDATA% folder for logs and jobs.
+- build-installers.mjs derives its artifact names and the prepackaged
+  executable name from the same product name.
+- When signing is on, every executable under the bundled Wireshark
+  directory (including extcap\) is listed as a "!name" entry in
+  win.signExts so electron-builder no longer replaces the Wireshark
+  Foundation signature with ours.
+- README: Editions section with the recipe used for
+  "iMPS Fault Detection Snapshot 2026-09-12" (App ID
+  th.co.imps.faultdetection.snapshot20260912, version 1.1.0).
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ iMPS_platform/desktop/README.md               | 37 +++++++++++++
+ .../desktop/electron-builder.installers.cjs   | 54 +++++++++++++++++--
+ iMPS_platform/desktop/electron/main.cjs       | 12 ++++-
+ .../desktop/scripts/build-installers.mjs      | 23 +++++---
+ 4 files changed, 115 insertions(+), 11 deletions(-)
+
+diff --git a/iMPS_platform/desktop/README.md b/iMPS_platform/desktop/README.md
+index 006d0ab4..32c2d3f6 100644
+--- a/iMPS_platform/desktop/README.md
++++ b/iMPS_platform/desktop/README.md
+@@ -48,6 +48,9 @@ Runtime logs are written to:
+ %APPDATA%\iMPS Fault Detection\logs\desktop-runtime.log
+ ```
+ 
++(For another edition the folder is named after its product name, e.g.
++`%APPDATA%\iMPS Fault Detection Snapshot 2026-09-12`.)
++
+ ## Build the installers
+ 
+ Build prerequisites on Windows are Node.js/npm, Python with NumPy and
+@@ -105,6 +108,40 @@ hash embedded by electron-builder. The two installers install the same local
+ application—"online" describes the installation transport, not a different app
+ mode or an auto-update service.
+ 
++### Editions (side-by-side installs)
++
++Product identity comes from `package.json` (`build.productName`, `build.appId`)
++and can be overridden per build, so a second edition installs next to the
++current line as its own Windows application with its own install folder,
++shortcuts, uninstall entry and `%APPDATA%` folder:
++
++| Variable | Effect |
++|---|---|
++| `IMPS_PRODUCT_NAME` | Product name: window title, shortcuts, `<name>.exe`, `%APPDATA%\<name>`, and the artifact names `<slug>-Offline-Setup-<version>.exe` / `<slug>-Online-Setup-<version>.exe` |
++| `IMPS_APP_ID` | Windows App ID (uninstall entry and NSIS registry keys). Two editions must differ here, otherwise installing one replaces the other |
++| `IMPS_RESOURCES_ROOT` | Reuse the `resources` directory of an earlier unpacked build (`app`, `data\summary.json`, `runtime`, `models`) instead of `.desktop-build`, to re-issue a frozen snapshot without rebuilding it |
++
++Published editions:
++
++| Edition | Product name | App ID | Version |
++|---|---|---|---|
++| Current line | `iMPS Fault Detection` | `th.co.imps.faultdetection` | 1.2.0 (v4 benchmark, artifact `53b6f14244c2e633`) |
++| Snapshot 2026-09-12 | `iMPS Fault Detection Snapshot 2026-09-12` | `th.co.imps.faultdetection.snapshot20260912` | 1.1.0 (artifact `41ded2cdd5c2ba3f`) |
++
++The snapshot edition was packaged from the unpacked 1.1.0 build with
++`package.json` temporarily at version 1.1.0:
++
++```powershell
++$env:IMPS_PRODUCT_NAME = "iMPS Fault Detection Snapshot 2026-09-12"
++$env:IMPS_APP_ID = "th.co.imps.faultdetection.snapshot20260912"
++$env:IMPS_RESOURCES_ROOT = "dist-desktop/final-build/win-unpacked/resources"
++$env:IMPS_ONLINE_PACKAGE_URL = "https://github.com/SukritJaAIproject/EV_Charger_Fault_Detection_AI/releases/download/imps-fault-detection-v1.1.0/material-tailwind-dashboard-nextjs-pro-1.1.0-x64.nsis.7z"
++node desktop/scripts/build-installers.mjs --kind both --output dist-desktop/release-snapshot
++```
++
++`desktop\electron\main.cjs` reads the product name from the `package.json`
++baked into the asar, which is why each edition keeps its own `%APPDATA%` data.
++
+ ## Verification
+ 
+ Run the packaged sidecar against both the known-fault and healthy reference
+diff --git a/iMPS_platform/desktop/electron-builder.installers.cjs b/iMPS_platform/desktop/electron-builder.installers.cjs
+index 8042ab88..2d54f84e 100644
+--- a/iMPS_platform/desktop/electron-builder.installers.cjs
++++ b/iMPS_platform/desktop/electron-builder.installers.cjs
+@@ -1,3 +1,5 @@
++const fs = require("node:fs");
++const path = require("node:path");
+ const packageMetadata = require("../package.json");
+ 
+ 
+@@ -47,6 +49,47 @@ const signtoolOptions = signCertSha1
+     }
+   : undefined;
+ 
++// Product identity is overridable so a second, independently installable
++// edition can be built from the same tree (the 2026-09-12 snapshot lives next
++// to the current line as its own app: different appId, install folder,
++// shortcuts and %APPDATA%). Defaults reproduce the published 'iMPS Fault
++// Detection'. IMPS_RESOURCES_ROOT points the bundled app/data/runtime/models
++// at a previously prepared resources directory instead of .desktop-build.
++const productName = process.env.IMPS_PRODUCT_NAME?.trim() || packageMetadata.build.productName;
++const appId = process.env.IMPS_APP_ID?.trim() || packageMetadata.build.appId;
++const productSlug = productName.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
++const resourcesRoot = process.env.IMPS_RESOURCES_ROOT?.trim();
++const remapResource = (entry) => {
++  if (!resourcesRoot) return entry;
++  const map = {
++    ".next-desktop/standalone": "app",
++    ".desktop-build/summary.json": "data/summary.json",
++    ".desktop-build/runtime": "runtime",
++    ".desktop-build/models": "models",
++  };
++  return map[entry.from] ? { ...entry, from: `${resourcesRoot}/${map[entry.from]}` } : entry;
++};
++
++// Third-party executables bundled as extra resources (Wireshark's tools) ship
++// with their vendor's Authenticode signature. When signing is on, electron-builder
++// re-signs every .exe it copies, which would replace the Wireshark Foundation
++// signature with ours; a "!name" entry in win.signExts excludes a file (matched
++// on the end of its path), so every executable anywhere under the bundled
++// Wireshark directory (including extcap\) is listed here and kept as shipped.
++const runtimeDir = resourcesRoot ? path.join(resourcesRoot, "runtime") : ".desktop-build/runtime";
++const wiresharkDir = path.resolve(__dirname, "..", runtimeDir, "wireshark");
++const listExecutables = (dir) =>
++  fs.existsSync(dir)
++    ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
++        entry.isDirectory()
++          ? listExecutables(path.join(dir, entry.name))
++          : entry.name.toLowerCase().endsWith(".exe")
++            ? [entry.name]
++            : [],
++      )
++    : [];
++const signExts = [...new Set(listExecutables(wiresharkDir))].map((name) => `!${name}`);
++
+ const base = packageMetadata.build;
+ const { artifactName: _unusedArtifactName, ...baseWindowsOptions } = base.win;
+ const targets = [];
+@@ -55,6 +98,10 @@ if (includesOnline) targets.push({ target: "nsis-web", arch: ["x64"] });
+ 
+ module.exports = {
+   ...base,
++  appId,
++  productName,
++  extraMetadata: { ...(base.extraMetadata ?? {}), productName },
++  extraResources: (base.extraResources ?? []).map(remapResource),
+   directories: {
+     ...base.directories,
+     output: process.env.IMPS_INSTALLER_OUTPUT ?? "dist-desktop/release",
+@@ -62,16 +109,17 @@ module.exports = {
+   win: {
+     ...baseWindowsOptions,
+     target: targets,
+-    ...(signtoolOptions ? { signtoolOptions } : {}),
++    ...(signtoolOptions ? { signtoolOptions, signExts } : {}),
+   },
+   nsis: {
+     ...base.nsis,
+-    artifactName: "iMPS-Fault-Detection-Offline-Setup-${version}.${ext}",
++    shortcutName: productName,
++    artifactName: `${productSlug}-Offline-Setup-\${version}.\${ext}`,
+   },
+   ...(includesOnline
+     ? {
+         nsisWeb: {
+-          artifactName: "iMPS-Fault-Detection-Online-Setup-${version}.${ext}",
++          artifactName: `${productSlug}-Online-Setup-\${version}.\${ext}`,
+           appPackageUrl: onlinePackageUrl,
+         },
+       }
+diff --git a/iMPS_platform/desktop/electron/main.cjs b/iMPS_platform/desktop/electron/main.cjs
+index 01c82cd7..eb60409c 100644
+--- a/iMPS_platform/desktop/electron/main.cjs
++++ b/iMPS_platform/desktop/electron/main.cjs
+@@ -8,7 +8,17 @@ const path = require("node:path");
+ const { spawn, spawnSync } = require("node:child_process");
+ 
+ 
+-const APP_NAME = "iMPS Fault Detection";
++// The product name decides the window title and, through app.setName, the
++// %APPDATA% folder for logs and PCAP jobs. It comes from the package.json that
++// electron-builder bakes into the asar (extraMetadata), so an edition built
++// under another name keeps its own data and can be installed side by side.
++const APP_NAME = (() => {
++  try {
++    const meta = require(path.join(__dirname, "..", "..", "package.json"));
++    if (typeof meta.productName === "string" && meta.productName.trim()) return meta.productName.trim();
++  } catch {}
++  return "iMPS Fault Detection";
++})();
+ const LOOPBACK = "127.0.0.1";
+ const isSmokeTest = process.argv.includes("--smoke-test");
+ app.setName(APP_NAME);
+diff --git a/iMPS_platform/desktop/scripts/build-installers.mjs b/iMPS_platform/desktop/scripts/build-installers.mjs
+index 903a5b84..9c6836ea 100644
+--- a/iMPS_platform/desktop/scripts/build-installers.mjs
++++ b/iMPS_platform/desktop/scripts/build-installers.mjs
+@@ -13,6 +13,15 @@ const packageMetadata = JSON.parse(
+   await readFile(path.join(projectRoot, "package.json"), "utf8"),
+ );
+ 
++// Same identity rules as desktop/electron-builder.installers.cjs: an edition can
++// be built under another product name (IMPS_PRODUCT_NAME) and its artifacts are
++// named after that product, so two editions never collide in one release folder.
++const productName =
++  process.env.IMPS_PRODUCT_NAME?.trim() || packageMetadata.build?.productName || "iMPS Fault Detection";
++const productSlug = productName.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
++const offlineArtifact = `${productSlug}-Offline-Setup-${packageMetadata.version}.exe`;
++const onlineArtifact = `${productSlug}-Online-Setup-${packageMetadata.version}.exe`;
++
+ 
+ function parseArguments(argv) {
+   const options = {
+@@ -98,7 +107,7 @@ async function fileHashes(candidate) {
+ 
+ 
+ async function copyOnlineArtifacts(source, output) {
+-  const onlineName = `iMPS-Fault-Detection-Online-Setup-${packageMetadata.version}.exe`;
++  const onlineName = onlineArtifact;
+   const onlineSource = path.join(source, onlineName);
+   await assertNonEmptyFile(onlineSource, "Reusable online installer");
+   await cp(onlineSource, path.join(output, onlineName), { force: true });
+@@ -119,7 +128,7 @@ async function writeReleaseManifest(output, onlinePackageUrl) {
+   const names = (await readdir(output)).sort((left, right) => left.localeCompare(right));
+   const artifactNames = names.filter(
+     (name) =>
+-      /^iMPS-Fault-Detection-.*\.(?:exe|blockmap)$/i.test(name) ||
++      /-(?:Offline|Online)-Setup-.*\.(?:exe|blockmap)$/i.test(name) ||
+       /\.nsis\.7z$/i.test(name) ||
+       /^latest.*\.ya?ml$/i.test(name),
+   );
+@@ -172,7 +181,7 @@ async function main() {
+   }
+   if (options.prepackaged) {
+     await assertNonEmptyFile(
+-      path.join(options.prepackaged, "iMPS Fault Detection.exe"),
++      path.join(options.prepackaged, `${productName}.exe`),
+       "Prepackaged desktop executable",
+     );
+   }
+@@ -183,7 +192,7 @@ async function main() {
+ 
+   if (includesOffline && options.reuseOffline) {
+     await assertNonEmptyFile(options.reuseOffline, "Reusable offline installer");
+-    const offlineName = `iMPS-Fault-Detection-Offline-Setup-${packageMetadata.version}.exe`;
++    const offlineName = offlineArtifact;
+     await cp(options.reuseOffline, path.join(options.output, offlineName), { force: true });
+     const reusableBlockmap = `${options.reuseOffline}.blockmap`;
+     const blockmapDetails = await stat(reusableBlockmap).catch(() => null);
+@@ -233,7 +242,7 @@ async function main() {
+     });
+ 
+     if (builderKind === "online" || builderKind === "both") {
+-      const onlineName = `iMPS-Fault-Detection-Online-Setup-${packageMetadata.version}.exe`;
++      const onlineName = onlineArtifact;
+       const onlineAtRoot = await stat(path.join(options.output, onlineName)).catch(() => null);
+       if (!onlineAtRoot?.isFile()) {
+         await copyOnlineArtifacts(path.join(options.output, "nsis-web"), options.output);
+@@ -243,11 +252,11 @@ async function main() {
+ 
+   const offlinePath = path.join(
+     options.output,
+-    `iMPS-Fault-Detection-Offline-Setup-${packageMetadata.version}.exe`,
++    offlineArtifact,
+   );
+   const onlinePath = path.join(
+     options.output,
+-    `iMPS-Fault-Detection-Online-Setup-${packageMetadata.version}.exe`,
++    onlineArtifact,
+   );
+   if (includesOffline) await assertNonEmptyFile(offlinePath, "Offline installer");
+   if (includesOnline) await assertNonEmptyFile(onlinePath, "Online installer");
+-- 
+2.45.1.windows.1
+

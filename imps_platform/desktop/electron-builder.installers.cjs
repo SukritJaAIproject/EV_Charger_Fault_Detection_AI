@@ -1,3 +1,5 @@
+const fs = require("node:fs");
+const path = require("node:path");
 const packageMetadata = require("../package.json");
 
 
@@ -47,6 +49,47 @@ const signtoolOptions = signCertSha1
     }
   : undefined;
 
+// Product identity is overridable so a second, independently installable
+// edition can be built from the same tree (the 2026-09-12 snapshot lives next
+// to the current line as its own app: different appId, install folder,
+// shortcuts and %APPDATA%). Defaults reproduce the published 'iMPS Fault
+// Detection'. IMPS_RESOURCES_ROOT points the bundled app/data/runtime/models
+// at a previously prepared resources directory instead of .desktop-build.
+const productName = process.env.IMPS_PRODUCT_NAME?.trim() || packageMetadata.build.productName;
+const appId = process.env.IMPS_APP_ID?.trim() || packageMetadata.build.appId;
+const productSlug = productName.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const resourcesRoot = process.env.IMPS_RESOURCES_ROOT?.trim();
+const remapResource = (entry) => {
+  if (!resourcesRoot) return entry;
+  const map = {
+    ".next-desktop/standalone": "app",
+    ".desktop-build/summary.json": "data/summary.json",
+    ".desktop-build/runtime": "runtime",
+    ".desktop-build/models": "models",
+  };
+  return map[entry.from] ? { ...entry, from: `${resourcesRoot}/${map[entry.from]}` } : entry;
+};
+
+// Third-party executables bundled as extra resources (Wireshark's tools) ship
+// with their vendor's Authenticode signature. When signing is on, electron-builder
+// re-signs every .exe it copies, which would replace the Wireshark Foundation
+// signature with ours; a "!name" entry in win.signExts excludes a file (matched
+// on the end of its path), so every executable anywhere under the bundled
+// Wireshark directory (including extcap\) is listed here and kept as shipped.
+const runtimeDir = resourcesRoot ? path.join(resourcesRoot, "runtime") : ".desktop-build/runtime";
+const wiresharkDir = path.resolve(__dirname, "..", runtimeDir, "wireshark");
+const listExecutables = (dir) =>
+  fs.existsSync(dir)
+    ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory()
+          ? listExecutables(path.join(dir, entry.name))
+          : entry.name.toLowerCase().endsWith(".exe")
+            ? [entry.name]
+            : [],
+      )
+    : [];
+const signExts = [...new Set(listExecutables(wiresharkDir))].map((name) => `!${name}`);
+
 const base = packageMetadata.build;
 const { artifactName: _unusedArtifactName, ...baseWindowsOptions } = base.win;
 const targets = [];
@@ -55,6 +98,10 @@ if (includesOnline) targets.push({ target: "nsis-web", arch: ["x64"] });
 
 module.exports = {
   ...base,
+  appId,
+  productName,
+  extraMetadata: { ...(base.extraMetadata ?? {}), productName },
+  extraResources: (base.extraResources ?? []).map(remapResource),
   directories: {
     ...base.directories,
     output: process.env.IMPS_INSTALLER_OUTPUT ?? "dist-desktop/release",
@@ -62,16 +109,17 @@ module.exports = {
   win: {
     ...baseWindowsOptions,
     target: targets,
-    ...(signtoolOptions ? { signtoolOptions } : {}),
+    ...(signtoolOptions ? { signtoolOptions, signExts } : {}),
   },
   nsis: {
     ...base.nsis,
-    artifactName: "iMPS-Fault-Detection-Offline-Setup-${version}.${ext}",
+    shortcutName: productName,
+    artifactName: `${productSlug}-Offline-Setup-\${version}.\${ext}`,
   },
   ...(includesOnline
     ? {
         nsisWeb: {
-          artifactName: "iMPS-Fault-Detection-Online-Setup-${version}.${ext}",
+          artifactName: `${productSlug}-Online-Setup-\${version}.\${ext}`,
           appPackageUrl: onlinePackageUrl,
         },
       }

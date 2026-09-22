@@ -8,7 +8,17 @@ const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
 
 
-const APP_NAME = "iMPS Fault Detection";
+// The product name decides the window title and, through app.setName, the
+// %APPDATA% folder for logs and PCAP jobs. It comes from the package.json that
+// electron-builder bakes into the asar (extraMetadata), so an edition built
+// under another name keeps its own data and can be installed side by side.
+const APP_NAME = (() => {
+  try {
+    const meta = require(path.join(__dirname, "..", "..", "package.json"));
+    if (typeof meta.productName === "string" && meta.productName.trim()) return meta.productName.trim();
+  } catch {}
+  return "iMPS Fault Detection";
+})();
 const LOOPBACK = "127.0.0.1";
 const isSmokeTest = process.argv.includes("--smoke-test");
 app.setName(APP_NAME);

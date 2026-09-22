@@ -2,14 +2,19 @@
 
 Fault detection for DC EV chargers from raw PLC/V2G packet captures (DIN 70121 / ISO 15118-2), built on the EGAT charging fleet: **212 stations, 40,542 charging sessions, 44,198 captures**. Five detector architectures are trained and scored on the same held-out split; a Windows desktop application ships the winning detectors with a bundled Wireshark/TShark so a technician can analyse a `.pcap` offline.
 
-**Installers (Windows x64):** see [Releases](../../releases) — `iMPS Fault Detection` 1.1.0 and 1.2.0, each as an Offline installer (self-contained, ~231 MB) and an Online installer (700 KB bootstrapper + payload).
+**Installers (Windows x64):** see [Releases](../../releases) — two editions that install side by side, each as an Offline installer (self-contained, ~231 MB) and an Online installer (700 KB bootstrapper + payload):
+
+| Edition | Release | App ID | Contents |
+|---|---|---|---|
+| `iMPS Fault Detection` 1.2.0 (current line) | `imps-fault-detection-v1.2.0` | `th.co.imps.faultdetection` | benchmark v4 weights, artifact `53b6f14244c2e633` |
+| `iMPS Fault Detection Snapshot 2026-09-12` 1.1.0 | `imps-fault-detection-v1.1.0` | `th.co.imps.faultdetection.snapshot20260912` | frozen 12 Sep 2026 snapshot, artifact `41ded2cdd5c2ba3f` |
 
 ## Repository layout
 
 | Path | What it is |
 |---|---|
 | `ev_charger_ai/` | Research code: packet → session pipeline, ground truth, 33-feature tracker, the five detectors, benchmark harness, ISO 15118-2 / SLAC rule layers, analysis scripts, results (`results/*.json`) and trained weights (`artifacts*/`). The 41 GB session/feature data is **not** in the repo. |
-| `imps_platform/` | The fault-detection module of the iMPS platform: dashboard page (`src/app/dashboard/ai/fault-detection/`), PCAP job API (`backend/routers/fault_detection.py`, `backend/services/fault_detection_jobs.py`), Windows desktop packaging (`desktop/`), and the four commits as `patches/*.patch` for applying onto an iMPS checkout. |
+| `imps_platform/` | The fault-detection module of the iMPS platform: dashboard page (`src/app/dashboard/ai/fault-detection/`), PCAP job API (`backend/routers/fault_detection.py`, `backend/services/fault_detection_jobs.py`), Windows desktop packaging (`desktop/`), and the commits as `patches/*.patch` for applying onto an iMPS checkout. |
 | `docs/` | Hand-off notes and the v1.1 ↔ v1.2 feature-comparison PDF. |
 
 Deep-dive documents live in `ev_charger_ai/docs/`: the ISO 15118-2 experiment (`iso15118_experiment.md`, HTML report `iso15118_ablation_report.html`), the ISO 15118-3 continuation (`iso15118_3_continuation_report.md`, `iso15118_3_public_sources.md`), the 773-rule extraction (`iso15118_rulebook.md`) and the label-proposal decisions.
@@ -68,7 +73,7 @@ $env:IMPS_ONLINE_PACKAGE_URL = "https://github.com/SukritJaAIproject/EV_Charger_
 npm run desktop:build:online                        # Online bootstrapper + payload
 ```
 
-`imps_platform/desktop/README.md` is the full runbook (smoke tests, golden PCAP, known issues).
+`imps_platform/desktop/README.md` is the full runbook (smoke tests, golden PCAP, known issues). A second edition that installs alongside the current line is built by overriding the product identity (`IMPS_PRODUCT_NAME`, `IMPS_APP_ID`, optionally `IMPS_RESOURCES_ROOT` to re-issue an earlier unpacked build); the *Editions* section there shows the exact recipe used for the Snapshot 2026-09-12 edition.
 
 **Code signing.** Released installers and executables are Authenticode-signed with an internal self-signed certificate (thumbprint `74C4795C67E81EFCCFFAAB2B946661F1003C7A3E`; public `.cer` attached to every release and kept in `imps_platform/desktop/signing/`). Machines that import it into *Trusted Root* and *Trusted Publishers* verify the signature as valid; elsewhere Windows SmartScreen still shows *More info → Run anyway*, because the certificate is not CA-issued. Set `IMPS_SIGN_CERT_SHA1` to sign a build; see `imps_platform/desktop/signing/README.md`.
 
