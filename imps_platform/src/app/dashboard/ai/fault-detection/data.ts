@@ -106,8 +106,16 @@ export type StationFaultFamilyAnalysis = {
   }>;
 };
 
+/**
+ * "test" = held-out station (the honest evaluation); "train" = a station the
+ * models were fitted on, so its numbers are in-sample and optimistic.
+ */
+export type StationSplit = "test" | "train";
+
 export type StationAnalysis = StationRollupMetrics & {
   station: string;
+  /** Absent in summaries before 1.3.0, which only ever held held-out stations. */
+  split?: StationSplit;
   group: string;
   connectors: number;
   byConnector: StationConnectorAnalysis[];
@@ -116,9 +124,46 @@ export type StationAnalysis = StationRollupMetrics & {
 
 export type FaultDetectionAnalysis = {
   bySource: SourceAnalysis[];
+  /** Held-out stations only; dataset totals and the leaderboard describe these. */
   byStation: StationAnalysis[];
+  /** Training stations from an in-sample replay (desktop builds from 1.3.0). */
+  byStationTrain?: StationAnalysis[];
   faultFamilies: string[];
 };
+
+export type DetectionPolicy = {
+  schemaVersion?: number;
+  id: string;
+  label?: string | null;
+  iso2Rules: boolean;
+  slacRuleMode: string;
+};
+
+export const stationSplitOf = (station: Pick<StationAnalysis, "split">): StationSplit =>
+  station.split ?? "test";
+
+/** Held-out rows first, then training rows, each tagged with its split. */
+export function allStationRows(analysis: Pick<FaultDetectionAnalysis, "byStation" | "byStationTrain">): StationAnalysis[] {
+  return [
+    ...analysis.byStation.map((station) => ({ ...station, split: "test" as const })),
+    ...(analysis.byStationTrain ?? []).map((station) => ({ ...station, split: "train" as const })),
+  ];
+}
+
+/** Totals over held-out rows only, so in-sample stations never reach a headline number. */
+export function heldOutStationTotals(rows: StationAnalysis[]) {
+  return rows
+    .filter((row) => stationSplitOf(row) === "test")
+    .reduce(
+      (totals, row) => ({
+        stations: totals.stations + 1,
+        sessions: totals.sessions + row.sessions,
+        faultySessions: totals.faultySessions + row.faultySessions,
+        alertedSessions: totals.alertedSessions + row.alertedSessions,
+      }),
+      { stations: 0, sessions: 0, faultySessions: 0, alertedSessions: 0 },
+    );
+}
 
 export type FaultDetectionSummary = {
   source: "preview" | "full_fleet";
@@ -141,6 +186,8 @@ export type FaultDetectionSummary = {
   pipeline: PipelineStage[];
   leaderboard: ModelEvaluation[];
   analysis: FaultDetectionAnalysis;
+  /** The detection policy the benchmark was measured under (absent = baseline). */
+  detectionPolicy?: DetectionPolicy | null;
 };
 
 /**
@@ -158,7 +205,7 @@ export const snapshotDateLocale = (lang: "th" | "en"): string =>
 export type BundledBenchmark = Pick<
   FaultDetectionSummary,
   "source" | "snapshotAt" | "dataset" | "leaderboard"
-> & { faultFamilies: string[] };
+> & { faultFamilies: string[]; detectionPolicy?: DetectionPolicy | null };
 
 /**
  * Honest fallback shown while the live summary is loading or unavailable.

@@ -1,0 +1,1147 @@
+From ac1aa13974d6cf2bcb0d360445b1ebe973ef5c29 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 23 Sep 2026 10:23:21 +0700
+Subject: [PATCH 12/18] feat(desktop): read the Overview's edition numbers from
+ the bundled benchmark
+
+The two desktop editions ship the same UI bundle and differ only in
+data/summary.json and model weights, yet the Overview was built from literals
+and research constants, so both editions read almost the same.
+
+- edition-benchmark.ts: held-out fault mix from leaderboard byFamily counts,
+  the research label profile matching this edition's labels, and whether the
+  research panel's model set (41ded2cdd5c2ba3f) is this edition's - decided by
+  the sidecar artifact id, else by an exact baseline-arm leaderboard match.
+- Fault-mix donut shows this edition's held-out set (7 families / 1,326 for
+  v4, 6 / 957 for the 2026-09-12 snapshot) with a toggle to the research
+  full-fleet mix, now labelled as research on ISO-reviewed labels.
+- Research panel opens on the edition's own label profile, marks it, and says
+  which model set it rescored; stat-row shares are computed.
+- Hero chips, station subtitles and the fault-guide count come from the
+  bundle; "31 regression checks" (stale) is gone.
+- fault-catalog.ts: add NO_POWER_DELIVERED - v1.2.x rendered its largest
+  family as "Unclassified AI anomaly" - plus a reason hint for it.
+- vitest.config.ts: oxc jsx automatic. tsconfig keeps jsx:preserve for Next
+  and Vite 8 has no esbuild, so no .tsx could be imported in a test; this also
+  revives the MaximoWorkOrders suite that failed to load. 263/263 pass.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../fault-detection/edition-benchmark.test.ts |  91 ++++++++
+ .../ai/fault-detection/edition-benchmark.ts   | 102 +++++++++
+ .../ai/fault-detection/edition-fixtures.ts    |  98 +++++++++
+ .../ai/fault-detection/fault-catalog.test.ts  |  17 +-
+ .../ai/fault-detection/fault-catalog.ts       |  19 ++
+ .../fault-detection/fault-glossary-dialog.tsx |   5 +-
+ .../app/dashboard/ai/fault-detection/page.tsx |  55 +++--
+ .../research-dashboard.test.ts                |  96 ++++++++
+ .../ai/fault-detection/research-dashboard.tsx | 207 ++++++++++++++----
+ .../ai/fault-detection/research-data.ts       |   9 +
+ iMPS_platform/vitest.config.ts                |   4 +
+ 11 files changed, 633 insertions(+), 70 deletions(-)
+ create mode 100644 iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+ create mode 100644 iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
+ create mode 100644 iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
+ create mode 100644 iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+new file mode 100644
+index 00000000..da945d02
+--- /dev/null
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+@@ -0,0 +1,91 @@
++import { describe, expect, it } from "vitest";
++
++import {
++  heldOutFaultDistribution,
++  percentOf,
++  researchModelRelation,
++  researchProfileForBundled,
++} from "./edition-benchmark";
++import {
++  CURRENT_EDITION,
++  SNAPSHOT_EDITION,
++  SNAPSHOT_FAMILIES,
++  fixtureBundle,
++} from "./edition-fixtures";
++import { RESEARCH_MODEL_ARTIFACT } from "./research-data";
++
++describe("held-out fault distribution", () => {
++  it("reads this edition's family counts and sums to its fault sessions", () => {
++    const current = heldOutFaultDistribution(CURRENT_EDITION);
++    expect(current.map((row) => row.family)).toEqual([
++      "NO_POWER_DELIVERED",
++      "PROTOCOL_FAILED",
++      "SLAC_FAILURE",
++      "SESSION_ABORT",
++      "EVSE_FAULT",
++      "EV_ERROR",
++      "COMM_FREEZE",
++    ]);
++    expect(current.reduce((sum, row) => sum + row.sessions, 0)).toBe(1_326);
++
++    const snapshot = heldOutFaultDistribution(SNAPSHOT_EDITION);
++    expect(snapshot).toHaveLength(6);
++    expect(snapshot.some((row) => row.family === "NO_POWER_DELIVERED")).toBe(false);
++    expect(snapshot.reduce((sum, row) => sum + row.sessions, 0)).toBe(957);
++  });
++
++  it("is empty rather than invented when nothing is bundled", () => {
++    expect(heldOutFaultDistribution(null)).toEqual([]);
++    const unscored = {
++      ...SNAPSHOT_EDITION,
++      leaderboard: SNAPSHOT_EDITION.leaderboard.map((row) => ({ ...row, byFamily: [] })),
++    };
++    expect(heldOutFaultDistribution(unscored)).toEqual([]);
++  });
++});
++
++describe("research profile matching", () => {
++  it("maps each edition's labels to the research profile with the same counts", () => {
++    expect(researchProfileForBundled(SNAPSHOT_EDITION)).toBe("published");
++    expect(researchProfileForBundled(CURRENT_EDITION)).toBe("strict");
++    expect(researchProfileForBundled(null)).toBeNull();
++    expect(researchProfileForBundled(fixtureBundle(1_000, SNAPSHOT_FAMILIES, []))).toBeNull();
++  });
++});
++
++describe("research model relation", () => {
++  it("trusts the sidecar's artifact id when it has one", () => {
++    expect(researchModelRelation(CURRENT_EDITION, RESEARCH_MODEL_ARTIFACT)).toBe("same");
++    expect(researchModelRelation(SNAPSHOT_EDITION, "53b6f14244c2e633")).toBe("different");
++    expect(researchModelRelation(null, ` ${RESEARCH_MODEL_ARTIFACT.toUpperCase()} `)).toBe("same");
++  });
++
++  it("recognises the research model set from the bundled leaderboard alone", () => {
++    // Snapshot edition: its benchmark IS the research published-baseline arm.
++    expect(researchModelRelation(SNAPSHOT_EDITION)).toBe("same");
++    // v4 edition: same labels as the strict profile, different weights.
++    expect(researchModelRelation(CURRENT_EDITION)).toBe("different");
++  });
++
++  it("says unknown instead of guessing", () => {
++    expect(researchModelRelation(null)).toBe("unknown");
++    expect(researchModelRelation(fixtureBundle(1_000, SNAPSHOT_FAMILIES, []))).toBe("unknown");
++    const partial = { ...SNAPSHOT_EDITION, leaderboard: SNAPSHOT_EDITION.leaderboard.slice(0, 4) };
++    expect(researchModelRelation(partial)).toBe("unknown");
++  });
++
++  it("does not match on the score alone", () => {
++    const sameScoresOtherRecall = {
++      ...SNAPSHOT_EDITION,
++      leaderboard: SNAPSHOT_EDITION.leaderboard.map((row) => ({ ...row, recall: (row.recall ?? 0) + 1 })),
++    };
++    expect(researchModelRelation(sameScoresOtherRecall)).toBe("different");
++  });
++});
++
++describe("percentOf", () => {
++  it("formats shares and refuses an empty whole", () => {
++    expect(percentOf(39_142, 40_542)).toBe("96.5%");
++    expect(percentOf(1, 0)).toBeNull();
++  });
++});
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
+new file mode 100644
+index 00000000..8e3940b8
+--- /dev/null
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
+@@ -0,0 +1,102 @@
++import type { BundledBenchmark, FaultDetectionModelId } from "./data";
++import {
++  LABEL_LINEAGE,
++  MODEL_ORDER,
++  RESEARCH_MODEL_ARTIFACT,
++  RESEARCH_PROFILES,
++  type ResearchModelId,
++  type ResearchProfileId,
++} from "./research-data";
++
++/**
++ * Numbers derived from the benchmark bundled with the running edition
++ * (data/summary.json). Two editions ship the same UI code and differ only in
++ * this file and their model weights, so anything the page presents as "this
++ * edition's result" is computed here rather than written as a literal.
++ *
++ * Headline totals come from `dataset` and the leaderboard only. They are never
++ * summed over `analysis.byStation`: a later summary also lists the training
++ * stations there, with in-sample predictions, and those must not leak into
++ * held-out figures.
++ */
++
++// Leaderboard ids used by data/summary.json -> ids of the research constants.
++export const RESEARCH_ID_BY_MODEL_ID: Record<FaultDetectionModelId, ResearchModelId> = {
++  traditional: "TraditionalAI",
++  rl: "RL",
++  "ai-agent": "AIAgent",
++  "agentic-ai": "AgenticAI",
++  "multi-agent": "MultiAgent",
++};
++
++export type FaultCount = { family: string; sessions: number };
++
++/**
++ * Held-out fault mix of this edition: sessions per first-fault family. Every
++ * model's `byFamily` carries the same `nFaulty` counts (they describe the
++ * labels, not the model), so the first non-empty one is used. Largest first.
++ */
++export function heldOutFaultDistribution(bundled: BundledBenchmark | null): FaultCount[] {
++  const source = bundled?.leaderboard.find((row) => row.byFamily.length > 0);
++  if (!source) return [];
++  return source.byFamily
++    .filter((row) => row.nFaulty > 0)
++    .map((row) => ({ family: row.family, sessions: row.nFaulty }))
++    .sort((left, right) => right.sessions - left.sessions || left.family.localeCompare(right.family));
++}
++
++/**
++ * The research label profile whose held-out counts are exactly this edition's
++ * labels (957 faulty = published, 1,326 = strict), or null when none match.
++ */
++export function researchProfileForBundled(bundled: BundledBenchmark | null): ResearchProfileId | null {
++  const dataset = bundled?.dataset;
++  if (!dataset || dataset.sessions === null || dataset.faultySessions === null) return null;
++  const match = LABEL_LINEAGE.find(
++    (row) =>
++      row.faulty === dataset.faultySessions &&
++      (row.total === dataset.sessions || row.total - row.censored === dataset.sessions),
++  );
++  return match?.id ?? null;
++}
++
++export type ResearchModelRelation = "same" | "different" | "unknown";
++
++const oneDecimal = (value: number) => Number(value.toFixed(1));
++
++/**
++ * Whether the research panel's rescored models are the models this edition
++ * ships. The sidecar's artifact id decides when it is known. Without it (web
++ * build, older sidecar) the bundled leaderboard decides: under the same labels,
++ * that model set's baseline arm must reproduce all five models' score, recall
++ * and false-alarm rate to the research data's one decimal.
++ */
++export function researchModelRelation(
++  bundled: BundledBenchmark | null,
++  modelArtifact?: string | null,
++): ResearchModelRelation {
++  const artifact = modelArtifact?.trim().toLowerCase();
++  if (artifact) return artifact === RESEARCH_MODEL_ARTIFACT ? "same" : "different";
++
++  const profileId = researchProfileForBundled(bundled);
++  if (!bundled || !profileId) return "unknown";
++  const scored = bundled.leaderboard.filter(
++    (row) => row.score !== null && row.recall !== null && row.falseAlarmRate !== null,
++  );
++  if (scored.length !== MODEL_ORDER.length) return "unknown";
++  const baseline = RESEARCH_PROFILES[profileId].arms.baseline;
++  const matches = scored.every((row) => {
++    const research = baseline[RESEARCH_ID_BY_MODEL_ID[row.id]];
++    return (
++      oneDecimal(row.score as number) === research.score &&
++      oneDecimal(row.recall as number) === research.recall &&
++      oneDecimal(row.falseAlarmRate as number) === research.far
++    );
++  });
++  return matches ? "same" : "different";
++}
++
++/** Share of `whole` as a one-decimal percentage string, or null when undefined. */
++export function percentOf(part: number, whole: number): string | null {
++  return whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : null;
++}
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
+new file mode 100644
+index 00000000..6fbcd857
+--- /dev/null
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
+@@ -0,0 +1,98 @@
++import type { BundledBenchmark, FaultDetectionModelId, ModelEvaluation } from "./data";
++
++/**
++ * Test fixtures: the figures that matter from the two shipped data/summary.json
++ * files, copied by hand so tests do not depend on a local build.
++ *   CURRENT_EDITION  release 1.2.1, v4 weights, artifact 53b6f14244c2e633, snapshotAt 2026-09-21
++ *   SNAPSHOT_EDITION "Snapshot 2026-09-12", artifact 41ded2cdd5c2ba3f, snapshotAt 2026-09-12
++ * Imported only by *.test.ts(x); nothing in the app imports this file.
++ */
++
++export const V4_FAMILIES = {
++  PROTOCOL_FAILED: 310,
++  SESSION_ABORT: 230,
++  SLAC_FAILURE: 237,
++  EVSE_FAULT: 93,
++  EV_ERROR: 91,
++  COMM_FREEZE: 5,
++  NO_POWER_DELIVERED: 360,
++};
++
++export const SNAPSHOT_FAMILIES = {
++  PROTOCOL_FAILED: 310,
++  SESSION_ABORT: 234,
++  SLAC_FAILURE: 224,
++  EVSE_FAULT: 93,
++  EV_ERROR: 91,
++  COMM_FREEZE: 5,
++};
++
++export const fixtureModel = (
++  id: FaultDetectionModelId,
++  score: number | null,
++  recall: number | null,
++  far: number | null,
++  families: Record<string, number>,
++): ModelEvaluation => ({
++  id,
++  name: id,
++  family: "",
++  description: { th: "", en: "" },
++  color: "#000000",
++  state: score === null ? "awaiting_benchmark" : "complete",
++  rank: null,
++  score,
++  recall,
++  falseAlarmRate: far,
++  earlinessSeconds: null,
++  meanLeadSeconds: null,
++  f1: null,
++  tp: null,
++  late: null,
++  miss: null,
++  fp: null,
++  wins: null,
++  byFamily: Object.entries(families).map(([family, nFaulty]) => ({
++    family,
++    nFaulty,
++    recall: null,
++    tp: null,
++    late: null,
++    miss: null,
++    notEarly: null,
++  })),
++});
++
++export const fixtureBundle = (
++  faulty: number,
++  families: Record<string, number>,
++  rows: Array<[FaultDetectionModelId, number, number, number]>,
++  snapshotAt = "2026-09-21T08:11:19Z",
++): BundledBenchmark => ({
++  source: "full_fleet",
++  snapshotAt,
++  dataset: { sessions: 8_820, faultySessions: faulty, normalSessions: 8_820 - faulty, stations: 45 },
++  leaderboard: rows.map(([id, score, recall, far]) => fixtureModel(id, score, recall, far, families)),
++  faultFamilies: Object.keys(families),
++});
++
++export const CURRENT_EDITION = fixtureBundle(1_326, V4_FAMILIES, [
++  ["traditional", 69.5623, 82.5038, 24.4863],
++  ["agentic-ai", 66.8541, 85.1433, 31.0115],
++  ["multi-agent", 60.1585, 70.1357, 25.0334],
++  ["ai-agent", 46.4182, 49.3213, 34.9746],
++  ["rl", 39.2242, 18.4766, 5.5911],
++]);
++
++export const SNAPSHOT_EDITION = fixtureBundle(
++  957,
++  SNAPSHOT_FAMILIES,
++  [
++    ["agentic-ai", 69.9433, 90.7001, 34.8086],
++    ["traditional", 68.0141, 76.698, 26.6183],
++    ["multi-agent", 56.3217, 62.5914, 28.3225],
++    ["ai-agent", 52.2041, 59.0387, 39.2853],
++    ["rl", 49.4997, 34.4828, 5.3923],
++  ],
++  "2026-09-12T00:52:33Z",
++);
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.test.ts
+index f4a99c90..263df0ef 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.test.ts
+@@ -8,7 +8,7 @@ import {
+ 
+ describe("fault catalog", () => {
+   it("documents every fault family produced by the detector", () => {
+-    expect(supportedFaultFamilies).toHaveLength(7);
++    expect(supportedFaultFamilies).toHaveLength(8);
+     expect(supportedFaultFamilies).toEqual(expect.arrayContaining([
+       "PROTOCOL_FAILED",
+       "EVSE_FAULT",
+@@ -17,6 +17,7 @@ describe("fault catalog", () => {
+       "SESSION_ABORT",
+       "SLAC_FAILURE",
+       "COMM_FREEZE",
++      "NO_POWER_DELIVERED",
+     ]));
+     for (const family of supportedFaultFamilies) {
+       const detail = getFaultExplanation(family, "th");
+@@ -34,6 +35,20 @@ describe("fault catalog", () => {
+       .toBe("SESSION_ABORT");
+   });
+ 
++  it("explains NO_POWER_DELIVERED instead of calling it an unclassified anomaly", () => {
++    // The largest family in the v4 benchmark (360 of 1,326 held-out faults);
++    // before it had a definition every such session read "Unclassified AI anomaly".
++    expect(getFaultExplanation("NO_POWER_DELIVERED", "en").knownFamily).toBe(true);
++    expect(getFaultExplanation("no_power_delivered", "th").family).toBe("NO_POWER_DELIVERED");
++    // the labeller's detail string and the online rule's reason string
++    expect(resolveFaultFamily(null, "stopped after PreCharge, never reached CurrentDemand"))
++      .toBe("NO_POWER_DELIVERED");
++    expect(resolveFaultFamily(null, "closed after CableCheck, no CurrentDemand"))
++      .toBe("NO_POWER_DELIVERED");
++    // a healthy CurrentDemand mention must not be mistaken for the fault
++    expect(resolveFaultFamily(null, "CurrentDemand stalled for 7s")).not.toBe("NO_POWER_DELIVERED");
++  });
++
+   it("does not pretend an unknown model anomaly identifies the stopping party", () => {
+     const detail = getFaultExplanation(null, "en", "pattern anomaly confirmed");
+     expect(detail.knownFamily).toBe(false);
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts
+index 70e2edf0..3494759a 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts
+@@ -148,6 +148,23 @@ const FAULT_DEFINITIONS: Record<string, FaultDefinition> = {
+       en: "Use the last Req/Res, subsequent packets, and timeout evidence to identify which party stopped responding.",
+     },
+   },
++  NO_POWER_DELIVERED: {
++    title: { th: "เริ่มชาร์จแล้วแต่ไม่มีการจ่ายไฟ", en: "Charge attempted, no power delivered" },
++    cause: {
++      th: "รถขอพารามิเตอร์การชาร์จ (ChargeParameterDiscovery) และ session ปิดอย่างเรียบร้อย แต่ไม่เคยเข้าสู่ CurrentDemand จึงไม่มีพลังงานถูกจ่าย ส่วนใหญ่ PreCharge ดันแรงดันไม่เข้าใกล้ค่าที่รถขอก่อน session ถูกปิด ส่วนน้อย PreCharge ถึงแรงดันแล้วแต่รถยังสั่งหยุด หลักฐานระบุขั้นสุดท้ายที่ไปถึง",
++      en: "The EV requested charge parameters (ChargeParameterDiscovery) and the session closed gracefully, but CurrentDemand was never reached, so no energy was delivered. Most often PreCharge never brought the voltage near the EV's target before the close; less often PreCharge converged and the EV stopped anyway. The evidence names the last phase reached.",
++    },
++    standard: {
++      th: "DIN SPEC 70121 / ISO 15118-2 — ลำดับ CableCheck → PreCharge → PowerDelivery → CurrentDemand; เป็นผลที่อนุมานจากลำดับข้อความ ไม่ใช่ error code ของโปรโตคอล (ResponseCode อาจเป็น OK ทั้งหมด)",
++      en: "DIN SPEC 70121 / ISO 15118-2 — the CableCheck → PreCharge → PowerDelivery → CurrentDemand sequence; an outcome derived from the message sequence, not a protocol error code (every ResponseCode can be OK)",
++    },
++    stopParty: "unknown",
++    stopPartyLabel: { th: "ปิดเรียบร้อย; ต้องดูแรงดัน PreCharge", en: "Closed cleanly; check PreCharge voltage" },
++    attribution: {
++      th: "ถ้าแรงดัน PreCharge ไม่เข้าใกล้ค่าที่รถขอ หลักฐานชี้ไปที่ภาคกำลังของตู้ ถ้าแรงดันถึงแล้วแต่รถยังสั่งหยุด packet อย่างเดียวยังแยกไม่ได้ว่าเป็นรถหรือตู้",
++      en: "If the PreCharge voltage never approached the EV's target, the evidence points to the charger's power stage; if it converged and the EV still stopped, the packets alone cannot tell EV from charger.",
++    },
++  },
+ };
+ 
+ const UNKNOWN_DEFINITION: FaultDefinition = {
+@@ -176,6 +193,8 @@ const REASON_FAMILY_HINTS: Array<[RegExp, string]> = [
+   [/no sessionsetupres|v2g2-448|tcp rst|re-slac mid-session/i, "SESSION_ABORT"],
+   [/link_establishment_failing|slac attempts|slac_failure/i, "SLAC_FAILURE"],
+   [/v2g2-443|v2g2-711|dialog_freezing|communication freeze|cablecheck.*stuck/i, "COMM_FREEZE"],
++  // the labeller's detail ("never reached CurrentDemand") and the online rule's reason ("no CurrentDemand")
++  [/(?:never reached|no) currentdemand/i, "NO_POWER_DELIVERED"],
+ ];
+ 
+ export function resolveFaultFamily(
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-glossary-dialog.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-glossary-dialog.tsx
+index e7c93c3b..574bdb7c 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-glossary-dialog.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-glossary-dialog.tsx
+@@ -22,7 +22,8 @@ const COPY = {
+     eyebrow: "PCAP FAULT REFERENCE",
+     title: "คู่มือ Fault จาก PCAP",
+     subtitle: "ความหมาย สาเหตุ มาตรฐานที่เกี่ยวข้อง และฝ่ายรถ/ตู้ตามหลักฐานใน packet",
+-    count: "7 ประเภทที่ระบบจำแนก",
++    // the number itself is rendered above the label from the catalog
++    count: "ประเภทที่ระบบจำแนก",
+     close: "ปิดคู่มือ Fault",
+     attributionTitle: "อ่านคำว่า ‘ฝ่ายที่หยุด/รายงาน’ อย่างไร",
+     attributionBody:
+@@ -34,7 +35,7 @@ const COPY = {
+     eyebrow: "PCAP FAULT REFERENCE",
+     title: "PCAP fault guide",
+     subtitle: "Meanings, probable causes, related standards, and EV/charger attribution from packet evidence",
+-    count: "7 classified fault families",
++    count: "classified fault families",
+     close: "Close fault guide",
+     attributionTitle: "How to read ‘stopping or reporting party’",
+     attributionBody:
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+index d710c801..27876fd9 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+@@ -32,6 +32,7 @@ import {
+   type PcapAnalysisJob,
+ } from "./api";
+ import { snapshotDateLocale, type BundledBenchmark, type StationAnalysis } from "./data";
++import { supportedFaultFamilies } from "./fault-catalog";
+ import FaultExplanationPanel, {
+   FaultExplanationInline,
+   ObservedStopAttribution,
+@@ -51,9 +52,11 @@ const COPY = {
+     desktopSubtitle: "สำรวจผล benchmark ที่ตรวจสอบแล้วทั้ง fleet เปรียบเทียบกฎ ISO 15118 และเจาะลึกสัดส่วน Fault ของทุกสถานีในโปรแกรมเดียว",
+     modelBadge: "VERIFIED RESEARCH",
+     formatBadge: "ISO 15118-2 / -3",
+-    workflowUpload: "40,542 · Fleet sessions",
+-    workflowAnalyze: "5 · AI architectures",
+-    workflowReview: "31 · Regression checks",
++    // Hero counts come from the bundled benchmark (see heroStats); the labels
++    // stay English in both languages, as the original design had them.
++    workflowSessions: "Held-out sessions",
++    workflowModels: "AI architectures",
++    workflowFamilies: "Fault families",
+     overviewTab: "ภาพรวม",
+     stationsTab: "ผลรายสถานี",
+     pcapTab: "วิเคราะห์ PCAP",
+@@ -98,7 +101,10 @@ const COPY = {
+     fileTooLarge: "ไฟล์มีขนาดเกิน 256 MiB",
+     uploadFailed: "ไม่สามารถส่งไฟล์ไปวิเคราะห์ได้",
+     stationTitle: "ผลวิเคราะห์ PCAP แยกตามสถานี",
+-    stationSub: "ผล Agentic AI จาก held-out test 8,820 sessions แสดงแยกทุกสถานี โดยใช้เกณฑ์เดียวกับ benchmark",
++    stationSub: (sessions: string | null) =>
++      sessions
++        ? `ผล Agentic AI จาก held-out test ${sessions} sessions แสดงแยกทุกสถานี โดยใช้เกณฑ์เดียวกับ benchmark`
++        : "ผล Agentic AI จาก held-out test แสดงแยกทุกสถานี โดยใช้เกณฑ์เดียวกับ benchmark",
+     stationNote: "กดที่สถานีเพื่อดูผลแยก Connector และ Fault · เป็นข้อมูล PCAP ทดสอบ ไม่ใช่สถานะสุขภาพแบบเรียลไทม์",
+     stationsAnalyzed: "สถานีที่วิเคราะห์",
+     testSessions: "Test sessions",
+@@ -124,7 +130,7 @@ const COPY = {
+     retry: "ลองใหม่",
+     updatedAt: "ข้อมูลล่าสุด",
+     faultGuide: "คู่มือ Fault",
+-    openFaultGuide: "เปิดคู่มือ Fault ทั้ง 7 ประเภท",
++    openFaultGuide: (count: number) => `เปิดคู่มือ Fault ทั้ง ${count} ประเภท`,
+     visibleStations: "สถานีที่แสดง",
+     editionLabel: "รุ่นโปรแกรม",
+     modelLabel: "โมเดล",
+@@ -140,9 +146,9 @@ const COPY = {
+     desktopSubtitle: "Explore the verified fleet benchmark, compare ISO 15118 rule profiles, and inspect fault distributions for every station in one desktop app.",
+     modelBadge: "VERIFIED RESEARCH",
+     formatBadge: "ISO 15118-2 / -3",
+-    workflowUpload: "40,542 · Fleet sessions",
+-    workflowAnalyze: "5 · AI architectures",
+-    workflowReview: "31 · Regression checks",
++    workflowSessions: "Held-out sessions",
++    workflowModels: "AI architectures",
++    workflowFamilies: "Fault families",
+     overviewTab: "Overview",
+     stationsTab: "Stations",
+     pcapTab: "Analyze PCAP",
+@@ -187,7 +193,10 @@ const COPY = {
+     fileTooLarge: "The selected file exceeds 256 MiB.",
+     uploadFailed: "The capture could not be submitted for analysis.",
+     stationTitle: "PCAP analysis by station",
+-    stationSub: "Agentic AI results from 8,820 held-out sessions, broken down by station using the benchmark's exact scoring rules.",
++    stationSub: (sessions: string | null) =>
++      sessions
++        ? `Agentic AI results from ${sessions} held-out sessions, broken down by station using the benchmark's exact scoring rules.`
++        : "Agentic AI results on the held-out sessions, broken down by station using the benchmark's exact scoring rules.",
+     stationNote: "Select a station for connector and fault details · These are held-out PCAP results, not real-time station health.",
+     stationsAnalyzed: "Stations analyzed",
+     testSessions: "Test sessions",
+@@ -213,7 +222,7 @@ const COPY = {
+     retry: "Retry",
+     updatedAt: "Updated",
+     faultGuide: "Fault guide",
+-    openFaultGuide: "Open the guide to all 7 fault families",
++    openFaultGuide: (count: number) => `Open the guide to all ${count} fault families`,
+     visibleStations: "Stations shown",
+     editionLabel: "Edition",
+     modelLabel: "Model",
+@@ -559,6 +568,15 @@ export default function FaultDetectionPage() {
+   const editionName = runtimeStatus?.productName
+     ? `${runtimeStatus.productName}${runtimeStatus.appVersion ? ` v${runtimeStatus.appVersion}` : ""}`
+     : null;
++  // Hero counts from the benchmark bundled with this edition (held-out totals
++  // from `dataset`, never a sum over stations); just the label until it loads.
++  const heroStats: Array<[React.ReactNode, number | null, string]> = [
++    [<Upload key="upload" className="tw-h-4 tw-w-4" />, bundled?.dataset.sessions ?? null, c.workflowSessions],
++    [<BrainCircuit key="analyze" className="tw-h-4 tw-w-4" />, bundled?.leaderboard.length || null, c.workflowModels],
++    [<BookOpenCheck key="review" className="tw-h-4 tw-w-4" />, bundled?.faultFamilies.length || null, c.workflowFamilies],
++  ];
++  const heldOutSessionsLabel =
++    bundled?.dataset.sessions != null ? bundled.dataset.sessions.toLocaleString("en-US") : null;
+ 
+   return (
+     <main className={`ai-root fd-page fd-lang-${lang} tw-min-h-screen`}>
+@@ -613,14 +631,10 @@ export default function FaultDetectionPage() {
+               </div>
+             </div>
+             <div className="fd-hero-stats tw-mt-7 tw-grid tw-gap-px tw-overflow-hidden tw-rounded-2xl tw-bg-white/10 tw-ring-1 tw-ring-white/10 sm:tw-grid-cols-3 lg:tw-max-w-4xl">
+-              {[
+-                [<Upload key="upload" className="tw-h-4 tw-w-4" />, c.workflowUpload],
+-                [<BrainCircuit key="analyze" className="tw-h-4 tw-w-4" />, c.workflowAnalyze],
+-                [<BookOpenCheck key="review" className="tw-h-4 tw-w-4" />, c.workflowReview],
+-              ].map(([icon, label]) => (
+-                <div key={String(label)} className="tw-flex tw-min-h-12 tw-items-center tw-gap-2.5 tw-bg-white/[0.045] tw-px-4 tw-py-3 tw-text-[12px] tw-font-semibold tw-text-slate-200">
++              {heroStats.map(([icon, value, label]) => (
++                <div key={label} className="tw-flex tw-min-h-12 tw-items-center tw-gap-2.5 tw-bg-white/[0.045] tw-px-4 tw-py-3 tw-text-[12px] tw-font-semibold tw-text-slate-200" data-testid="fd-hero-stat">
+                   <span className="tw-flex tw-h-7 tw-w-7 tw-flex-shrink-0 tw-items-center tw-justify-center tw-rounded-lg tw-bg-yellow-300/10 tw-text-yellow-300">{icon}</span>
+-                  <span>{label}</span>
++                  <span>{value === null ? label : `${value.toLocaleString("en-US")} · ${label}`}</span>
+                 </div>
+               ))}
+             </div>
+@@ -668,6 +682,7 @@ export default function FaultDetectionPage() {
+               lang={lang}
+               bundled={bundled}
+               desktop={bundledFromSidecar}
++              modelArtifact={runtimeStatus?.artifactVersion ?? null}
+               stations={stations}
+               stationLoading={stationLoading}
+               stationError={stationError}
+@@ -1072,7 +1087,7 @@ export default function FaultDetectionPage() {
+                 tone="blue"
+                 icon={<MapPin className="tw-h-5 tw-w-5 sm:tw-h-6 sm:tw-w-6" />}
+                 title={c.stationTitle}
+-                description={c.stationSub}
++                description={c.stationSub(heldOutSessionsLabel)}
+                 note={c.stationNote}
+                 actions={(
+                   <>
+@@ -1086,8 +1101,8 @@ export default function FaultDetectionPage() {
+                     onClick={() => setFaultGlossaryOpen(true)}
+                     aria-haspopup="dialog"
+                     aria-controls="fault-glossary-dialog"
+-                    aria-label={c.openFaultGuide}
+-                    title={c.openFaultGuide}
++                    aria-label={c.openFaultGuide(supportedFaultFamilies.length)}
++                    title={c.openFaultGuide(supportedFaultFamilies.length)}
+                     className="tw-inline-flex tw-h-11 tw-items-center tw-justify-center tw-gap-1.5 tw-rounded-xl tw-border tw-border-blue-200 tw-bg-blue-50 tw-px-3.5 tw-text-[12px] tw-font-black tw-text-blue-700 tw-shadow-sm tw-transition hover:tw-border-blue-300 hover:tw-bg-blue-100 focus:tw-outline-none focus:tw-ring-2 focus:tw-ring-blue-400 focus:tw-ring-offset-2"
+                   >
+                     <BookOpenCheck className="tw-h-4 tw-w-4" />
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+new file mode 100644
+index 00000000..c95d7a3c
+--- /dev/null
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+@@ -0,0 +1,96 @@
++import { createElement } from "react";
++import { renderToStaticMarkup } from "react-dom/server";
++import { describe, expect, it } from "vitest";
++
++import type { BundledBenchmark } from "./data";
++import { CURRENT_EDITION, SNAPSHOT_EDITION } from "./edition-fixtures";
++import ResearchDashboard from "./research-dashboard";
++
++// Renders the Overview the way each edition ships it and reads the text a user
++// sees. createElement rather than JSX keeps this a plain .ts test.
++const render = (bundled: BundledBenchmark | null, lang: "th" | "en" = "en", modelArtifact: string | null = null) =>
++  renderToStaticMarkup(
++    createElement(ResearchDashboard, {
++      lang,
++      bundled,
++      desktop: true,
++      modelArtifact,
++      stations: [],
++      stationLoading: false,
++      stationError: null,
++      onRetryStations: () => {},
++      onSelectStation: () => {},
++      onOpenStations: () => {},
++    }),
++  );
++
++const ENTITIES: Record<string, string> = { "&#x27;": "'", "&quot;": '"', "&lt;": "<", "&gt;": ">", "&amp;": "&" };
++const text = (html: string) =>
++  html
++    .replace(/<[^>]+>/g, " ")
++    .replace(/&#x27;|&quot;|&lt;|&gt;|&amp;/g, (entity) => ENTITIES[entity])
++    .replace(/\s+/g, " ");
++
++describe("Overview differs by edition because it reads the bundled benchmark", () => {
++  it("draws the current edition's own held-out fault mix, including NO_POWER_DELIVERED", () => {
++    const html = render(CURRENT_EDITION);
++    expect(html).toContain('data-mix="edition"');
++    const t = text(html);
++    expect(t).toContain("Fault distribution · this edition's held-out set");
++    expect(t).toContain("1,326 fault sessions among 8,820 held-out sessions at 45 stations");
++    expect(t).toContain("7 types");
++    expect(t).toContain("NO POWER DELIVERED");
++  });
++
++  it("draws the snapshot edition's six-family mix, with no NO_POWER_DELIVERED", () => {
++    const t = text(render(SNAPSHOT_EDITION));
++    expect(t).toContain("957 fault sessions among 8,820 held-out sessions");
++    expect(t).toContain("6 types");
++    // the donut and its legend are this edition's; NPD must not appear in them
++    const mix = t.slice(t.indexOf("Fault distribution · this edition"), t.indexOf("Station fault distribution"));
++    expect(mix).not.toContain("NO POWER DELIVERED");
++  });
++
++  it("falls back to the labelled research full-fleet mix when nothing is bundled", () => {
++    const html = render(null);
++    expect(html).toContain('data-mix="research"');
++    expect(text(html)).toContain("Fault distribution · full fleet (research)");
++    expect(text(html)).toContain("9 types");
++  });
++
++  it("says whether the research panel describes this edition's models", () => {
++    expect(render(SNAPSHOT_EDITION)).toContain('data-relation="same"');
++    expect(text(render(SNAPSHOT_EDITION))).toContain("Computed on this edition's models 41ded2cdd5c2ba3f");
++    expect(render(CURRENT_EDITION)).toContain('data-relation="different"');
++    expect(text(render(CURRENT_EDITION))).toContain("Computed on an earlier model set, not this edition's");
++    // the sidecar's artifact id wins over the leaderboard fingerprint
++    expect(render(SNAPSHOT_EDITION, "en", "53b6f14244c2e633")).toContain('data-relation="different"');
++    expect(render(null)).toContain('data-relation="unknown"');
++  });
++
++  it("opens the research panel on the label profile this edition was scored with", () => {
++    const current = text(render(CURRENT_EDITION));
++    expect(current).toContain("Recomputed strict labels · no censorship same labels as this edition");
++    const snapshot = text(render(SNAPSHOT_EDITION));
++    expect(snapshot).toContain("Original published benchmark · 8,820 sessions same labels as this edition");
++  });
++
++  it("keeps the footnote honest about which models the research rescored", () => {
++    expect(text(render(SNAPSHOT_EDITION))).toContain("rescores these same models");
++    expect(text(render(CURRENT_EDITION))).toContain("rescores earlier models");
++  });
++
++  it("renders the Thai copy with the same data", () => {
++    const t = text(render(CURRENT_EDITION, "th"));
++    expect(t).toContain("สัดส่วน Fault · ชุดทดสอบของรุ่นนี้");
++    expect(t).toContain("1,326 fault sessions จาก 8,820 sessions ทดสอบใน 45 สถานี");
++    expect(t).toContain("7 ประเภท");
++    expect(t).toContain("คำนวณบนโมเดลชุดก่อน ไม่ใช่โมเดลในรุ่นนี้");
++  });
++
++  it("derives the research stat-row shares instead of hard-coding them", () => {
++    const t = text(render(null));
++    // 100% is the full fleet as its own denominator; the other three are computed
++    for (const share of ["100%", "96.5%", "15.1%", "3.5%"]) expect(t).toContain(share);
++  });
++});
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+index c2404084..a8e5f2ee 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+@@ -25,6 +25,7 @@ import {
+   LABEL_LINEAGE,
+   MODEL_META,
+   MODEL_ORDER,
++  RESEARCH_MODEL_ARTIFACT,
+   RESEARCH_PROFILES,
+   RESEARCH_SNAPSHOT,
+   SLAC_RESEARCH,
+@@ -32,10 +33,23 @@ import {
+   type ResearchModelId,
+   type ResearchProfileId,
+ } from "./research-data";
+-import { snapshotDateLocale, type BundledBenchmark, type FaultDetectionModelId, type StationAnalysis } from "./data";
++import { snapshotDateLocale, type BundledBenchmark, type StationAnalysis } from "./data";
++import {
++  RESEARCH_ID_BY_MODEL_ID,
++  heldOutFaultDistribution,
++  percentOf,
++  researchModelRelation,
++  researchProfileForBundled,
++  type FaultCount,
++  type ResearchModelRelation,
++} from "./edition-benchmark";
+ 
+ type Lang = "th" | "en";
+ 
++// Defined before COPY: some research captions below are built from the
++// research constants at module load, so this must already exist.
++const formatInt = (value: number) => new Intl.NumberFormat("en-US").format(value);
++
+ const COPY = {
+   th: {
+     verified: "VERIFIED RESEARCH SNAPSHOT",
+@@ -52,9 +66,15 @@ const COPY = {
+     published: "Published",
+     strict: "Strict ก่อน review",
+     reviewed: "ISO-reviewed",
+-    publishedNote: "ผล benchmark เดิมที่เผยแพร่ · 8,820 sessions",
++    publishedNote: `ผล benchmark เดิมที่เผยแพร่ · ${formatInt(RESEARCH_PROFILES.published.sessions)} sessions`,
+     strictNote: "คำนวณ label strict ใหม่ · ยังไม่ตัด censored",
+-    reviewedNote: "label ที่ review แล้ว · ตัด 295 sessions ที่ตัดสินไม่ได้",
++    reviewedNote: `label ที่ review แล้ว · ตัด ${formatInt(RESEARCH_PROFILES.reviewed.censored)} sessions ที่ตัดสินไม่ได้`,
++    profileMatchesEdition: "label ชุดเดียวกับรุ่นนี้",
++    researchModel: {
++      same: "คำนวณบนโมเดลชุดเดียวกับรุ่นนี้",
++      different: "คำนวณบนโมเดลชุดก่อน ไม่ใช่โมเดลในรุ่นนี้",
++      unknown: "คำนวณบนโมเดลชุด",
++    },
+     baseline: "Baseline",
+     iso2: "+ ISO 15118-2",
+     empirical: "+ SLAC 10 s",
+@@ -87,11 +107,22 @@ const COPY = {
+     faulty: "faulty",
+     clean: "clean",
+     excluded: "excluded",
+-    fullFleetTitle: "สัดส่วน Fault ใน Fleet",
+-    fullFleetSub: "39,142 sessions ใน scoring index · 1,400 censored เก็บไว้แยกต่างหาก",
++    fullFleetTitle: "สัดส่วน Fault ใน Fleet · งานวิจัย",
++    fullFleetSub: `${formatInt(FULL_FLEET_LABELS.scoring)} sessions ใน scoring index · ${formatInt(FULL_FLEET_LABELS.censored)} censored เก็บไว้แยกต่างหาก · label ISO-reviewed ไม่ใช่ label ของรุ่นนี้`,
+     faultLabelsTotal: "Fault labels",
++    editionMixTitle: "สัดส่วน Fault · ชุดทดสอบของรุ่นนี้",
++    editionMixSub: (faulty: string, sessions: string, stations: string) =>
++      `${faulty} fault sessions จาก ${sessions} sessions ทดสอบใน ${stations} สถานีที่โมเดลไม่เคยเห็น · อ่านจาก data/summary.json ของรุ่นนี้`,
++    editionFaultTotal: "Fault sessions",
++    mixView: "ชุดข้อมูลของสัดส่วน Fault",
++    mixEdition: "รุ่นนี้ · held-out",
++    mixResearch: "วิจัย · ทั้ง fleet",
++    faultTypeCount: (count: number) => `${count} ประเภท`,
+     stationFaultTitle: "Fault แยกตามสถานี",
+-    stationFaultSub: "ผล Agentic AI จาก held-out test 8,820 sessions · คลิกสถานีเพื่อดู Connector และประเภท Fault",
++    stationFaultSub: (sessions: string | null) =>
++      sessions
++        ? `ผล Agentic AI จาก held-out test ${sessions} sessions · คลิกสถานีเพื่อดู Connector และประเภท Fault`
++        : "ผล Agentic AI จาก held-out test · คลิกสถานีเพื่อดู Connector และประเภท Fault",
+     stationBenchmark: "HELD-OUT BENCHMARK",
+     stations: "สถานี",
+     stationFaultSessions: "Fault sessions",
+@@ -130,7 +161,11 @@ const COPY = {
+     bundledTagWeb: "BENCHMARK จากเซิร์ฟเวอร์",
+     bundledTitleWeb: "ผล benchmark จากบริการตรวจจับ fault",
+     bundledSubWeb: "อ่านจาก API ของบริการตรวจจับ fault ที่หน้านี้เชื่อมต่ออยู่",
+-    bundledBasis: "คะแนนจาก label ของรุ่นนี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม · แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดก่อนบน label policy 3 แบบ ไม่ใช่ benchmark ของรุ่นนี้",
++    bundledBasis: {
++      same: "คะแนนจาก label ของรุ่นนี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม · แผงวิจัยด้านล่างคือโมเดลชุดเดียวกันนี้ rescore บน label policy 3 แบบ และกฎ ISO/SLAC",
++      different: "คะแนนจาก label ของรุ่นนี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม · แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดก่อนบน label policy 3 แบบ ไม่ใช่ benchmark ของรุ่นนี้",
++      unknown: "คะแนนจาก label ของรุ่นนี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม · แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดหนึ่งที่คงที่บน label policy 3 แบบ",
++    },
+     bundledExportedAt: "ข้อมูล ณ",
+     sourceFullFleet: "ทั้ง fleet",
+     sourcePreview: "ตัวอย่าง",
+@@ -155,9 +190,15 @@ const COPY = {
+     published: "Published",
+     strict: "Pre-review strict",
+     reviewed: "ISO-reviewed",
+-    publishedNote: "Original published benchmark · 8,820 sessions",
++    publishedNote: `Original published benchmark · ${formatInt(RESEARCH_PROFILES.published.sessions)} sessions`,
+     strictNote: "Recomputed strict labels · no censorship",
+-    reviewedNote: "Reviewed labels · 295 inconclusive sessions excluded",
++    reviewedNote: `Reviewed labels · ${formatInt(RESEARCH_PROFILES.reviewed.censored)} inconclusive sessions excluded`,
++    profileMatchesEdition: "same labels as this edition",
++    researchModel: {
++      same: "Computed on this edition's models",
++      different: "Computed on an earlier model set, not this edition's",
++      unknown: "Computed on model set",
++    },
+     baseline: "Baseline",
+     iso2: "+ ISO 15118-2",
+     empirical: "+ SLAC 10 s",
+@@ -190,11 +231,22 @@ const COPY = {
+     faulty: "faulty",
+     clean: "clean",
+     excluded: "excluded",
+-    fullFleetTitle: "Fault distribution · full fleet",
+-    fullFleetSub: "39,142 sessions in the scoring index · 1,400 censored records retained separately",
++    fullFleetTitle: "Fault distribution · full fleet (research)",
++    fullFleetSub: `${formatInt(FULL_FLEET_LABELS.scoring)} sessions in the scoring index · ${formatInt(FULL_FLEET_LABELS.censored)} censored records retained separately · ISO-reviewed labels, not this edition's`,
+     faultLabelsTotal: "Fault labels",
++    editionMixTitle: "Fault distribution · this edition's held-out set",
++    editionMixSub: (faulty: string, sessions: string, stations: string) =>
++      `${faulty} fault sessions among ${sessions} held-out sessions at ${stations} stations the models never saw · read from this edition's data/summary.json`,
++    editionFaultTotal: "Fault sessions",
++    mixView: "Fault distribution data set",
++    mixEdition: "This edition · held-out",
++    mixResearch: "Research · full fleet",
++    faultTypeCount: (count: number) => `${count} types`,
+     stationFaultTitle: "Faults by station",
+-    stationFaultSub: "Agentic AI results from 8,820 held-out sessions · select a station for connector and fault details",
++    stationFaultSub: (sessions: string | null) =>
++      sessions
++        ? `Agentic AI results from ${sessions} held-out sessions · select a station for connector and fault details`
++        : "Agentic AI results on the held-out sessions · select a station for connector and fault details",
+     stationBenchmark: "HELD-OUT BENCHMARK",
+     stations: "Stations",
+     stationFaultSessions: "Fault sessions",
+@@ -233,7 +285,11 @@ const COPY = {
+     bundledTagWeb: "BENCHMARK FROM THE SERVICE",
+     bundledTitleWeb: "Benchmark from the fault-detection service",
+     bundledSubWeb: "Read from the fault-detection API this page is connected to.",
+-    bundledBasis: "Scored on this edition's own labels with the baseline detection policy, no ISO 15118 rule arms. The research panel below rescores earlier models under three label policies and is not this edition's benchmark.",
++    bundledBasis: {
++      same: "Scored on this edition's own labels with the baseline detection policy, no ISO 15118 rule arms. The research panel below rescores these same models under three label policies and ISO/SLAC rule arms.",
++      different: "Scored on this edition's own labels with the baseline detection policy, no ISO 15118 rule arms. The research panel below rescores earlier models under three label policies and is not this edition's benchmark.",
++      unknown: "Scored on this edition's own labels with the baseline detection policy, no ISO 15118 rule arms. The research panel below rescores one fixed model set under three label policies.",
++    },
+     bundledExportedAt: "Data as of",
+     sourceFullFleet: "full fleet",
+     sourcePreview: "preview",
+@@ -253,15 +309,6 @@ const MODEL_TONES: Record<ResearchModelId, { bar: string; badge: string }> = {
+   MultiAgent: { bar: "tw-bg-rose-500", badge: "tw-bg-rose-50 tw-text-rose-700 tw-ring-rose-100" },
+ };
+ 
+-// Leaderboard ids used by data/summary.json -> ids of the research constants.
+-const RESEARCH_ID_BY_MODEL_ID: Record<FaultDetectionModelId, ResearchModelId> = {
+-  traditional: "TraditionalAI",
+-  rl: "RL",
+-  "ai-agent": "AIAgent",
+-  "agentic-ai": "AgenticAI",
+-  "multi-agent": "MultiAgent",
+-};
+-
+ const formatNullableInt = (value: number | null) => (value === null ? "\u2014" : formatInt(value));
+ const formatNullablePercent = (value: number | null) => (value === null ? "\u2014" : `${value.toFixed(1)}%`);
+ const formatShare = (part: number | null, whole: number | null) =>
+@@ -281,21 +328,14 @@ const FAULT_DISTRIBUTION_COLORS: Record<string, string> = {
+ 
+ const FALLBACK_FAULT_COLORS = ["#dc2626", "#2563eb", "#ea580c", "#7c3aed", "#0891b2", "#16a34a", "#db2777", "#ca8a04", "#475569"] as const;
+ 
+-const formatInt = (value: number) => new Intl.NumberFormat("en-US").format(value);
+-
+ const formatFaultFamily = (family: string) => family.replaceAll("_", " ");
+ 
+-type FaultCountItem = {
+-  family: string;
+-  sessions: number;
+-};
+-
+-type FaultSlice = FaultCountItem & {
++type FaultSlice = FaultCount & {
+   color: string;
+   percentage: number;
+ };
+ 
+-const buildFaultSlices = (items: FaultCountItem[], total: number): FaultSlice[] =>
++const buildFaultSlices = (items: readonly FaultCount[], total: number): FaultSlice[] =>
+   items.map((item, index) => ({
+     ...item,
+     color: FAULT_DISTRIBUTION_COLORS[item.family] ?? FALLBACK_FAULT_COLORS[index % FALLBACK_FAULT_COLORS.length],
+@@ -366,16 +406,26 @@ function FaultDonut({
+   );
+ }
+ 
+-function FaultDistributionChart({ totalLabel }: { totalLabel: string }) {
+-  const total = FULL_FLEET_LABELS.faulty;
+-  const slices = buildFaultSlices(FULL_FLEET_LABELS.distribution, total);
++function FaultDistributionChart({
++  items,
++  totalLabel,
++  typeCountLabel,
++}: {
++  items: readonly FaultCount[];
++  totalLabel: string;
++  typeCountLabel: (count: number) => string;
++}) {
++  // The donut must close, so its total is the sum of what it draws.
++  const total = items.reduce((sum, item) => sum + item.sessions, 0);
++  const slices = buildFaultSlices(items, total);
++  if (slices.length === 0) return null;
+ 
+   return (
+     <div className="fd-fault-distribution tw-grid tw-items-center tw-gap-6 lg:tw-grid-cols-[340px_minmax(0,1fr)] lg:tw-gap-8">
+       <div className="fd-donut-stage tw-relative tw-overflow-hidden tw-rounded-[24px] tw-border tw-border-slate-200 tw-bg-white tw-p-5 sm:tw-p-6">
+         <div className="tw-relative tw-mb-1 tw-flex tw-items-center tw-justify-between tw-gap-3">
+           <span className="tw-text-[10px] tw-font-bold tw-text-slate-500">Fault distribution</span>
+-          <span className="ai-mono tw-rounded-full tw-bg-slate-100 tw-px-2.5 tw-py-1 tw-text-[9px] tw-font-bold tw-text-slate-600 tw-ring-1 tw-ring-slate-200">{slices.length} types</span>
++          <span className="ai-mono tw-rounded-full tw-bg-slate-100 tw-px-2.5 tw-py-1 tw-text-[9px] tw-font-bold tw-text-slate-600 tw-ring-1 tw-ring-slate-200">{typeCountLabel(slices.length)}</span>
+         </div>
+         <FaultDonut slices={slices} total={total} totalLabel={totalLabel} />
+         <div className="tw-relative tw-mt-2 tw-flex tw-items-center tw-justify-between tw-gap-3 tw-rounded-xl tw-border tw-border-slate-200 tw-bg-slate-50 tw-px-3.5 tw-py-3">
+@@ -548,6 +598,7 @@ function StationFaultDistributionChart({
+ function StationFaultSummary({
+   lang,
+   stations,
++  heldOutSessions,
+   loading,
+   error,
+   onRetry,
+@@ -557,6 +608,8 @@ function StationFaultSummary({
+ }: {
+   lang: Lang;
+   stations: StationAnalysis[];
++  /** dataset.sessions of the bundled benchmark, not a sum over stations */
++  heldOutSessions: number | null;
+   loading: boolean;
+   error: string | null;
+   onRetry: () => void;
+@@ -585,7 +638,7 @@ function StationFaultSummary({
+           <div>
+             <div className="tw-text-[9px] tw-font-extrabold tw-uppercase tw-tracking-[0.14em] tw-text-blue-600">{c.stationBenchmark}</div>
+             <h3 className="tw-mt-1 tw-text-base tw-font-black tw-text-slate-950">{c.stationFaultTitle}</h3>
+-            <p className="tw-mt-1 tw-max-w-2xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{c.stationFaultSub}</p>
++            <p className="tw-mt-1 tw-max-w-2xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{c.stationFaultSub(heldOutSessions === null ? null : formatInt(heldOutSessions))}</p>
+           </div>
+         </div>
+         <button
+@@ -718,6 +771,7 @@ export default function ResearchDashboard({
+   lang,
+   bundled,
+   desktop,
++  modelArtifact = null,
+   stations,
+   stationLoading,
+   stationError,
+@@ -730,6 +784,8 @@ export default function ResearchDashboard({
+   bundled: BundledBenchmark | null;
+   /** true when the summary came from the desktop sidecar (bundled file), false for the web API */
+   desktop: boolean;
++  /** artifactVersion of the running model set from the sidecar's /health, when known */
++  modelArtifact?: string | null;
+   stations: StationAnalysis[];
+   stationLoading: boolean;
+   stationError: string | null;
+@@ -739,9 +795,18 @@ export default function ResearchDashboard({
+   onOpenPcap?: () => void;
+ }) {
+   const c = COPY[lang];
+-  const [profileId, setProfileId] = useState<ResearchProfileId>("published");
++  // The research panel opens on the label profile this edition was scored
++  // with (957 faulty = published, 1,326 = strict) so its numbers sit next to
++  // the bundled benchmark on the same labels; a click overrides it.
++  const editionProfileId = researchProfileForBundled(bundled);
++  const [chosenProfileId, setProfileId] = useState<ResearchProfileId | null>(null);
++  const profileId = chosenProfileId ?? editionProfileId ?? "published";
+   const [armId, setArmId] = useState<ResearchArmId>("normative");
+   const [selectedSummaryStationId, setSelectedSummaryStationId] = useState<string | null>(null);
++  const modelRelation: ResearchModelRelation = researchModelRelation(bundled, modelArtifact);
++  const editionMix = useMemo(() => heldOutFaultDistribution(bundled), [bundled]);
++  const [chosenMix, setMix] = useState<"edition" | "research" | null>(null);
++  const mix = editionMix.length === 0 ? "research" : chosenMix ?? "edition";
+   const profile = RESEARCH_PROFILES[profileId];
+   const rows = useMemo(
+     () => MODEL_ORDER.map((id) => ({
+@@ -800,7 +865,7 @@ export default function ResearchDashboard({
+           </div>
+           <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{desktop ? c.bundledTitle : c.bundledTitleWeb}</h2>
+           <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{desktop ? c.bundledSub : c.bundledSubWeb}</p>
+-          <p className="tw-mt-2 tw-max-w-3xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-400">{c.bundledBasis}</p>
++          <p className="tw-mt-2 tw-max-w-3xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-400">{c.bundledBasis[modelRelation]}</p>
+         </div>
+         {bundled && (
+           <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-bg-slate-50/70 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
+@@ -869,6 +934,13 @@ export default function ResearchDashboard({
+               </span>
+               <span className="ai-mono tw-text-[10px] tw-font-semibold tw-text-slate-400 sm:tw-text-[11px]">{c.updated}: {verifiedDate}</span>
+               <span className="tw-inline-flex tw-items-center tw-rounded-full tw-bg-slate-100 tw-px-2.5 tw-py-1 tw-text-[10px] tw-font-semibold tw-text-slate-600 tw-ring-1 tw-ring-slate-200 sm:tw-text-[11px]">{c.fixedResearchNote}</span>
++              <span
++                className={`tw-inline-flex tw-items-center tw-gap-1.5 tw-rounded-full tw-px-2.5 tw-py-1 tw-text-[10px] tw-font-semibold tw-ring-1 sm:tw-text-[11px] ${modelRelation === "same" ? "tw-bg-emerald-50 tw-text-emerald-800 tw-ring-emerald-100" : modelRelation === "different" ? "tw-bg-amber-50 tw-text-amber-900 tw-ring-amber-200" : "tw-bg-slate-100 tw-text-slate-600 tw-ring-slate-200"}`}
++                data-testid="fd-research-model"
++                data-relation={modelRelation}
++              >
++                {c.researchModel[modelRelation]} <span className="ai-mono">{RESEARCH_MODEL_ARTIFACT}</span>
++              </span>
+             </div>
+             <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{c.title}</h2>
+             <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle}</p>
+@@ -887,25 +959,53 @@ export default function ResearchDashboard({
+ 
+         <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-bg-slate-50/70 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
+           <DashboardStat icon={<Database className="tw-h-4 tw-w-4" />} label={c.fullFleet} value={formatInt(FULL_FLEET_LABELS.sessions)} detail="100%" tone="blue" />
+-          <DashboardStat icon={<FileCheck2 className="tw-h-4 tw-w-4" />} label={c.scoringSessions} value={formatInt(FULL_FLEET_LABELS.scoring)} detail="96.5%" tone="emerald" />
+-          <DashboardStat icon={<AlertTriangle className="tw-h-4 tw-w-4" />} label={c.faultLabels} value={formatInt(FULL_FLEET_LABELS.faulty)} detail="15.1%" tone="red" />
+-          <DashboardStat icon={<ShieldCheck className="tw-h-4 tw-w-4" />} label={c.censored} value={formatInt(FULL_FLEET_LABELS.censored)} detail="3.5%" tone="amber" />
++          <DashboardStat icon={<FileCheck2 className="tw-h-4 tw-w-4" />} label={c.scoringSessions} value={formatInt(FULL_FLEET_LABELS.scoring)} detail={percentOf(FULL_FLEET_LABELS.scoring, FULL_FLEET_LABELS.sessions) ?? ""} tone="emerald" />
++          <DashboardStat icon={<AlertTriangle className="tw-h-4 tw-w-4" />} label={c.faultLabels} value={formatInt(FULL_FLEET_LABELS.faulty)} detail={percentOf(FULL_FLEET_LABELS.faulty, FULL_FLEET_LABELS.scoring) ?? ""} tone="red" />
++          <DashboardStat icon={<ShieldCheck className="tw-h-4 tw-w-4" />} label={c.censored} value={formatInt(FULL_FLEET_LABELS.censored)} detail={percentOf(FULL_FLEET_LABELS.censored, FULL_FLEET_LABELS.sessions) ?? ""} tone="amber" />
+         </div>
+       </section>
+ 
+       <section className="fd-overview-summary-grid tw-grid tw-grid-cols-1 tw-gap-5">
+-        <div className="fd-fault-mix-card fd-panel">
+-          <div className="tw-border-b tw-border-slate-100 tw-p-5 sm:tw-p-6">
++        <div className="fd-fault-mix-card fd-panel" data-testid="fd-fault-mix" data-mix={mix}>
++          <div className="tw-flex tw-flex-col tw-gap-4 tw-border-b tw-border-slate-100 tw-p-5 sm:tw-flex-row sm:tw-items-start sm:tw-justify-between sm:tw-p-6">
+             <div className="tw-flex tw-items-start tw-gap-3">
+               <span className="tw-flex tw-h-10 tw-w-10 tw-flex-shrink-0 tw-items-center tw-justify-center tw-rounded-xl tw-bg-red-50 tw-text-red-700 tw-ring-1 tw-ring-red-100"><ChartPie className="tw-h-4 tw-w-4" /></span>
+               <div>
+-                <h3 className="tw-text-base tw-font-black tw-text-slate-950">{c.fullFleetTitle}</h3>
+-                <p className="tw-mt-1 tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{c.fullFleetSub}</p>
++                <h3 className="tw-text-base tw-font-black tw-text-slate-950">{mix === "edition" ? c.editionMixTitle : c.fullFleetTitle}</h3>
++                <p className="tw-mt-1 tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">
++                  {mix === "edition" && bundled
++                    ? c.editionMixSub(
++                        formatInt(editionMix.reduce((sum, item) => sum + item.sessions, 0)),
++                        formatNullableInt(bundled.dataset.sessions),
++                        formatNullableInt(bundled.dataset.stations),
++                      )
++                    : c.fullFleetSub}
++                </p>
+               </div>
+             </div>
++            {editionMix.length > 0 && (
++              <div className="tw-grid tw-flex-shrink-0 tw-grid-cols-2 tw-gap-1 tw-rounded-xl tw-bg-slate-100 tw-p-1" role="tablist" aria-label={c.mixView}>
++                {(["edition", "research"] as const).map((id) => (
++                  <button
++                    key={id}
++                    type="button"
++                    role="tab"
++                    aria-selected={mix === id}
++                    onClick={() => setMix(id)}
++                    className={`tw-min-h-10 tw-rounded-lg tw-px-3 tw-py-2 tw-text-[10px] tw-font-extrabold tw-transition focus:tw-outline-none focus:tw-ring-2 focus:tw-ring-blue-400 ${mix === id ? "tw-bg-white tw-text-slate-950 tw-shadow-sm" : "tw-text-slate-500 hover:tw-text-slate-800"}`}
++                  >
++                    {id === "edition" ? c.mixEdition : c.mixResearch}
++                  </button>
++                ))}
++              </div>
++            )}
+           </div>
+           <div className="tw-p-5 sm:tw-p-6">
+-            <FaultDistributionChart totalLabel={c.faultLabelsTotal} />
++            <FaultDistributionChart
++              items={mix === "edition" ? editionMix : FULL_FLEET_LABELS.distribution}
++              totalLabel={mix === "edition" ? c.editionFaultTotal : c.faultLabelsTotal}
++              typeCountLabel={c.faultTypeCount}
++            />
+           </div>
+         </div>
+ 
+@@ -922,6 +1022,7 @@ export default function ResearchDashboard({
+           <StationFaultSummary
+             lang={lang}
+             stations={stations}
++            heldOutSessions={bundled?.dataset.sessions ?? null}
+             loading={stationLoading}
+             error={stationError}
+             onRetry={onRetryStations}
+@@ -960,7 +1061,14 @@ export default function ResearchDashboard({
+                     </button>
+                   ))}
+                 </div>
+-                <p className="tw-mt-2 tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{profileLabels[profileId].note}</p>
++                <p className="tw-mt-2 tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">
++                  {profileLabels[profileId].note}
++                  {profileId === editionProfileId && (
++                    <span className="tw-ml-1.5 tw-inline-flex tw-items-center tw-rounded-md tw-bg-blue-50 tw-px-1.5 tw-py-0.5 tw-text-[10px] tw-font-bold tw-text-blue-700 tw-ring-1 tw-ring-blue-100" data-testid="fd-profile-matches-edition">
++                      {c.profileMatchesEdition}
++                    </span>
++                  )}
++                </p>
+               </fieldset>
+               <fieldset>
+                 <legend className="tw-mb-2 tw-text-[10px] tw-font-extrabold tw-uppercase tw-tracking-wider tw-text-slate-400">{c.arm}</legend>
+@@ -1094,6 +1202,11 @@ export default function ResearchDashboard({
+                   <span className="tw-text-[11px] tw-font-black tw-text-slate-900">{profileLabels[item.id].label}</span>
+                   {item.id === "reviewed" && <CheckCircle2 className="tw-h-4 tw-w-4 tw-text-emerald-600" />}
+                 </div>
++                {item.id === editionProfileId && (
++                  <span className="tw-mt-1.5 tw-inline-flex tw-rounded-md tw-bg-blue-50 tw-px-1.5 tw-py-0.5 tw-text-[10px] tw-font-bold tw-text-blue-700 tw-ring-1 tw-ring-blue-100" data-testid="fd-lineage-matches-edition">
++                    {c.profileMatchesEdition}
++                  </span>
++                )}
+                 <div className="ai-mono tw-mt-3 tw-text-2xl tw-font-black tw-text-slate-950">{formatInt(item.total - item.censored)}</div>
+                 <div className="tw-text-[10px] tw-font-semibold tw-text-slate-400">{c.sessions}</div>
+                 <div className="tw-mt-3 tw-flex tw-h-2 tw-overflow-hidden tw-rounded-full tw-bg-slate-100">
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+index e2739a94..d1250bab 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+@@ -31,6 +31,15 @@ const metric = (
+ 
+ export const RESEARCH_SNAPSHOT = "2026-09-18T06:16:43+07:00";
+ 
++/**
++ * Model artifact every profile and arm below was scored with: the 2026-09-12
++ * full-fleet model set (results/fleet_baseline), later shipped as the
++ * "Snapshot 2026-09-12" edition. Its published-labels baseline arm IS that
++ * edition's bundled leaderboard; editions with other weights (v4 onwards) are
++ * compared against these numbers, not described by them.
++ */
++export const RESEARCH_MODEL_ARTIFACT = "41ded2cdd5c2ba3f";
++
+ export const MODEL_ORDER: ResearchModelId[] = [
+   "TraditionalAI",
+   "RL",
+diff --git a/iMPS_platform/vitest.config.ts b/iMPS_platform/vitest.config.ts
+index 87e0d82d..81947d6d 100644
+--- a/iMPS_platform/vitest.config.ts
++++ b/iMPS_platform/vitest.config.ts
+@@ -2,6 +2,10 @@ import { defineConfig } from "vitest/config";
+ import path from "path";
+ 
+ export default defineConfig({
++  // tsconfig keeps `jsx: "preserve"` for Next, which leaves JSX untouched and
++  // makes every .tsx component unimportable in a test. Vite 8 transforms with
++  // Oxc (no esbuild), so the override goes here.
++  oxc: { jsx: { runtime: "automatic" } },
+   test: {
+     environment: "node",
+     globals: true,
+-- 
+2.45.1.windows.1
+

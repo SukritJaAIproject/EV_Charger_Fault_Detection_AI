@@ -1,0 +1,782 @@
+From cc3f870fe0d60b026e311a6e010a79988a256b29 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 23 Sep 2026 10:30:25 +0700
+Subject: [PATCH 13/18] fix(desktop): Overview wording follows policy, source
+ and split
+
+Findings from an adversarial review of the data-driven Overview, each
+reproduced before fixing:
+
+- The footnote claimed "baseline detection policy, no ISO 15118 rule arms"
+  in every edition. It is now built from summary.detectionPolicy (absent =
+  baseline; otherwise it names the ISO 15118-2 rules and SLAC mode), followed
+  by a separate sentence on how the research panel relates to it.
+- On the web and the legacy launcher the fault-mix card said it was read
+  from "this edition's data/summary.json". The source clause now follows
+  `desktop`, and the unseen-stations claim is dropped when the summary has no
+  station count. Neutral "benchmark above" wording replaces "this edition" in
+  the research chips, which were also wrong off the desktop.
+- "not this edition's 41ded2cdd5c2ba3f" read as if the id were this
+  edition's; the id now sits with "earlier model set".
+- The research-model check returns "unknown" when the sidecar artifact and
+  the leaderboard fingerprint disagree (models and summary packaged from
+  different runs), and never fingerprints a rule-armed benchmark against the
+  baseline arm.
+- The ISO-reviewed profile matched a summary that kept the 295 inconclusive
+  sessions as clean; profile matching now requires faulty, clean and scored
+  counts to agree.
+- In-sample training stations (1.3.0 byStationTrain) are filtered off the
+  held-out station cards even if the page merges them into `stations`.
+- NO_POWER_DELIVERED text covers sessions that closed before PreCharge
+  (9 of 360 in v4); hero chip reads "Held-out fault families" so it no longer
+  clashes with the guide's catalog count; the Test-sessions card says "full
+  held-out set" instead of "full fleet"; the station dialog names Agentic AI
+  as the model behind its per-station score.
+
+Tests: 16 files / 284 pass; tsc has no errors under fault-detection.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../fault-detection/edition-benchmark.test.ts |  59 +++++++++-
+ .../ai/fault-detection/edition-benchmark.ts   |  76 ++++++++++---
+ .../ai/fault-detection/edition-fixtures.ts    |  44 +++++++-
+ .../ai/fault-detection/fault-catalog.ts       |  10 +-
+ .../app/dashboard/ai/fault-detection/page.tsx |   4 +-
+ .../research-dashboard.test.ts                |  99 ++++++++++++----
+ .../ai/fault-detection/research-dashboard.tsx | 106 ++++++++++++------
+ .../fault-detection/station-detail-dialog.tsx |  10 +-
+ 8 files changed, 323 insertions(+), 85 deletions(-)
+
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+index da945d02..86ce5b0d 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+@@ -1,16 +1,20 @@
+ import { describe, expect, it } from "vitest";
+ 
+ import {
++  detectionPolicyKind,
+   heldOutFaultDistribution,
++  heldOutStations,
+   percentOf,
+   researchModelRelation,
+   researchProfileForBundled,
+ } from "./edition-benchmark";
+ import {
+   CURRENT_EDITION,
++  ISO_EDITION,
+   SNAPSHOT_EDITION,
+   SNAPSHOT_FAMILIES,
+   fixtureBundle,
++  fixtureStation,
+ } from "./edition-fixtures";
+ import { RESEARCH_MODEL_ARTIFACT } from "./research-data";
+ 
+@@ -51,13 +55,62 @@ describe("research profile matching", () => {
+     expect(researchProfileForBundled(null)).toBeNull();
+     expect(researchProfileForBundled(fixtureBundle(1_000, SNAPSHOT_FAMILIES, []))).toBeNull();
+   });
++
++  it("matches ISO-reviewed only when the 295 inconclusive sessions were actually dropped", () => {
++    const reviewedDropped = {
++      ...SNAPSHOT_EDITION,
++      dataset: { sessions: 8_525, faultySessions: 1_317, normalSessions: 7_208, stations: 45 },
++    };
++    expect(researchProfileForBundled(reviewedDropped)).toBe("reviewed");
++    // same faulty count, but the inconclusive sessions stayed in as clean
++    const reviewedKeptAsClean = {
++      ...SNAPSHOT_EDITION,
++      dataset: { sessions: 8_820, faultySessions: 1_317, normalSessions: 7_503, stations: 45 },
++    };
++    expect(researchProfileForBundled(reviewedKeptAsClean)).toBeNull();
++  });
++});
++
++describe("detection policy", () => {
++  it("treats an absent policy as baseline and any rule layer as rules", () => {
++    expect(detectionPolicyKind(undefined)).toBe("baseline");
++    expect(detectionPolicyKind(null)).toBe("baseline");
++    expect(detectionPolicyKind(ISO_EDITION.detectionPolicy)).toBe("rules");
++    expect(detectionPolicyKind({ id: "x", iso2Rules: false, slacRuleMode: "off" })).toBe("baseline");
++    expect(detectionPolicyKind({ id: "x", iso2Rules: false, slacRuleMode: "normative" })).toBe("rules");
++  });
++});
++
++describe("held-out stations", () => {
++  it("keeps summaries without a split and drops in-sample training rows", () => {
++    const rows = [
++      fixtureStation("001_A", 100, 10),
++      fixtureStation("002_B", 50, 5, "test"),
++      fixtureStation("900_T", 400, 80, "train"),
++    ];
++    expect(heldOutStations(rows).map((row) => row.station)).toEqual(["001_A", "002_B"]);
++  });
+ });
+ 
+ describe("research model relation", () => {
+-  it("trusts the sidecar's artifact id when it has one", () => {
+-    expect(researchModelRelation(CURRENT_EDITION, RESEARCH_MODEL_ARTIFACT)).toBe("same");
+-    expect(researchModelRelation(SNAPSHOT_EDITION, "53b6f14244c2e633")).toBe("different");
++  it("uses the sidecar's artifact id when the leaderboard agrees or cannot tell", () => {
++    expect(researchModelRelation(SNAPSHOT_EDITION, RESEARCH_MODEL_ARTIFACT)).toBe("same");
++    expect(researchModelRelation(CURRENT_EDITION, "53b6f14244c2e633")).toBe("different");
+     expect(researchModelRelation(null, ` ${RESEARCH_MODEL_ARTIFACT.toUpperCase()} `)).toBe("same");
++    // the ISO edition's leaderboard is rule-armed and proves nothing; the artifact decides
++    expect(researchModelRelation(ISO_EDITION, "53b6f14244c2e633")).toBe("different");
++  });
++
++  it("says unknown when the artifact and the leaderboard contradict each other", () => {
++    // research weights packaged with the v4 summary, and the reverse
++    expect(researchModelRelation(CURRENT_EDITION, RESEARCH_MODEL_ARTIFACT)).toBe("unknown");
++    expect(researchModelRelation(SNAPSHOT_EDITION, "53b6f14244c2e633")).toBe("unknown");
++  });
++
++  it("does not fingerprint a rule-armed benchmark against the baseline arm", () => {
++    expect(researchModelRelation(ISO_EDITION)).toBe("unknown");
++    const snapshotUnderRules = { ...SNAPSHOT_EDITION, detectionPolicy: ISO_EDITION.detectionPolicy };
++    expect(researchModelRelation(snapshotUnderRules)).toBe("unknown");
+   });
+ 
+   it("recognises the research model set from the bundled leaderboard alone", () => {
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
+index 8e3940b8..292092a9 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
+@@ -1,4 +1,10 @@
+-import type { BundledBenchmark, FaultDetectionModelId } from "./data";
++import {
++  stationSplitOf,
++  type BundledBenchmark,
++  type DetectionPolicy,
++  type FaultDetectionModelId,
++  type StationAnalysis,
++} from "./data";
+ import {
+   LABEL_LINEAGE,
+   MODEL_ORDER,
+@@ -48,38 +54,50 @@ export function heldOutFaultDistribution(bundled: BundledBenchmark | null): Faul
+ /**
+  * The research label profile whose held-out counts are exactly this edition's
+  * labels (957 faulty = published, 1,326 = strict), or null when none match.
++ * Faulty, clean and scored-session counts must all agree: a summary that kept
++ * the 295 inconclusive sessions as clean is not the ISO-reviewed label set.
+  */
+ export function researchProfileForBundled(bundled: BundledBenchmark | null): ResearchProfileId | null {
+   const dataset = bundled?.dataset;
+-  if (!dataset || dataset.sessions === null || dataset.faultySessions === null) return null;
++  if (!dataset || dataset.sessions === null || dataset.faultySessions === null || dataset.normalSessions === null) {
++    return null;
++  }
+   const match = LABEL_LINEAGE.find(
+     (row) =>
+       row.faulty === dataset.faultySessions &&
+-      (row.total === dataset.sessions || row.total - row.censored === dataset.sessions),
++      row.clean === dataset.normalSessions &&
++      row.total - row.censored === dataset.sessions,
+   );
+   return match?.id ?? null;
+ }
+ 
++export type DetectionPolicyKind = "baseline" | "rules";
++
++/**
++ * Whether a benchmark ran the plain detectors or added standard rule layers.
++ * Absent (every summary before 1.3.0) means baseline.
++ */
++export function detectionPolicyKind(policy: DetectionPolicy | null | undefined): DetectionPolicyKind {
++  if (!policy) return "baseline";
++  const slac = policy.slacRuleMode?.trim().toLowerCase() ?? "";
++  return policy.iso2Rules || (slac !== "" && slac !== "off") ? "rules" : "baseline";
++}
++
+ export type ResearchModelRelation = "same" | "different" | "unknown";
+ 
+ const oneDecimal = (value: number) => Number(value.toFixed(1));
+ 
+ /**
+- * Whether the research panel's rescored models are the models this edition
+- * ships. The sidecar's artifact id decides when it is known. Without it (web
+- * build, older sidecar) the bundled leaderboard decides: under the same labels,
+- * that model set's baseline arm must reproduce all five models' score, recall
+- * and false-alarm rate to the research data's one decimal.
++ * The bundled leaderboard's own verdict: under the same labels and the
++ * baseline policy, the research model set must reproduce all five models'
++ * score, recall and false-alarm rate to the research data's one decimal. A
++ * rule-armed benchmark (ISO 15118 edition) matches no single research arm, so
++ * it proves nothing either way.
+  */
+-export function researchModelRelation(
+-  bundled: BundledBenchmark | null,
+-  modelArtifact?: string | null,
+-): ResearchModelRelation {
+-  const artifact = modelArtifact?.trim().toLowerCase();
+-  if (artifact) return artifact === RESEARCH_MODEL_ARTIFACT ? "same" : "different";
+-
++function leaderboardRelation(bundled: BundledBenchmark | null): ResearchModelRelation {
++  if (!bundled || detectionPolicyKind(bundled.detectionPolicy) !== "baseline") return "unknown";
+   const profileId = researchProfileForBundled(bundled);
+-  if (!bundled || !profileId) return "unknown";
++  if (!profileId) return "unknown";
+   const scored = bundled.leaderboard.filter(
+     (row) => row.score !== null && row.recall !== null && row.falseAlarmRate !== null,
+   );
+@@ -96,6 +114,32 @@ export function researchModelRelation(
+   return matches ? "same" : "different";
+ }
+ 
++/**
++ * Whether the research panel's rescored models are the models behind the
++ * bundled benchmark. The sidecar's artifact id decides when it is known, the
++ * leaderboard when it is not (web build, older sidecar). When both can speak
++ * and disagree, the models and the summary were packaged from different runs
++ * and the page says it does not know rather than pick one.
++ */
++export function researchModelRelation(
++  bundled: BundledBenchmark | null,
++  modelArtifact?: string | null,
++): ResearchModelRelation {
++  const fromLeaderboard = leaderboardRelation(bundled);
++  const artifact = modelArtifact?.trim().toLowerCase();
++  if (!artifact) return fromLeaderboard;
++  const fromArtifact: ResearchModelRelation = artifact === RESEARCH_MODEL_ARTIFACT ? "same" : "different";
++  return fromLeaderboard === "unknown" || fromLeaderboard === fromArtifact ? fromArtifact : "unknown";
++}
++
++/**
++ * Held-out stations only. From 1.3.0 a summary may also carry in-sample
++ * training stations; anything captioned "held-out" must not count them.
++ */
++export function heldOutStations(stations: StationAnalysis[]): StationAnalysis[] {
++  return stations.filter((station) => stationSplitOf(station) === "test");
++}
++
+ /** Share of `whole` as a one-decimal percentage string, or null when undefined. */
+ export function percentOf(part: number, whole: number): string | null {
+   return whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : null;
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
+index 6fbcd857..d435edb1 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
+@@ -1,4 +1,10 @@
+-import type { BundledBenchmark, FaultDetectionModelId, ModelEvaluation } from "./data";
++import type {
++  BundledBenchmark,
++  FaultDetectionModelId,
++  ModelEvaluation,
++  StationAnalysis,
++  StationSplit,
++} from "./data";
+ 
+ /**
+  * Test fixtures: the figures that matter from the two shipped data/summary.json
+@@ -84,6 +90,42 @@ export const CURRENT_EDITION = fixtureBundle(1_326, V4_FAMILIES, [
+   ["rl", 39.2242, 18.4766, 5.5911],
+ ]);
+ 
++/** The 1.3.0 ISO 15118 edition: v4 labels and weights, scored under the standard's rule layers. */
++export const ISO_EDITION: BundledBenchmark = {
++  ...CURRENT_EDITION,
++  detectionPolicy: { schemaVersion: 1, id: "iso15118-standard", iso2Rules: true, slacRuleMode: "normative" },
++};
++
++export const fixtureStation = (
++  station: string,
++  sessions: number,
++  faultySessions: number,
++  split?: StationSplit,
++): StationAnalysis => ({
++  station,
++  group: "main",
++  connectors: 2,
++  byConnector: [],
++  byFaultFamily: [],
++  sessions,
++  faultySessions,
++  normalSessions: sessions - faultySessions,
++  alertedSessions: 0,
++  faultRate: sessions > 0 ? (faultySessions / sessions) * 100 : 0,
++  score: 0,
++  recall: 0,
++  falseAlarmRate: 0,
++  precision: 0,
++  f1: 0,
++  medianLeadSeconds: 0,
++  tp: 0,
++  late: 0,
++  miss: 0,
++  fp: 0,
++  topFaultFamily: null,
++  ...(split ? { split } : {}),
++});
++
+ export const SNAPSHOT_EDITION = fixtureBundle(
+   957,
+   SNAPSHOT_FAMILIES,
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts
+index 3494759a..b4a3063b 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts
+@@ -151,18 +151,18 @@ const FAULT_DEFINITIONS: Record<string, FaultDefinition> = {
+   NO_POWER_DELIVERED: {
+     title: { th: "เริ่มชาร์จแล้วแต่ไม่มีการจ่ายไฟ", en: "Charge attempted, no power delivered" },
+     cause: {
+-      th: "รถขอพารามิเตอร์การชาร์จ (ChargeParameterDiscovery) และ session ปิดอย่างเรียบร้อย แต่ไม่เคยเข้าสู่ CurrentDemand จึงไม่มีพลังงานถูกจ่าย ส่วนใหญ่ PreCharge ดันแรงดันไม่เข้าใกล้ค่าที่รถขอก่อน session ถูกปิด ส่วนน้อย PreCharge ถึงแรงดันแล้วแต่รถยังสั่งหยุด หลักฐานระบุขั้นสุดท้ายที่ไปถึง",
+-      en: "The EV requested charge parameters (ChargeParameterDiscovery) and the session closed gracefully, but CurrentDemand was never reached, so no energy was delivered. Most often PreCharge never brought the voltage near the EV's target before the close; less often PreCharge converged and the EV stopped anyway. The evidence names the last phase reached.",
++      th: "รถขอพารามิเตอร์การชาร์จ (ChargeParameterDiscovery) และ session ปิดอย่างเรียบร้อย แต่ไม่เคยเข้าสู่ CurrentDemand จึงไม่มีพลังงานถูกจ่าย ส่วนใหญ่ PreCharge ดันแรงดันไม่เข้าใกล้ค่าที่รถขอก่อน session ถูกปิด ส่วนน้อย PreCharge ถึงแรงดันแล้วแต่รถยังสั่งหยุด หรือ session ปิดก่อนเริ่ม PreCharge (หลักฐานเป็น stopped after ChargeParameterDiscovery หรือ CableCheck) หลักฐานระบุขั้นสุดท้ายที่ไปถึง",
++      en: "The EV requested charge parameters (ChargeParameterDiscovery) and the session closed gracefully, but CurrentDemand was never reached, so no energy was delivered. Most often PreCharge never brought the voltage near the EV's target before the close; less often PreCharge converged and the EV stopped anyway, or the session closed before PreCharge started (evidence: stopped after ChargeParameterDiscovery or CableCheck). The evidence names the last phase reached.",
+     },
+     standard: {
+       th: "DIN SPEC 70121 / ISO 15118-2 — ลำดับ CableCheck → PreCharge → PowerDelivery → CurrentDemand; เป็นผลที่อนุมานจากลำดับข้อความ ไม่ใช่ error code ของโปรโตคอล (ResponseCode อาจเป็น OK ทั้งหมด)",
+       en: "DIN SPEC 70121 / ISO 15118-2 — the CableCheck → PreCharge → PowerDelivery → CurrentDemand sequence; an outcome derived from the message sequence, not a protocol error code (every ResponseCode can be OK)",
+     },
+     stopParty: "unknown",
+-    stopPartyLabel: { th: "ปิดเรียบร้อย; ต้องดูแรงดัน PreCharge", en: "Closed cleanly; check PreCharge voltage" },
++    stopPartyLabel: { th: "ปิดเรียบร้อย; ดูขั้นสุดท้ายและแรงดัน PreCharge", en: "Closed cleanly; check the last phase and PreCharge voltage" },
+     attribution: {
+-      th: "ถ้าแรงดัน PreCharge ไม่เข้าใกล้ค่าที่รถขอ หลักฐานชี้ไปที่ภาคกำลังของตู้ ถ้าแรงดันถึงแล้วแต่รถยังสั่งหยุด packet อย่างเดียวยังแยกไม่ได้ว่าเป็นรถหรือตู้",
+-      en: "If the PreCharge voltage never approached the EV's target, the evidence points to the charger's power stage; if it converged and the EV still stopped, the packets alone cannot tell EV from charger.",
++      th: "ถ้าแรงดัน PreCharge ไม่เข้าใกล้ค่าที่รถขอ หลักฐานชี้ไปที่ภาคกำลังของตู้ ถ้าแรงดันถึงแล้วแต่รถยังสั่งหยุด หรือปิดก่อนถึง PreCharge จึงไม่มีแรงดันให้ตัดสิน packet อย่างเดียวยังแยกไม่ได้ว่าเป็นรถหรือตู้",
++      en: "If the PreCharge voltage never approached the EV's target, the evidence points to the charger's power stage; if it converged and the EV still stopped, or the session closed before PreCharge so there is no voltage to judge, the packets alone cannot tell EV from charger.",
+     },
+   },
+ };
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+index 27876fd9..3aebc1e9 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+@@ -56,7 +56,7 @@ const COPY = {
+     // stay English in both languages, as the original design had them.
+     workflowSessions: "Held-out sessions",
+     workflowModels: "AI architectures",
+-    workflowFamilies: "Fault families",
++    workflowFamilies: "Held-out fault families",
+     overviewTab: "ภาพรวม",
+     stationsTab: "ผลรายสถานี",
+     pcapTab: "วิเคราะห์ PCAP",
+@@ -148,7 +148,7 @@ const COPY = {
+     formatBadge: "ISO 15118-2 / -3",
+     workflowSessions: "Held-out sessions",
+     workflowModels: "AI architectures",
+-    workflowFamilies: "Fault families",
++    workflowFamilies: "Held-out fault families",
+     overviewTab: "Overview",
+     stationsTab: "Stations",
+     pcapTab: "Analyze PCAP",
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+index c95d7a3c..eb41d31e 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+@@ -2,20 +2,28 @@ import { createElement } from "react";
+ import { renderToStaticMarkup } from "react-dom/server";
+ import { describe, expect, it } from "vitest";
+ 
+-import type { BundledBenchmark } from "./data";
+-import { CURRENT_EDITION, SNAPSHOT_EDITION } from "./edition-fixtures";
++import type { BundledBenchmark, StationAnalysis } from "./data";
++import { CURRENT_EDITION, ISO_EDITION, SNAPSHOT_EDITION, fixtureStation } from "./edition-fixtures";
+ import ResearchDashboard from "./research-dashboard";
+ 
+ // Renders the Overview the way each edition ships it and reads the text a user
+ // sees. createElement rather than JSX keeps this a plain .ts test.
+-const render = (bundled: BundledBenchmark | null, lang: "th" | "en" = "en", modelArtifact: string | null = null) =>
++const render = (
++  bundled: BundledBenchmark | null,
++  {
++    lang = "en",
++    modelArtifact = null,
++    desktop = true,
++    stations = [],
++  }: { lang?: "th" | "en"; modelArtifact?: string | null; desktop?: boolean; stations?: StationAnalysis[] } = {},
++) =>
+   renderToStaticMarkup(
+     createElement(ResearchDashboard, {
+       lang,
+       bundled,
+-      desktop: true,
++      desktop,
+       modelArtifact,
+-      stations: [],
++      stations,
+       stationLoading: false,
+       stationError: null,
+       onRetryStations: () => {},
+@@ -36,8 +44,10 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     const html = render(CURRENT_EDITION);
+     expect(html).toContain('data-mix="edition"');
+     const t = text(html);
+-    expect(t).toContain("Fault distribution · this edition's held-out set");
+-    expect(t).toContain("1,326 fault sessions among 8,820 held-out sessions at 45 stations");
++    expect(t).toContain("Fault distribution · held-out test set");
++    expect(t).toContain(
++      "1,326 fault sessions among 8,820 held-out sessions at 45 stations the models never saw · read from this edition's data/summary.json",
++    );
+     expect(t).toContain("7 types");
+     expect(t).toContain("NO POWER DELIVERED");
+   });
+@@ -47,7 +57,7 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(t).toContain("957 fault sessions among 8,820 held-out sessions");
+     expect(t).toContain("6 types");
+     // the donut and its legend are this edition's; NPD must not appear in them
+-    const mix = t.slice(t.indexOf("Fault distribution · this edition"), t.indexOf("Station fault distribution"));
++    const mix = t.slice(t.indexOf("Fault distribution · held-out test set"), t.indexOf("Station fault distribution"));
+     expect(mix).not.toContain("NO POWER DELIVERED");
+   });
+ 
+@@ -58,21 +68,28 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(text(html)).toContain("9 types");
+   });
+ 
+-  it("says whether the research panel describes this edition's models", () => {
++  it("says whether the research panel describes the models behind the benchmark", () => {
+     expect(render(SNAPSHOT_EDITION)).toContain('data-relation="same"');
+-    expect(text(render(SNAPSHOT_EDITION))).toContain("Computed on this edition's models 41ded2cdd5c2ba3f");
++    expect(text(render(SNAPSHOT_EDITION))).toContain(
++      "Computed on the same models as the benchmark above (41ded2cdd5c2ba3f)",
++    );
+     expect(render(CURRENT_EDITION)).toContain('data-relation="different"');
+-    expect(text(render(CURRENT_EDITION))).toContain("Computed on an earlier model set, not this edition's");
+-    // the sidecar's artifact id wins over the leaderboard fingerprint
+-    expect(render(SNAPSHOT_EDITION, "en", "53b6f14244c2e633")).toContain('data-relation="different"');
++    // the research id sits with "earlier model set", not after "not ... this"
++    expect(text(render(CURRENT_EDITION))).toContain(
++      "Computed on an earlier model set (41ded2cdd5c2ba3f), not the one behind the benchmark above",
++    );
++    // the sidecar's artifact id agrees with the v4 leaderboard
++    expect(render(CURRENT_EDITION, { modelArtifact: "53b6f14244c2e633" })).toContain('data-relation="different"');
++    // and a contradiction is reported as unknown rather than guessed
++    expect(render(SNAPSHOT_EDITION, { modelArtifact: "53b6f14244c2e633" })).toContain('data-relation="unknown"');
+     expect(render(null)).toContain('data-relation="unknown"');
+   });
+ 
+-  it("opens the research panel on the label profile this edition was scored with", () => {
++  it("opens the research panel on the label profile this benchmark was scored with", () => {
+     const current = text(render(CURRENT_EDITION));
+-    expect(current).toContain("Recomputed strict labels · no censorship same labels as this edition");
++    expect(current).toContain("Recomputed strict labels · no censorship same labels as the benchmark above");
+     const snapshot = text(render(SNAPSHOT_EDITION));
+-    expect(snapshot).toContain("Original published benchmark · 8,820 sessions same labels as this edition");
++    expect(snapshot).toContain("Original published benchmark · 8,820 sessions same labels as the benchmark above");
+   });
+ 
+   it("keeps the footnote honest about which models the research rescored", () => {
+@@ -81,11 +98,11 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+   });
+ 
+   it("renders the Thai copy with the same data", () => {
+-    const t = text(render(CURRENT_EDITION, "th"));
+-    expect(t).toContain("สัดส่วน Fault · ชุดทดสอบของรุ่นนี้");
+-    expect(t).toContain("1,326 fault sessions จาก 8,820 sessions ทดสอบใน 45 สถานี");
++    const t = text(render(CURRENT_EDITION, { lang: "th" }));
++    expect(t).toContain("สัดส่วน Fault · ชุดทดสอบ held-out");
++    expect(t).toContain("1,326 fault sessions จาก 8,820 sessions ทดสอบใน 45 สถานีที่โมเดลไม่เคยเห็น");
+     expect(t).toContain("7 ประเภท");
+-    expect(t).toContain("คำนวณบนโมเดลชุดก่อน ไม่ใช่โมเดลในรุ่นนี้");
++    expect(t).toContain("คำนวณบนโมเดลชุดก่อน (41ded2cdd5c2ba3f) ไม่ใช่ชุดที่ใช้ใน benchmark ด้านบน");
+   });
+ 
+   it("derives the research stat-row shares instead of hard-coding them", () => {
+@@ -94,3 +111,45 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     for (const share of ["100%", "96.5%", "15.1%", "3.5%"]) expect(t).toContain(share);
+   });
+ });
++
++describe("Overview wording follows where the numbers came from", () => {
++  it("names the fault-detection service, not a bundled file, on the web", () => {
++    const t = text(render(CURRENT_EDITION, { desktop: false }));
++    expect(t).toContain("1,326 fault sessions among 8,820 held-out sessions at 45 stations the models never saw · read from the fault-detection service");
++    expect(t).not.toContain("this edition's data/summary.json");
++    expect(t).toContain("Benchmark from the fault-detection service");
++  });
++
++  it("drops the unseen-stations claim when the summary has no station count", () => {
++    const noStations = { ...CURRENT_EDITION, dataset: { ...CURRENT_EDITION.dataset, stations: null } };
++    const t = text(render(noStations));
++    expect(t).toContain("1,326 fault sessions among 8,820 held-out sessions · read from");
++    expect(t).not.toContain("stations the models never saw");
++    expect(t).not.toContain("at — stations");
++  });
++
++  it("states the baseline policy only for a baseline benchmark", () => {
++    expect(text(render(CURRENT_EDITION))).toContain("with the baseline detection policy, no ISO 15118 rule arms");
++    const iso = text(render(ISO_EDITION, { modelArtifact: "53b6f14244c2e633" }));
++    expect(iso).not.toContain("no ISO 15118 rule arms");
++    expect(iso).toContain(
++      "under a detection policy with standard rule layers: ISO 15118-2 rules + ISO 15118-3 SLAC timers (normative)",
++    );
++    expect(iso).toContain("rescores earlier models");
++    expect(text(render(ISO_EDITION, { lang: "th" }))).toContain("กฎ ISO 15118-2 + ตัวจับเวลา SLAC ของ ISO 15118-3 (normative)");
++  });
++
++  it("keeps in-sample training stations off the held-out station cards", () => {
++    const stations = [
++      fixtureStation("001_Alpha", 200, 30),
++      fixtureStation("002_Beta", 100, 10, "test"),
++      fixtureStation("900_TrainOnly", 5_000, 900, "train"),
++    ];
++    const t = text(render(CURRENT_EDITION, { stations }));
++    expect(t).toContain("Alpha");
++    expect(t).toContain("Beta");
++    expect(t).not.toContain("Train Only");
++    // the Faults-by-station tiles: 2 stations, 40 fault sessions
++    expect(t).toMatch(/\b2 Stations 40 Fault sessions\b/);
++  });
++});
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+index a8e5f2ee..2b6076f2 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+@@ -36,7 +36,9 @@ import {
+ import { snapshotDateLocale, type BundledBenchmark, type StationAnalysis } from "./data";
+ import {
+   RESEARCH_ID_BY_MODEL_ID,
++  detectionPolicyKind,
+   heldOutFaultDistribution,
++  heldOutStations,
+   percentOf,
+   researchModelRelation,
+   researchProfileForBundled,
+@@ -69,11 +71,11 @@ const COPY = {
+     publishedNote: `ผล benchmark เดิมที่เผยแพร่ · ${formatInt(RESEARCH_PROFILES.published.sessions)} sessions`,
+     strictNote: "คำนวณ label strict ใหม่ · ยังไม่ตัด censored",
+     reviewedNote: `label ที่ review แล้ว · ตัด ${formatInt(RESEARCH_PROFILES.reviewed.censored)} sessions ที่ตัดสินไม่ได้`,
+-    profileMatchesEdition: "label ชุดเดียวกับรุ่นนี้",
++    profileMatchesEdition: "label ชุดเดียวกับ benchmark ด้านบน",
+     researchModel: {
+-      same: "คำนวณบนโมเดลชุดเดียวกับรุ่นนี้",
+-      different: "คำนวณบนโมเดลชุดก่อน ไม่ใช่โมเดลในรุ่นนี้",
+-      unknown: "คำนวณบนโมเดลชุด",
++      same: (id: string) => `คำนวณบนโมเดลชุดเดียวกับ benchmark ด้านบน (${id})`,
++      different: (id: string) => `คำนวณบนโมเดลชุดก่อน (${id}) ไม่ใช่ชุดที่ใช้ใน benchmark ด้านบน`,
++      unknown: (id: string) => `คำนวณบนโมเดลชุด ${id}`,
+     },
+     baseline: "Baseline",
+     iso2: "+ ISO 15118-2",
+@@ -110,12 +112,14 @@ const COPY = {
+     fullFleetTitle: "สัดส่วน Fault ใน Fleet · งานวิจัย",
+     fullFleetSub: `${formatInt(FULL_FLEET_LABELS.scoring)} sessions ใน scoring index · ${formatInt(FULL_FLEET_LABELS.censored)} censored เก็บไว้แยกต่างหาก · label ISO-reviewed ไม่ใช่ label ของรุ่นนี้`,
+     faultLabelsTotal: "Fault labels",
+-    editionMixTitle: "สัดส่วน Fault · ชุดทดสอบของรุ่นนี้",
+-    editionMixSub: (faulty: string, sessions: string, stations: string) =>
+-      `${faulty} fault sessions จาก ${sessions} sessions ทดสอบใน ${stations} สถานีที่โมเดลไม่เคยเห็น · อ่านจาก data/summary.json ของรุ่นนี้`,
++    editionMixTitle: "สัดส่วน Fault · ชุดทดสอบ held-out",
++    editionMixSub: (faulty: string, sessions: string, stations: string | null, desktop: boolean) =>
++      `${faulty} fault sessions จาก ${sessions} sessions ทดสอบ` +
++      (stations ? `ใน ${stations} สถานีที่โมเดลไม่เคยเห็น` : "") +
++      (desktop ? " · อ่านจาก data/summary.json ของรุ่นนี้" : " · อ่านจากบริการตรวจจับ fault"),
+     editionFaultTotal: "Fault sessions",
+     mixView: "ชุดข้อมูลของสัดส่วน Fault",
+-    mixEdition: "รุ่นนี้ · held-out",
++    mixEdition: "benchmark นี้ · held-out",
+     mixResearch: "วิจัย · ทั้ง fleet",
+     faultTypeCount: (count: number) => `${count} ประเภท`,
+     stationFaultTitle: "Fault แยกตามสถานี",
+@@ -161,13 +165,21 @@ const COPY = {
+     bundledTagWeb: "BENCHMARK จากเซิร์ฟเวอร์",
+     bundledTitleWeb: "ผล benchmark จากบริการตรวจจับ fault",
+     bundledSubWeb: "อ่านจาก API ของบริการตรวจจับ fault ที่หน้านี้เชื่อมต่ออยู่",
+-    bundledBasis: {
+-      same: "คะแนนจาก label ของรุ่นนี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม · แผงวิจัยด้านล่างคือโมเดลชุดเดียวกันนี้ rescore บน label policy 3 แบบ และกฎ ISO/SLAC",
+-      different: "คะแนนจาก label ของรุ่นนี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม · แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดก่อนบน label policy 3 แบบ ไม่ใช่ benchmark ของรุ่นนี้",
+-      unknown: "คะแนนจาก label ของรุ่นนี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม · แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดหนึ่งที่คงที่บน label policy 3 แบบ",
++    // What the benchmark above was scored with (from summary.detectionPolicy)...
++    bundledPolicy: {
++      baseline: "คะแนนจาก label ของ benchmark นี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม",
++      rules: (layers: string) => `คะแนนจาก label ของ benchmark นี้ภายใต้ detection policy ที่เพิ่มกฎตามมาตรฐาน: ${layers}`,
++    },
++    policyIso2: "กฎ ISO 15118-2",
++    policySlac: (mode: string) => `ตัวจับเวลา SLAC ของ ISO 15118-3 (${mode})`,
++    // ...and how the research panel below relates to it.
++    researchBasis: {
++      same: `แผงวิจัยด้านล่างคือโมเดลชุดเดียวกันนี้ rescore บน label policy ${Object.keys(RESEARCH_PROFILES).length} แบบ และกฎ ISO/SLAC`,
++      different: `แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดก่อนบน label policy ${Object.keys(RESEARCH_PROFILES).length} แบบ ไม่ใช่ benchmark นี้`,
++      unknown: `แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดหนึ่งที่คงที่บน label policy ${Object.keys(RESEARCH_PROFILES).length} แบบ`,
+     },
+     bundledExportedAt: "ข้อมูล ณ",
+-    sourceFullFleet: "ทั้ง fleet",
++    sourceFullFleet: "held-out ครบชุด",
+     sourcePreview: "ตัวอย่าง",
+     bundledLoading: "กำลังโหลดผล benchmark…",
+     bundledFailed: "โหลดผล benchmark ไม่สำเร็จ",
+@@ -193,11 +205,11 @@ const COPY = {
+     publishedNote: `Original published benchmark · ${formatInt(RESEARCH_PROFILES.published.sessions)} sessions`,
+     strictNote: "Recomputed strict labels · no censorship",
+     reviewedNote: `Reviewed labels · ${formatInt(RESEARCH_PROFILES.reviewed.censored)} inconclusive sessions excluded`,
+-    profileMatchesEdition: "same labels as this edition",
++    profileMatchesEdition: "same labels as the benchmark above",
+     researchModel: {
+-      same: "Computed on this edition's models",
+-      different: "Computed on an earlier model set, not this edition's",
+-      unknown: "Computed on model set",
++      same: (id: string) => `Computed on the same models as the benchmark above (${id})`,
++      different: (id: string) => `Computed on an earlier model set (${id}), not the one behind the benchmark above`,
++      unknown: (id: string) => `Computed on model set ${id}`,
+     },
+     baseline: "Baseline",
+     iso2: "+ ISO 15118-2",
+@@ -234,12 +246,14 @@ const COPY = {
+     fullFleetTitle: "Fault distribution · full fleet (research)",
+     fullFleetSub: `${formatInt(FULL_FLEET_LABELS.scoring)} sessions in the scoring index · ${formatInt(FULL_FLEET_LABELS.censored)} censored records retained separately · ISO-reviewed labels, not this edition's`,
+     faultLabelsTotal: "Fault labels",
+-    editionMixTitle: "Fault distribution · this edition's held-out set",
+-    editionMixSub: (faulty: string, sessions: string, stations: string) =>
+-      `${faulty} fault sessions among ${sessions} held-out sessions at ${stations} stations the models never saw · read from this edition's data/summary.json`,
++    editionMixTitle: "Fault distribution · held-out test set",
++    editionMixSub: (faulty: string, sessions: string, stations: string | null, desktop: boolean) =>
++      `${faulty} fault sessions among ${sessions} held-out sessions` +
++      (stations ? ` at ${stations} stations the models never saw` : "") +
++      (desktop ? " · read from this edition's data/summary.json" : " · read from the fault-detection service"),
+     editionFaultTotal: "Fault sessions",
+     mixView: "Fault distribution data set",
+-    mixEdition: "This edition · held-out",
++    mixEdition: "This benchmark · held-out",
+     mixResearch: "Research · full fleet",
+     faultTypeCount: (count: number) => `${count} types`,
+     stationFaultTitle: "Faults by station",
+@@ -285,13 +299,21 @@ const COPY = {
+     bundledTagWeb: "BENCHMARK FROM THE SERVICE",
+     bundledTitleWeb: "Benchmark from the fault-detection service",
+     bundledSubWeb: "Read from the fault-detection API this page is connected to.",
+-    bundledBasis: {
+-      same: "Scored on this edition's own labels with the baseline detection policy, no ISO 15118 rule arms. The research panel below rescores these same models under three label policies and ISO/SLAC rule arms.",
+-      different: "Scored on this edition's own labels with the baseline detection policy, no ISO 15118 rule arms. The research panel below rescores earlier models under three label policies and is not this edition's benchmark.",
+-      unknown: "Scored on this edition's own labels with the baseline detection policy, no ISO 15118 rule arms. The research panel below rescores one fixed model set under three label policies.",
++    // What the benchmark above was scored with (from summary.detectionPolicy)...
++    bundledPolicy: {
++      baseline: "Scored on this benchmark's own labels with the baseline detection policy, no ISO 15118 rule arms.",
++      rules: (layers: string) => `Scored on this benchmark's own labels under a detection policy with standard rule layers: ${layers}.`,
++    },
++    policyIso2: "ISO 15118-2 rules",
++    policySlac: (mode: string) => `ISO 15118-3 SLAC timers (${mode})`,
++    // ...and how the research panel below relates to it.
++    researchBasis: {
++      same: `The research panel below rescores these same models under ${Object.keys(RESEARCH_PROFILES).length} label policies and ISO/SLAC rule arms.`,
++      different: `The research panel below rescores earlier models under ${Object.keys(RESEARCH_PROFILES).length} label policies and is not this benchmark.`,
++      unknown: `The research panel below rescores one fixed model set under ${Object.keys(RESEARCH_PROFILES).length} label policies.`,
+     },
+     bundledExportedAt: "Data as of",
+-    sourceFullFleet: "full fleet",
++    sourceFullFleet: "full held-out set",
+     sourcePreview: "preview",
+     bundledLoading: "Loading the bundled benchmark…",
+     bundledFailed: "Could not load the bundled benchmark",
+@@ -803,7 +825,22 @@ export default function ResearchDashboard({
+   const profileId = chosenProfileId ?? editionProfileId ?? "published";
+   const [armId, setArmId] = useState<ResearchArmId>("normative");
+   const [selectedSummaryStationId, setSelectedSummaryStationId] = useState<string | null>(null);
++  // Everything on this tab is captioned held-out; in-sample training stations
++  // (1.3.0 summaries) are kept off it even if the page passes them in.
++  const heldOut = useMemo(() => heldOutStations(stations), [stations]);
+   const modelRelation: ResearchModelRelation = researchModelRelation(bundled, modelArtifact);
++  const policy = bundled?.detectionPolicy ?? null;
++  const policySentence =
++    detectionPolicyKind(policy) === "baseline" || !policy
++      ? c.bundledPolicy.baseline
++      : c.bundledPolicy.rules(
++          [
++            ...(policy.iso2Rules ? [c.policyIso2] : []),
++            ...(policy.slacRuleMode && policy.slacRuleMode.trim().toLowerCase() !== "off"
++              ? [c.policySlac(policy.slacRuleMode.trim())]
++              : []),
++          ].join(" + "),
++        );
+   const editionMix = useMemo(() => heldOutFaultDistribution(bundled), [bundled]);
+   const [chosenMix, setMix] = useState<"edition" | "research" | null>(null);
+   const mix = editionMix.length === 0 ? "research" : chosenMix ?? "edition";
+@@ -818,11 +855,11 @@ export default function ResearchDashboard({
+   );
+   const topModel = rows[0];
+   const selectedSummaryStation = useMemo(
+-    () => stations.find((station) => station.station === selectedSummaryStationId)
+-      ?? [...stations].sort((left, right) =>
++    () => heldOut.find((station) => station.station === selectedSummaryStationId)
++      ?? [...heldOut].sort((left, right) =>
+         right.faultySessions - left.faultySessions || left.station.localeCompare(right.station, undefined, { numeric: true }))[0]
+       ?? null,
+-    [selectedSummaryStationId, stations],
++    [selectedSummaryStationId, heldOut],
+   );
+   const profileLabels: Record<ResearchProfileId, { label: string; note: string }> = {
+     published: { label: c.published, note: c.publishedNote },
+@@ -865,7 +902,7 @@ export default function ResearchDashboard({
+           </div>
+           <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{desktop ? c.bundledTitle : c.bundledTitleWeb}</h2>
+           <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{desktop ? c.bundledSub : c.bundledSubWeb}</p>
+-          <p className="tw-mt-2 tw-max-w-3xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-400">{c.bundledBasis[modelRelation]}</p>
++          <p className="tw-mt-2 tw-max-w-3xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-400">{policySentence} {c.researchBasis[modelRelation]}</p>
+         </div>
+         {bundled && (
+           <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-bg-slate-50/70 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
+@@ -939,7 +976,7 @@ export default function ResearchDashboard({
+                 data-testid="fd-research-model"
+                 data-relation={modelRelation}
+               >
+-                {c.researchModel[modelRelation]} <span className="ai-mono">{RESEARCH_MODEL_ARTIFACT}</span>
++                {c.researchModel[modelRelation](RESEARCH_MODEL_ARTIFACT)}
+               </span>
+             </div>
+             <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{c.title}</h2>
+@@ -977,7 +1014,8 @@ export default function ResearchDashboard({
+                     ? c.editionMixSub(
+                         formatInt(editionMix.reduce((sum, item) => sum + item.sessions, 0)),
+                         formatNullableInt(bundled.dataset.sessions),
+-                        formatNullableInt(bundled.dataset.stations),
++                        bundled.dataset.stations === null ? null : formatInt(bundled.dataset.stations),
++                        desktop,
+                       )
+                     : c.fullFleetSub}
+                 </p>
+@@ -1012,7 +1050,7 @@ export default function ResearchDashboard({
+         <div className="fd-station-analysis-grid tw-grid tw-grid-cols-1 tw-gap-5">
+           <StationFaultDistributionChart
+             lang={lang}
+-            stations={stations}
++            stations={heldOut}
+             station={selectedSummaryStation}
+             loading={stationLoading}
+             error={stationError}
+@@ -1021,7 +1059,7 @@ export default function ResearchDashboard({
+           />
+           <StationFaultSummary
+             lang={lang}
+-            stations={stations}
++            stations={heldOut}
+             heldOutSessions={bundled?.dataset.sessions ?? null}
+             loading={stationLoading}
+             error={stationError}
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx
+index 33bfb8cd..2fd5173f 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx
+@@ -30,11 +30,13 @@ const COPY = {
+   th: {
+     title: "รายละเอียดผลวิเคราะห์รายสถานี",
+     close: "ปิดรายละเอียดสถานี",
+-    benchmarkScore: "คะแนน Benchmark",
++    // Per-station rows are the Agentic AI replay (the summary's byStation sums
++    // equal agentic-ai's tp/late/miss/fp), not the edition's top-ranked model.
++    benchmarkScore: "คะแนน Benchmark · Agentic AI",
+     topFault: "Fault หลัก",
+     overview: "ภาพรวมข้อมูลทดสอบ",
+     outcomes: "ผลลัพธ์การตรวจจับ",
+-    modelMetrics: "ตัวชี้วัดโมเดล",
++    modelMetrics: "ตัวชี้วัดโมเดล Agentic AI",
+     connectors: "ผลแยกตาม Connector",
+     faultFamilies: "ผลแยกตามประเภท Fault",
+     sessions: "Sessions",
+@@ -72,11 +74,11 @@ const COPY = {
+   en: {
+     title: "Station analysis details",
+     close: "Close station details",
+-    benchmarkScore: "Benchmark score",
++    benchmarkScore: "Benchmark score · Agentic AI",
+     topFault: "Top fault",
+     overview: "Test-data overview",
+     outcomes: "Detection outcomes",
+-    modelMetrics: "Model metrics",
++    modelMetrics: "Agentic AI metrics",
+     connectors: "Results by connector",
+     faultFamilies: "Results by fault family",
+     sessions: "Sessions",
+-- 
+2.45.1.windows.1
+

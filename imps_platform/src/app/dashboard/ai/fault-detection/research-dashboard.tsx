@@ -26,35 +26,59 @@ import {
   MODEL_META,
   MODEL_ORDER,
   RESEARCH_PROFILES,
-  RESEARCH_SNAPSHOT,
   SLAC_RESEARCH,
   type ResearchArmId,
+  type ResearchGrid,
   type ResearchModelId,
   type ResearchProfileId,
 } from "./research-data";
-import { snapshotDateLocale, type BundledBenchmark, type FaultDetectionModelId, type StationAnalysis } from "./data";
+import { snapshotDateLocale, type BundledBenchmark, type StationAnalysis } from "./data";
+import {
+  RESEARCH_ID_BY_MODEL_ID,
+  detectionPolicyKind,
+  heldOutFaultDistribution,
+  heldOutStations,
+  percentOf,
+  selectResearchGrid,
+  researchProfileForBundled,
+  type FaultCount,
+  type ResearchModelRelation,
+} from "./edition-benchmark";
 
 type Lang = "th" | "en";
+
+// Defined before COPY: some research captions below are built from the
+// research constants at module load, so this must already exist.
+const formatInt = (value: number) => new Intl.NumberFormat("en-US").format(value);
 
 const COPY = {
   th: {
     verified: "VERIFIED RESEARCH SNAPSHOT",
     title: "ภาพรวมประสิทธิภาพการตรวจจับ Fault",
-    subtitle:
-      "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ ISO 15118-2 และ SLAC จาก ISO 15118-3",
+    subtitle: (hasIso2: boolean) =>
+      hasIso2
+        ? "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ ISO 15118-2 และ SLAC จาก ISO 15118-3"
+        : "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ SLAC จาก ISO 15118-3 (กฎ ISO 15118-2 ยังไม่ได้วัดกับโมเดลชุดนี้)",
     fullFleet: "Fleet ทั้งหมด",
     scoringSessions: "ใช้ประเมินผล",
     faultLabels: "Fault labels",
     censored: "ตัดออกอย่างมีเหตุผล",
     replay: "Replay ตรงกับ projection",
+    replayNotRun: "ยังไม่ได้ replay กับโมเดลชุดนี้",
     profile: "Label snapshot",
     arm: "Detection policy",
     published: "Published",
     strict: "Strict ก่อน review",
     reviewed: "ISO-reviewed",
-    publishedNote: "ผล benchmark เดิมที่เผยแพร่ · 8,820 sessions",
+    publishedNote: `ผล benchmark เดิมที่เผยแพร่ · ${formatInt(RESEARCH_PROFILES.published.sessions)} sessions`,
     strictNote: "คำนวณ label strict ใหม่ · ยังไม่ตัด censored",
-    reviewedNote: "label ที่ review แล้ว · ตัด 295 sessions ที่ตัดสินไม่ได้",
+    reviewedNote: `label ที่ review แล้ว · ตัด ${formatInt(RESEARCH_PROFILES.reviewed.censored)} sessions ที่ตัดสินไม่ได้`,
+    profileMatchesEdition: "label ชุดเดียวกับ benchmark ด้านบน",
+    researchModel: {
+      same: (id: string) => `คำนวณบนโมเดลชุดเดียวกับ benchmark ด้านบน (${id})`,
+      different: (id: string) => `คำนวณบนโมเดลชุดก่อน (${id}) ไม่ใช่ชุดที่ใช้ใน benchmark ด้านบน`,
+      unknown: (id: string) => `คำนวณบนโมเดลชุด ${id}`,
+    },
     baseline: "Baseline",
     iso2: "+ ISO 15118-2",
     empirical: "+ SLAC 10 s",
@@ -87,11 +111,24 @@ const COPY = {
     faulty: "faulty",
     clean: "clean",
     excluded: "excluded",
-    fullFleetTitle: "สัดส่วน Fault ใน Fleet",
-    fullFleetSub: "39,142 sessions ใน scoring index · 1,400 censored เก็บไว้แยกต่างหาก",
+    fullFleetTitle: "สัดส่วน Fault ใน Fleet · งานวิจัย",
+    fullFleetSub: `${formatInt(FULL_FLEET_LABELS.scoring)} sessions ใน scoring index · ${formatInt(FULL_FLEET_LABELS.censored)} censored เก็บไว้แยกต่างหาก · label ISO-reviewed ไม่ใช่ label ของรุ่นนี้`,
     faultLabelsTotal: "Fault labels",
+    editionMixTitle: "สัดส่วน Fault · ชุดทดสอบ held-out",
+    editionMixSub: (faulty: string, sessions: string, stations: string | null, desktop: boolean) =>
+      `${faulty} fault sessions จาก ${sessions} sessions ทดสอบ` +
+      (stations ? `ใน ${stations} สถานีที่โมเดลไม่เคยเห็น` : "") +
+      (desktop ? " · อ่านจาก data/summary.json ของรุ่นนี้" : " · อ่านจากบริการตรวจจับ fault"),
+    editionFaultTotal: "Fault sessions",
+    mixView: "ชุดข้อมูลของสัดส่วน Fault",
+    mixEdition: "benchmark นี้ · held-out",
+    mixResearch: "วิจัย · ทั้ง fleet",
+    faultTypeCount: (count: number) => `${count} ประเภท`,
     stationFaultTitle: "Fault แยกตามสถานี",
-    stationFaultSub: "ผล Agentic AI จาก held-out test 8,820 sessions · คลิกสถานีเพื่อดู Connector และประเภท Fault",
+    stationFaultSub: (sessions: string | null) =>
+      sessions
+        ? `ผล Agentic AI จาก held-out test ${sessions} sessions · คลิกสถานีเพื่อดู Connector และประเภท Fault`
+        : "ผล Agentic AI จาก held-out test · คลิกสถานีเพื่อดู Connector และประเภท Fault",
     stationBenchmark: "HELD-OUT BENCHMARK",
     stations: "สถานี",
     stationFaultSessions: "Fault sessions",
@@ -130,34 +167,58 @@ const COPY = {
     bundledTagWeb: "BENCHMARK จากเซิร์ฟเวอร์",
     bundledTitleWeb: "ผล benchmark จากบริการตรวจจับ fault",
     bundledSubWeb: "อ่านจาก API ของบริการตรวจจับ fault ที่หน้านี้เชื่อมต่ออยู่",
-    bundledBasis: "คะแนนจาก label ของรุ่นนี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม · แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดก่อนบน label policy 3 แบบ ไม่ใช่ benchmark ของรุ่นนี้",
+    // What the benchmark above was scored with (from summary.detectionPolicy)...
+    bundledPolicy: {
+      baseline: "คะแนนจาก label ของ benchmark นี้ด้วย detection policy พื้นฐาน ไม่ได้ใช้กฎ ISO 15118 เพิ่ม",
+      rules: (layers: string) => `คะแนนจาก label ของ benchmark นี้ภายใต้ detection policy ที่เพิ่มกฎตามมาตรฐาน: ${layers}`,
+    },
+    policyIso2: "กฎ ISO 15118-2",
+    policySlac: (mode: string) => `ตัวจับเวลา SLAC ของ ISO 15118-3 (${mode})`,
+    // ...and how the research panel below relates to it.
+    researchBasis: {
+      same: `แผงวิจัยด้านล่างคือโมเดลชุดเดียวกันนี้ rescore บน label policy ${Object.keys(RESEARCH_PROFILES).length} แบบ และกฎตามมาตรฐานที่วัดไว้`,
+      different: `แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดก่อนบน label policy ${Object.keys(RESEARCH_PROFILES).length} แบบ ไม่ใช่ benchmark นี้`,
+      unknown: `แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดหนึ่งที่คงที่บน label policy ${Object.keys(RESEARCH_PROFILES).length} แบบ`,
+    },
     bundledExportedAt: "ข้อมูล ณ",
-    sourceFullFleet: "ทั้ง fleet",
+    sourceFullFleet: "held-out ครบชุด",
     sourcePreview: "ตัวอย่าง",
     bundledLoading: "กำลังโหลดผล benchmark…",
     bundledFailed: "โหลดผล benchmark ไม่สำเร็จ",
-    fixedResearchNote: "ชุดข้อมูลวิจัยคงที่ · เหมือนกันทุกรุ่นโปรแกรม",
+    fixedResearchNote: "ผลวิจัยคงที่ของโมเดลชุดนี้",
+    armNotMeasured: "ยังไม่ได้วัดกับโมเดลชุดนี้ (ต้อง replay)",
+    projectedArm: "นโยบายนี้คำนวณจาก alert ที่บันทึกไว้ ไม่ได้ replay ใหม่",
+    aiAgentLowerBound: "recall และ false alarm ของ AI Agent เป็นค่าขั้นต่ำ",
     f1: "F1",
     bundledRetry: "ลองใหม่",
   },
   en: {
     verified: "VERIFIED RESEARCH SNAPSHOT",
     title: "Fault-detection performance overview",
-    subtitle:
-      "Compare five model architectures under the same label policy, including ISO 15118-2 rules and ISO 15118-3 SLAC timing.",
+    subtitle: (hasIso2: boolean) =>
+      hasIso2
+        ? "Compare five model architectures under the same label policy, including ISO 15118-2 rules and ISO 15118-3 SLAC timing."
+        : "Compare five model architectures under the same label policy, including ISO 15118-3 SLAC timing (ISO 15118-2 rules not yet measured for this model set).",
     fullFleet: "Full fleet",
     scoringSessions: "Scoring cohort",
     faultLabels: "Fault labels",
     censored: "Evidence-based exclusions",
     replay: "Projection–replay agreement",
+    replayNotRun: "Not replayed for this model set",
     profile: "Label snapshot",
     arm: "Detection policy",
     published: "Published",
     strict: "Pre-review strict",
     reviewed: "ISO-reviewed",
-    publishedNote: "Original published benchmark · 8,820 sessions",
+    publishedNote: `Original published benchmark · ${formatInt(RESEARCH_PROFILES.published.sessions)} sessions`,
     strictNote: "Recomputed strict labels · no censorship",
-    reviewedNote: "Reviewed labels · 295 inconclusive sessions excluded",
+    reviewedNote: `Reviewed labels · ${formatInt(RESEARCH_PROFILES.reviewed.censored)} inconclusive sessions excluded`,
+    profileMatchesEdition: "same labels as the benchmark above",
+    researchModel: {
+      same: (id: string) => `Computed on the same models as the benchmark above (${id})`,
+      different: (id: string) => `Computed on an earlier model set (${id}), not the one behind the benchmark above`,
+      unknown: (id: string) => `Computed on model set ${id}`,
+    },
     baseline: "Baseline",
     iso2: "+ ISO 15118-2",
     empirical: "+ SLAC 10 s",
@@ -190,11 +251,24 @@ const COPY = {
     faulty: "faulty",
     clean: "clean",
     excluded: "excluded",
-    fullFleetTitle: "Fault distribution · full fleet",
-    fullFleetSub: "39,142 sessions in the scoring index · 1,400 censored records retained separately",
+    fullFleetTitle: "Fault distribution · full fleet (research)",
+    fullFleetSub: `${formatInt(FULL_FLEET_LABELS.scoring)} sessions in the scoring index · ${formatInt(FULL_FLEET_LABELS.censored)} censored records retained separately · ISO-reviewed labels, not this edition's`,
     faultLabelsTotal: "Fault labels",
+    editionMixTitle: "Fault distribution · held-out test set",
+    editionMixSub: (faulty: string, sessions: string, stations: string | null, desktop: boolean) =>
+      `${faulty} fault sessions among ${sessions} held-out sessions` +
+      (stations ? ` at ${stations} stations the models never saw` : "") +
+      (desktop ? " · read from this edition's data/summary.json" : " · read from the fault-detection service"),
+    editionFaultTotal: "Fault sessions",
+    mixView: "Fault distribution data set",
+    mixEdition: "This benchmark · held-out",
+    mixResearch: "Research · full fleet",
+    faultTypeCount: (count: number) => `${count} types`,
     stationFaultTitle: "Faults by station",
-    stationFaultSub: "Agentic AI results from 8,820 held-out sessions · select a station for connector and fault details",
+    stationFaultSub: (sessions: string | null) =>
+      sessions
+        ? `Agentic AI results from ${sessions} held-out sessions · select a station for connector and fault details`
+        : "Agentic AI results on the held-out sessions · select a station for connector and fault details",
     stationBenchmark: "HELD-OUT BENCHMARK",
     stations: "Stations",
     stationFaultSessions: "Fault sessions",
@@ -233,13 +307,28 @@ const COPY = {
     bundledTagWeb: "BENCHMARK FROM THE SERVICE",
     bundledTitleWeb: "Benchmark from the fault-detection service",
     bundledSubWeb: "Read from the fault-detection API this page is connected to.",
-    bundledBasis: "Scored on this edition's own labels with the baseline detection policy, no ISO 15118 rule arms. The research panel below rescores earlier models under three label policies and is not this edition's benchmark.",
+    // What the benchmark above was scored with (from summary.detectionPolicy)...
+    bundledPolicy: {
+      baseline: "Scored on this benchmark's own labels with the baseline detection policy, no ISO 15118 rule arms.",
+      rules: (layers: string) => `Scored on this benchmark's own labels under a detection policy with standard rule layers: ${layers}.`,
+    },
+    policyIso2: "ISO 15118-2 rules",
+    policySlac: (mode: string) => `ISO 15118-3 SLAC timers (${mode})`,
+    // ...and how the research panel below relates to it.
+    researchBasis: {
+      same: `The research panel below rescores these same models under ${Object.keys(RESEARCH_PROFILES).length} label policies and the standard rule arms measured for them.`,
+      different: `The research panel below rescores earlier models under ${Object.keys(RESEARCH_PROFILES).length} label policies and is not this benchmark.`,
+      unknown: `The research panel below rescores one fixed model set under ${Object.keys(RESEARCH_PROFILES).length} label policies.`,
+    },
     bundledExportedAt: "Data as of",
-    sourceFullFleet: "full fleet",
+    sourceFullFleet: "full held-out set",
     sourcePreview: "preview",
     bundledLoading: "Loading the bundled benchmark…",
     bundledFailed: "Could not load the bundled benchmark",
-    fixedResearchNote: "Fixed research dataset · identical in every edition",
+    fixedResearchNote: "Fixed research results for this model set",
+    armNotMeasured: "Not measured for this model set (needs a replay)",
+    projectedArm: "This policy is projected from recorded alerts, not replayed",
+    aiAgentLowerBound: "AI Agent's recall and false-alarm rate are lower bounds",
     f1: "F1",
     bundledRetry: "Retry",
   },
@@ -251,15 +340,6 @@ const MODEL_TONES: Record<ResearchModelId, { bar: string; badge: string }> = {
   AIAgent: { bar: "tw-bg-emerald-500", badge: "tw-bg-emerald-50 tw-text-emerald-700 tw-ring-emerald-100" },
   AgenticAI: { bar: "tw-bg-amber-500", badge: "tw-bg-amber-50 tw-text-amber-800 tw-ring-amber-100" },
   MultiAgent: { bar: "tw-bg-rose-500", badge: "tw-bg-rose-50 tw-text-rose-700 tw-ring-rose-100" },
-};
-
-// Leaderboard ids used by data/summary.json -> ids of the research constants.
-const RESEARCH_ID_BY_MODEL_ID: Record<FaultDetectionModelId, ResearchModelId> = {
-  traditional: "TraditionalAI",
-  rl: "RL",
-  "ai-agent": "AIAgent",
-  "agentic-ai": "AgenticAI",
-  "multi-agent": "MultiAgent",
 };
 
 const formatNullableInt = (value: number | null) => (value === null ? "\u2014" : formatInt(value));
@@ -281,21 +361,14 @@ const FAULT_DISTRIBUTION_COLORS: Record<string, string> = {
 
 const FALLBACK_FAULT_COLORS = ["#dc2626", "#2563eb", "#ea580c", "#7c3aed", "#0891b2", "#16a34a", "#db2777", "#ca8a04", "#475569"] as const;
 
-const formatInt = (value: number) => new Intl.NumberFormat("en-US").format(value);
-
 const formatFaultFamily = (family: string) => family.replaceAll("_", " ");
 
-type FaultCountItem = {
-  family: string;
-  sessions: number;
-};
-
-type FaultSlice = FaultCountItem & {
+type FaultSlice = FaultCount & {
   color: string;
   percentage: number;
 };
 
-const buildFaultSlices = (items: FaultCountItem[], total: number): FaultSlice[] =>
+const buildFaultSlices = (items: readonly FaultCount[], total: number): FaultSlice[] =>
   items.map((item, index) => ({
     ...item,
     color: FAULT_DISTRIBUTION_COLORS[item.family] ?? FALLBACK_FAULT_COLORS[index % FALLBACK_FAULT_COLORS.length],
@@ -366,16 +439,26 @@ function FaultDonut({
   );
 }
 
-function FaultDistributionChart({ totalLabel }: { totalLabel: string }) {
-  const total = FULL_FLEET_LABELS.faulty;
-  const slices = buildFaultSlices(FULL_FLEET_LABELS.distribution, total);
+function FaultDistributionChart({
+  items,
+  totalLabel,
+  typeCountLabel,
+}: {
+  items: readonly FaultCount[];
+  totalLabel: string;
+  typeCountLabel: (count: number) => string;
+}) {
+  // The donut must close, so its total is the sum of what it draws.
+  const total = items.reduce((sum, item) => sum + item.sessions, 0);
+  const slices = buildFaultSlices(items, total);
+  if (slices.length === 0) return null;
 
   return (
     <div className="fd-fault-distribution tw-grid tw-items-center tw-gap-6 lg:tw-grid-cols-[340px_minmax(0,1fr)] lg:tw-gap-8">
       <div className="fd-donut-stage tw-relative tw-overflow-hidden tw-rounded-[24px] tw-border tw-border-slate-200 tw-bg-white tw-p-5 sm:tw-p-6">
         <div className="tw-relative tw-mb-1 tw-flex tw-items-center tw-justify-between tw-gap-3">
           <span className="tw-text-[10px] tw-font-bold tw-text-slate-500">Fault distribution</span>
-          <span className="ai-mono tw-rounded-full tw-bg-slate-100 tw-px-2.5 tw-py-1 tw-text-[9px] tw-font-bold tw-text-slate-600 tw-ring-1 tw-ring-slate-200">{slices.length} types</span>
+          <span className="ai-mono tw-rounded-full tw-bg-slate-100 tw-px-2.5 tw-py-1 tw-text-[9px] tw-font-bold tw-text-slate-600 tw-ring-1 tw-ring-slate-200">{typeCountLabel(slices.length)}</span>
         </div>
         <FaultDonut slices={slices} total={total} totalLabel={totalLabel} />
         <div className="tw-relative tw-mt-2 tw-flex tw-items-center tw-justify-between tw-gap-3 tw-rounded-xl tw-border tw-border-slate-200 tw-bg-slate-50 tw-px-3.5 tw-py-3">
@@ -548,6 +631,7 @@ function StationFaultDistributionChart({
 function StationFaultSummary({
   lang,
   stations,
+  heldOutSessions,
   loading,
   error,
   onRetry,
@@ -557,6 +641,8 @@ function StationFaultSummary({
 }: {
   lang: Lang;
   stations: StationAnalysis[];
+  /** dataset.sessions of the bundled benchmark, not a sum over stations */
+  heldOutSessions: number | null;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -585,7 +671,7 @@ function StationFaultSummary({
           <div>
             <div className="tw-text-[9px] tw-font-extrabold tw-uppercase tw-tracking-[0.14em] tw-text-blue-600">{c.stationBenchmark}</div>
             <h3 className="tw-mt-1 tw-text-base tw-font-black tw-text-slate-950">{c.stationFaultTitle}</h3>
-            <p className="tw-mt-1 tw-max-w-2xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{c.stationFaultSub}</p>
+            <p className="tw-mt-1 tw-max-w-2xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{c.stationFaultSub(heldOutSessions === null ? null : formatInt(heldOutSessions))}</p>
           </div>
         </div>
         <button
@@ -718,6 +804,7 @@ export default function ResearchDashboard({
   lang,
   bundled,
   desktop,
+  modelArtifact = null,
   stations,
   stationLoading,
   stationError,
@@ -730,6 +817,8 @@ export default function ResearchDashboard({
   bundled: BundledBenchmark | null;
   /** true when the summary came from the desktop sidecar (bundled file), false for the web API */
   desktop: boolean;
+  /** artifactVersion of the running model set from the sidecar's /health, when known */
+  modelArtifact?: string | null;
   stations: StationAnalysis[];
   stationLoading: boolean;
   stationError: string | null;
@@ -739,25 +828,63 @@ export default function ResearchDashboard({
   onOpenPcap?: () => void;
 }) {
   const c = COPY[lang];
-  const [profileId, setProfileId] = useState<ResearchProfileId>("published");
-  const [armId, setArmId] = useState<ResearchArmId>("normative");
+  // The research panel opens on the label profile this edition was scored
+  // with (957 faulty = published, 1,326 = strict) so its numbers sit next to
+  // the bundled benchmark on the same labels; a click overrides it.
+  const editionProfileId = researchProfileForBundled(bundled);
+  const [chosenProfileId, setProfileId] = useState<ResearchProfileId | null>(null);
+  const profileId = chosenProfileId ?? editionProfileId ?? "published";
+  const [chosenArmId, setArmId] = useState<ResearchArmId>("normative");
   const [selectedSummaryStationId, setSelectedSummaryStationId] = useState<string | null>(null);
-  const profile = RESEARCH_PROFILES[profileId];
-  const rows = useMemo(
-    () => MODEL_ORDER.map((id) => ({
-      id,
-      current: profile.arms[armId][id],
-      baseline: profile.arms.baseline[id],
-    })).sort((left, right) => right.current.score - left.current.score),
-    [armId, profile],
-  );
+  // Everything on this tab is captioned held-out; in-sample training stations
+  // (1.3.0 summaries) are kept off it even if the page passes them in.
+  const heldOut = useMemo(() => heldOutStations(stations), [stations]);
+  // The research grid of the models this benchmark was scored with, if there
+  // is one (41ded2cd = the 2026-09-12 set, 53b6f142 = v4); else the first grid.
+  const { grid: researchGrid, relation: modelRelation }: { grid: ResearchGrid; relation: ResearchModelRelation } =
+    selectResearchGrid(bundled, modelArtifact);
+  const policy = bundled?.detectionPolicy ?? null;
+  const policySentence =
+    detectionPolicyKind(policy) === "baseline" || !policy
+      ? c.bundledPolicy.baseline
+      : c.bundledPolicy.rules(
+          [
+            ...(policy.iso2Rules ? [c.policyIso2] : []),
+            ...(policy.slacRuleMode && policy.slacRuleMode.trim().toLowerCase() !== "off"
+              ? [c.policySlac(policy.slacRuleMode.trim())]
+              : []),
+          ].join(" + "),
+        );
+  const editionMix = useMemo(() => heldOutFaultDistribution(bundled), [bundled]);
+  const [chosenMix, setMix] = useState<"edition" | "research" | null>(null);
+  const mix = editionMix.length === 0 ? "research" : chosenMix ?? "edition";
+  const profile = researchGrid.profiles[profileId];
+  // An arm this model set was never measured under (v4 has no ISO 15118-2
+  // replay) cannot be selected; a stale choice falls back to the first
+  // measured arm rather than rendering empty rows.
+  const armMeasured = (id: ResearchArmId) => profile.arms[id] !== undefined;
+  const armId: ResearchArmId = armMeasured(chosenArmId)
+    ? chosenArmId
+    : (["normative", "empirical", "baseline", "iso2"] as const).find(armMeasured) ?? "baseline";
+  const gridHasIso2 = Object.values(researchGrid.profiles).some((candidate) => candidate.arms.iso2 !== undefined);
+  const unmeasuredArms = (["baseline", "iso2", "empirical", "normative"] as const).filter((id) => !armMeasured(id));
+  const armIsProjected = researchGrid.projectedArms.includes(armId);
+  const aiAgentIsLowerBound = researchGrid.aiAgentLowerBoundArms.includes(armId);
+  const profileNote = researchGrid.profileNotes?.[profileId]?.[lang] ?? null;
+  const rows = useMemo(() => {
+    const current = profile.arms[armId];
+    const baseline = profile.arms.baseline;
+    if (!current || !baseline) return [];
+    return MODEL_ORDER.map((id) => ({ id, current: current[id], baseline: baseline[id] }))
+      .sort((left, right) => right.current.score - left.current.score);
+  }, [armId, profile]);
   const topModel = rows[0];
   const selectedSummaryStation = useMemo(
-    () => stations.find((station) => station.station === selectedSummaryStationId)
-      ?? [...stations].sort((left, right) =>
+    () => heldOut.find((station) => station.station === selectedSummaryStationId)
+      ?? [...heldOut].sort((left, right) =>
         right.faultySessions - left.faultySessions || left.station.localeCompare(right.station, undefined, { numeric: true }))[0]
       ?? null,
-    [selectedSummaryStationId, stations],
+    [selectedSummaryStationId, heldOut],
   );
   const profileLabels: Record<ResearchProfileId, { label: string; note: string }> = {
     published: { label: c.published, note: c.publishedNote },
@@ -772,7 +899,7 @@ export default function ResearchDashboard({
   };
   const verifiedDate = new Intl.DateTimeFormat(snapshotDateLocale(lang), {
     dateStyle: "medium",
-  }).format(new Date(RESEARCH_SNAPSHOT));
+  }).format(new Date(researchGrid.scoredAt));
   // The benchmark bundled with this build, ranked by score (unscored models last).
   const bundledRows = useMemo(
     () => (bundled ? [...bundled.leaderboard].sort((left, right) => (right.score ?? -1) - (left.score ?? -1)) : []),
@@ -800,7 +927,7 @@ export default function ResearchDashboard({
           </div>
           <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{desktop ? c.bundledTitle : c.bundledTitleWeb}</h2>
           <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{desktop ? c.bundledSub : c.bundledSubWeb}</p>
-          <p className="tw-mt-2 tw-max-w-3xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-400">{c.bundledBasis}</p>
+          <p className="tw-mt-2 tw-max-w-3xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-400">{bundled ? `${policySentence} ` : ""}{c.researchBasis[modelRelation]}</p>
         </div>
         {bundled && (
           <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-bg-slate-50/70 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
@@ -869,9 +996,16 @@ export default function ResearchDashboard({
               </span>
               <span className="ai-mono tw-text-[10px] tw-font-semibold tw-text-slate-400 sm:tw-text-[11px]">{c.updated}: {verifiedDate}</span>
               <span className="tw-inline-flex tw-items-center tw-rounded-full tw-bg-slate-100 tw-px-2.5 tw-py-1 tw-text-[10px] tw-font-semibold tw-text-slate-600 tw-ring-1 tw-ring-slate-200 sm:tw-text-[11px]">{c.fixedResearchNote}</span>
+              <span
+                className={`tw-inline-flex tw-items-center tw-gap-1.5 tw-rounded-full tw-px-2.5 tw-py-1 tw-text-[10px] tw-font-semibold tw-ring-1 sm:tw-text-[11px] ${modelRelation === "same" ? "tw-bg-emerald-50 tw-text-emerald-800 tw-ring-emerald-100" : modelRelation === "different" ? "tw-bg-amber-50 tw-text-amber-900 tw-ring-amber-200" : "tw-bg-slate-100 tw-text-slate-600 tw-ring-slate-200"}`}
+                data-testid="fd-research-model"
+                data-relation={modelRelation}
+              >
+                {c.researchModel[modelRelation](researchGrid.artifact)}
+              </span>
             </div>
             <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{c.title}</h2>
-            <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle}</p>
+            <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle(gridHasIso2)}</p>
           </div>
           <div className={`tw-grid tw-w-full tw-gap-2 lg:tw-flex lg:tw-w-auto lg:tw-flex-wrap ${onOpenPcap ? "tw-grid-cols-2" : "tw-grid-cols-1"}`}>
             <button type="button" onClick={onOpenStations} className="tw-inline-flex tw-min-h-11 tw-items-center tw-justify-center tw-gap-2 tw-rounded-xl tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-py-2.5 tw-text-[11px] tw-font-bold tw-text-slate-700 tw-shadow-sm tw-transition hover:tw-border-blue-300 hover:tw-text-blue-700 focus:tw-outline-none focus:tw-ring-4 focus:tw-ring-blue-100 sm:tw-px-4 sm:tw-text-[12px]">
@@ -887,32 +1021,61 @@ export default function ResearchDashboard({
 
         <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-bg-slate-50/70 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
           <DashboardStat icon={<Database className="tw-h-4 tw-w-4" />} label={c.fullFleet} value={formatInt(FULL_FLEET_LABELS.sessions)} detail="100%" tone="blue" />
-          <DashboardStat icon={<FileCheck2 className="tw-h-4 tw-w-4" />} label={c.scoringSessions} value={formatInt(FULL_FLEET_LABELS.scoring)} detail="96.5%" tone="emerald" />
-          <DashboardStat icon={<AlertTriangle className="tw-h-4 tw-w-4" />} label={c.faultLabels} value={formatInt(FULL_FLEET_LABELS.faulty)} detail="15.1%" tone="red" />
-          <DashboardStat icon={<ShieldCheck className="tw-h-4 tw-w-4" />} label={c.censored} value={formatInt(FULL_FLEET_LABELS.censored)} detail="3.5%" tone="amber" />
+          <DashboardStat icon={<FileCheck2 className="tw-h-4 tw-w-4" />} label={c.scoringSessions} value={formatInt(FULL_FLEET_LABELS.scoring)} detail={percentOf(FULL_FLEET_LABELS.scoring, FULL_FLEET_LABELS.sessions) ?? ""} tone="emerald" />
+          <DashboardStat icon={<AlertTriangle className="tw-h-4 tw-w-4" />} label={c.faultLabels} value={formatInt(FULL_FLEET_LABELS.faulty)} detail={percentOf(FULL_FLEET_LABELS.faulty, FULL_FLEET_LABELS.scoring) ?? ""} tone="red" />
+          <DashboardStat icon={<ShieldCheck className="tw-h-4 tw-w-4" />} label={c.censored} value={formatInt(FULL_FLEET_LABELS.censored)} detail={percentOf(FULL_FLEET_LABELS.censored, FULL_FLEET_LABELS.sessions) ?? ""} tone="amber" />
         </div>
       </section>
 
       <section className="fd-overview-summary-grid tw-grid tw-grid-cols-1 tw-gap-5">
-        <div className="fd-fault-mix-card fd-panel">
-          <div className="tw-border-b tw-border-slate-100 tw-p-5 sm:tw-p-6">
+        <div className="fd-fault-mix-card fd-panel" data-testid="fd-fault-mix" data-mix={mix}>
+          <div className="tw-flex tw-flex-col tw-gap-4 tw-border-b tw-border-slate-100 tw-p-5 sm:tw-flex-row sm:tw-items-start sm:tw-justify-between sm:tw-p-6">
             <div className="tw-flex tw-items-start tw-gap-3">
               <span className="tw-flex tw-h-10 tw-w-10 tw-flex-shrink-0 tw-items-center tw-justify-center tw-rounded-xl tw-bg-red-50 tw-text-red-700 tw-ring-1 tw-ring-red-100"><ChartPie className="tw-h-4 tw-w-4" /></span>
               <div>
-                <h3 className="tw-text-base tw-font-black tw-text-slate-950">{c.fullFleetTitle}</h3>
-                <p className="tw-mt-1 tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{c.fullFleetSub}</p>
+                <h3 className="tw-text-base tw-font-black tw-text-slate-950">{mix === "edition" ? c.editionMixTitle : c.fullFleetTitle}</h3>
+                <p className="tw-mt-1 tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">
+                  {mix === "edition" && bundled
+                    ? c.editionMixSub(
+                        formatInt(editionMix.reduce((sum, item) => sum + item.sessions, 0)),
+                        formatNullableInt(bundled.dataset.sessions),
+                        bundled.dataset.stations === null ? null : formatInt(bundled.dataset.stations),
+                        desktop,
+                      )
+                    : c.fullFleetSub}
+                </p>
               </div>
             </div>
+            {editionMix.length > 0 && (
+              <div className="tw-grid tw-flex-shrink-0 tw-grid-cols-2 tw-gap-1 tw-rounded-xl tw-bg-slate-100 tw-p-1" role="tablist" aria-label={c.mixView}>
+                {(["edition", "research"] as const).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={mix === id}
+                    onClick={() => setMix(id)}
+                    className={`tw-min-h-10 tw-rounded-lg tw-px-3 tw-py-2 tw-text-[10px] tw-font-extrabold tw-transition focus:tw-outline-none focus:tw-ring-2 focus:tw-ring-blue-400 ${mix === id ? "tw-bg-white tw-text-slate-950 tw-shadow-sm" : "tw-text-slate-500 hover:tw-text-slate-800"}`}
+                  >
+                    {id === "edition" ? c.mixEdition : c.mixResearch}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="tw-p-5 sm:tw-p-6">
-            <FaultDistributionChart totalLabel={c.faultLabelsTotal} />
+            <FaultDistributionChart
+              items={mix === "edition" ? editionMix : FULL_FLEET_LABELS.distribution}
+              totalLabel={mix === "edition" ? c.editionFaultTotal : c.faultLabelsTotal}
+              typeCountLabel={c.faultTypeCount}
+            />
           </div>
         </div>
 
         <div className="fd-station-analysis-grid tw-grid tw-grid-cols-1 tw-gap-5">
           <StationFaultDistributionChart
             lang={lang}
-            stations={stations}
+            stations={heldOut}
             station={selectedSummaryStation}
             loading={stationLoading}
             error={stationError}
@@ -921,7 +1084,8 @@ export default function ResearchDashboard({
           />
           <StationFaultSummary
             lang={lang}
-            stations={stations}
+            stations={heldOut}
+            heldOutSessions={bundled?.dataset.sessions ?? null}
             loading={stationLoading}
             error={stationError}
             onRetry={onRetryStations}
@@ -940,10 +1104,12 @@ export default function ResearchDashboard({
                 <div className="tw-flex tw-items-center tw-gap-2 tw-text-[11px] tw-font-extrabold tw-uppercase tw-tracking-wider tw-text-slate-400">
                   <Gauge className="tw-h-4 tw-w-4 tw-text-blue-600" /> {c.score}
                 </div>
-                <div className="tw-mt-2 tw-flex tw-items-baseline tw-gap-2">
-                  <span className="ai-mono tw-text-3xl tw-font-black tw-text-slate-950">{topModel.current.score.toFixed(1)}</span>
-                  <span className="tw-text-[12px] tw-font-bold tw-text-slate-500">{MODEL_META[topModel.id].name} · {c.bestModel}</span>
-                </div>
+                {topModel && (
+                  <div className="tw-mt-2 tw-flex tw-items-baseline tw-gap-2">
+                    <span className="ai-mono tw-text-3xl tw-font-black tw-text-slate-950">{topModel.current.score.toFixed(1)}</span>
+                    <span className="tw-text-[12px] tw-font-bold tw-text-slate-500">{MODEL_META[topModel.id].name} · {c.bestModel}</span>
+                  </div>
+                )}
               </div>
               <span className="tw-inline-flex tw-items-center tw-gap-1.5 tw-self-start tw-rounded-lg tw-bg-amber-50 tw-px-2.5 tw-py-1.5 tw-text-[11px] tw-font-bold tw-text-amber-800 tw-ring-1 tw-ring-amber-100 lg:tw-self-auto">
                 <Sparkles className="tw-h-3.5 tw-w-3.5" /> {c.rescored}
@@ -960,17 +1126,50 @@ export default function ResearchDashboard({
                     </button>
                   ))}
                 </div>
-                <p className="tw-mt-2 tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{profileLabels[profileId].note}</p>
+                <p className="tw-mt-2 tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">
+                  {profileLabels[profileId].note}
+                  {profileId === editionProfileId && (
+                    <span className="tw-ml-1.5 tw-inline-flex tw-items-center tw-rounded-md tw-bg-blue-50 tw-px-1.5 tw-py-0.5 tw-text-[10px] tw-font-bold tw-text-blue-700 tw-ring-1 tw-ring-blue-100" data-testid="fd-profile-matches-edition">
+                      {c.profileMatchesEdition}
+                    </span>
+                  )}
+                </p>
+                {profileNote && (
+                  <p className="tw-mt-1.5 tw-rounded-lg tw-bg-amber-50 tw-px-2.5 tw-py-2 tw-text-[10px] tw-font-semibold tw-leading-4 tw-text-amber-900 tw-ring-1 tw-ring-amber-100" data-testid="fd-profile-note">
+                    {profileNote}
+                  </p>
+                )}
               </fieldset>
               <fieldset>
                 <legend className="tw-mb-2 tw-text-[10px] tw-font-extrabold tw-uppercase tw-tracking-wider tw-text-slate-400">{c.arm}</legend>
                 <div className="tw-grid tw-grid-cols-2 tw-gap-1 tw-rounded-xl tw-bg-slate-100 tw-p-1 sm:tw-grid-cols-4" role="tablist" aria-label={c.arm}>
-                  {(Object.keys(armLabels) as ResearchArmId[]).map((id) => (
-                    <button key={id} type="button" role="tab" aria-selected={armId === id} onClick={() => setArmId(id)} className={`tw-min-h-10 tw-rounded-lg tw-px-2 tw-py-2 tw-text-[10px] tw-font-extrabold tw-leading-4 tw-transition focus:tw-outline-none focus:tw-ring-2 focus:tw-ring-blue-400 ${armId === id ? "tw-bg-slate-950 tw-text-white tw-shadow-sm" : "tw-text-slate-500 hover:tw-text-slate-800"}`}>
-                      {armLabels[id]}
-                    </button>
-                  ))}
+                  {(Object.keys(armLabels) as ResearchArmId[]).map((id) => {
+                    const measured = armMeasured(id);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        role="tab"
+                        aria-selected={armId === id}
+                        aria-disabled={!measured}
+                        aria-describedby={measured ? undefined : "fd-arms-not-measured"}
+                        disabled={!measured}
+                        title={measured ? undefined : c.armNotMeasured}
+                        data-testid={`fd-arm-${id}`}
+                        onClick={() => setArmId(id)}
+                        className={`tw-min-h-10 tw-rounded-lg tw-px-2 tw-py-2 tw-text-[10px] tw-font-extrabold tw-leading-4 tw-transition focus:tw-outline-none focus:tw-ring-2 focus:tw-ring-blue-400 ${!measured ? "tw-cursor-not-allowed tw-text-slate-300 tw-line-through" : armId === id ? "tw-bg-slate-950 tw-text-white tw-shadow-sm" : "tw-text-slate-500 hover:tw-text-slate-800"}`}
+                      >
+                        {armLabels[id]}
+                      </button>
+                    );
+                  })}
                 </div>
+                {/* Visible, not only a tooltip: a disabled tab takes no focus or tap. */}
+                {unmeasuredArms.length > 0 && (
+                  <p id="fd-arms-not-measured" className="tw-mt-2 tw-text-[10px] tw-font-medium tw-leading-4 tw-text-slate-400" data-testid="fd-arms-not-measured">
+                    {unmeasuredArms.map((id) => armLabels[id]).join(", ")}: {c.armNotMeasured}
+                  </p>
+                )}
               </fieldset>
             </div>
           </div>
@@ -1009,6 +1208,11 @@ export default function ResearchDashboard({
                 </div>
               );
             })}
+            {armIsProjected && (
+              <p className="tw-px-3 tw-pt-2 tw-text-[10px] tw-font-medium tw-leading-4 tw-text-slate-400" data-testid="fd-arm-provenance">
+                {c.projectedArm}{aiAgentIsLowerBound ? ` · ${c.aiAgentLowerBound}` : ""}
+              </p>
+            )}
           </div>
         </div>
 
@@ -1094,6 +1298,11 @@ export default function ResearchDashboard({
                   <span className="tw-text-[11px] tw-font-black tw-text-slate-900">{profileLabels[item.id].label}</span>
                   {item.id === "reviewed" && <CheckCircle2 className="tw-h-4 tw-w-4 tw-text-emerald-600" />}
                 </div>
+                {item.id === editionProfileId && (
+                  <span className="tw-mt-1.5 tw-inline-flex tw-rounded-md tw-bg-blue-50 tw-px-1.5 tw-py-0.5 tw-text-[10px] tw-font-bold tw-text-blue-700 tw-ring-1 tw-ring-blue-100" data-testid="fd-lineage-matches-edition">
+                    {c.profileMatchesEdition}
+                  </span>
+                )}
                 <div className="ai-mono tw-mt-3 tw-text-2xl tw-font-black tw-text-slate-950">{formatInt(item.total - item.censored)}</div>
                 <div className="tw-text-[10px] tw-font-semibold tw-text-slate-400">{c.sessions}</div>
                 <div className="tw-mt-3 tw-flex tw-h-2 tw-overflow-hidden tw-rounded-full tw-bg-slate-100">
@@ -1125,7 +1334,10 @@ export default function ResearchDashboard({
               { value: SLAC_RESEARCH.corroborated, label: c.corroborated, icon: <CheckCircle2 className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-emerald-700" },
               { value: SLAC_RESEARCH.pending, label: c.pending, icon: <Clock3 className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-amber-700" },
               { value: SLAC_RESEARCH.completedAgents, label: c.completedAgents, icon: <Sparkles className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-blue-700" },
-              { value: SLAC_RESEARCH.replayAgreement, label: c.replay, icon: <Gauge className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-violet-700", suffix: "%" },
+              // measured for the 2026-09-12 set's SLAC replay only; never shown for a set that was not replayed
+              researchGrid.replayAgreement !== undefined
+                ? { value: researchGrid.replayAgreement, label: c.replay, icon: <Gauge className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-violet-700", suffix: "%" }
+                : { value: "—", label: c.replayNotRun, icon: <Gauge className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-slate-400" },
             ].map((item) => (
               <div key={item.label} className="tw-rounded-xl tw-bg-slate-50 tw-p-3 tw-ring-1 tw-ring-slate-100">
                 <div className={`tw-flex tw-items-center tw-gap-1.5 ${item.tone}`}>{item.icon}<span className="ai-mono tw-text-lg tw-font-black">{item.value}{item.suffix ?? ""}</span></div>

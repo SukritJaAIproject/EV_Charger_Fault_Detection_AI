@@ -263,12 +263,36 @@ def analyze_stop_attribution(
             "confidence": "high",
             "evidence": f"EVSE returned {message}:{response}.",
         }
-    if "no SessionSetupRes" in reason:
+    # the ISO 15118-2 rule text for [V2G2-448] also contains "no SessionSetupRes";
+    # it has its own, neutral attribution further down
+    if "no SessionSetupRes" in reason and "[V2G2-448]" not in reason:
         return {
             "triggeredBy": "charger",
             "requestSender": request_sender,
             "confidence": "medium",
             "evidence": "EV sent session setup traffic but no SessionSetupRes was observed from the EVSE.",
+        }
+    # ISO 15118-2 rule layer (detection policy iso15118-standard)
+    if "[V2G2-711]" in reason:
+        return {
+            "triggeredBy": "charger",
+            "requestSender": request_sender,
+            "confidence": "medium",
+            "evidence": "The EVSE kept answering EVSEProcessing=Ongoing past the 60 s limit of [V2G2-711].",
+        }
+    if "[V2G2-443]" in reason:
+        return {
+            "triggeredBy": "vehicle",
+            "requestSender": request_sender,
+            "confidence": "medium",
+            "evidence": "No new request reached the EVSE within the 60 s sequence timeout of [V2G2-443].",
+        }
+    if "[V2G2-448]" in reason:
+        return {
+            "triggeredBy": "communication",
+            "requestSender": request_sender,
+            "confidence": "medium",
+            "evidence": "No SessionSetupRes within the 20 s communication-setup limit of [V2G2-448].",
         }
     if family in {"COMM_FREEZE", "SESSION_ABORT"} and "no further request" in reason:
         return {
@@ -330,6 +354,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tshark", type=Path, required=True)
     parser.add_argument("--original-name", required=True)
     parser.add_argument("--sha256", default="")
+    # the edition's detection policy (summary.json detectionPolicy.id) and the
+    # benchmark rank of Agentic AI in that summary, both passed by job_service
+    parser.add_argument("--detection-policy", default="baseline")
+    parser.add_argument("--benchmark-rank", type=int, default=None)
     return parser.parse_args()
 
 
@@ -344,12 +372,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         os.environ[name] = "1"
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
     os.environ["IMPS_MODEL_DIR"] = str(model_dir)
-    os.environ["EV_AI_ISO"] = "0"
-    os.environ["EV_AI_ISO_VEC"] = "0"
-    os.environ["EV_AI_SLAC"] = "0"
     vendor_root = Path(__file__).resolve().parent / "vendor"
     sys.path.insert(0, str(vendor_root))
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import detection_policy
+
+    # the research modules read their switches at import time, so the policy
+    # must be in the environment before any of them is imported
+    detection_policy.apply_env(args.detection_policy)
 
     update_progress(args.progress, "extracting", 12, "Decoding PCAP with TShark")
     from capture import extract, iter_sessions
@@ -380,6 +410,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         from core.schema import Event
         from models.agentic_ai import AgenticAI
 
+        detection_policy.verify_loaded(args.detection_policy)
         detector = AgenticAI()
     else:
         FeatureTracker = Event = None  # type: ignore[assignment,misc]
@@ -556,9 +587,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "model": {
             "id": "agentic-ai",
             "name": "Agentic AI",
-            "benchmarkRank": 1,
+            "benchmarkRank": args.benchmark_rank,
             "artifactVersion": model_version,
             "coldStart": True,
+            "detectionPolicy": detection_policy.public(args.detection_policy),
         },
         "capture": {
             "extractedEvents": extracted_events,

@@ -22,6 +22,29 @@ export type ResearchProfile = {
   arms: Record<ResearchArmId, Record<ResearchModelId, ResearchMetric>>;
 };
 
+/** A profile in a grid where some arms may not have been measured. */
+export type ResearchGridProfile = Omit<ResearchProfile, "arms"> & {
+  arms: Partial<Record<ResearchArmId, Record<ResearchModelId, ResearchMetric>>>;
+};
+
+type LocalizedNote = { th: string; en: string };
+
+/** One model set's research results: label profiles x detection-policy arms. */
+export type ResearchGrid = {
+  /** artifactVersion of the models every cell was scored with */
+  artifact: string;
+  scoredAt: string;
+  profiles: Record<ResearchProfileId, ResearchGridProfile>;
+  /** Arms computed from recorded alerts rather than a replay, for every model. */
+  projectedArms: readonly ResearchArmId[];
+  /** Arms whose AIAgent cell is a lower bound (its evidence board was not replayed). */
+  aiAgentLowerBoundArms: readonly ResearchArmId[];
+  /** What a reader must know about a profile for this model set. */
+  profileNotes?: Partial<Record<ResearchProfileId, LocalizedNote>>;
+  /** % of first-alert times a projection reproduced in a full replay, if one was run. */
+  replayAgreement?: number;
+};
+
 const metric = (
   score: number,
   recall: number,
@@ -30,6 +53,15 @@ const metric = (
 ): ResearchMetric => ({ score, recall, far, lead });
 
 export const RESEARCH_SNAPSHOT = "2026-09-18T06:16:43+07:00";
+
+/**
+ * Model artifact every profile and arm below was scored with: the 2026-09-12
+ * full-fleet model set (results/fleet_baseline), later shipped as the
+ * "Snapshot 2026-09-12" edition. Its published-labels baseline arm IS that
+ * edition's bundled leaderboard; editions with other weights (v4 onwards) are
+ * compared against these numbers, not described by them.
+ */
+export const RESEARCH_MODEL_ARTIFACT = "41ded2cdd5c2ba3f";
 
 export const MODEL_ORDER: ResearchModelId[] = [
   "TraditionalAI",
@@ -165,6 +197,148 @@ export const RESEARCH_PROFILES: Record<ResearchProfileId, ResearchProfile> = {
   },
 };
 
+/**
+ * The same grid for the v4 model set (artifact 53b6f14244c2e633), computed
+ * 2026-09-23 by ev_charger_ai/benchmark/research_grid_from_cache.py into
+ * results/research_grid_v4.json and generated into this file from there.
+ * No replay: the baseline arm rescores the v4 first-alert records under each
+ * label profile; the SLAC arms project the cached SLAC fire times onto them.
+ * The same method reproduces every 41ded2cdd5c2ba3f cell above exactly, and
+ * strict.baseline equals the v4 benchmark's leaderboard to full precision.
+ * AIAgent's SLAC cells are lower bounds (its evidence board is not replayed;
+ * on 41ded2cd the same shortcut was 0.0-0.2 points low). The ISO 15118-2 arm
+ * needs a replay and is absent.
+ */
+export const RESEARCH_V4_ARTIFACT = "53b6f14244c2e633";
+export const RESEARCH_V4_SNAPSHOT = "2026-09-23T13:31:35+07:00";
+
+export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile> = {
+  published: {
+    sessions: 8_820,
+    faulty: 957,
+    clean: 7_863,
+    censored: 0,
+    arms: {
+      baseline: {
+        TraditionalAI: metric(67.3, 76.9, 28.0, 52.7),
+        RL: metric(41.3, 21.6, 5.8, 50.4),
+        AIAgent: metric(51.3, 58.0, 35.9, 0.0),
+        AgenticAI: metric(70.2, 90.7, 33.0, 11.7),
+        MultiAgent: metric(56.3, 62.6, 28.3, 0.0),
+      },
+      empirical: {
+        TraditionalAI: metric(76.3, 92.4, 28.1, 49.5),
+        RL: metric(41.3, 21.6, 5.8, 50.4),
+        AIAgent: metric(61.2, 75.0, 36.0, 0.0),
+        AgenticAI: metric(71.2, 91.6, 33.1, 12.7),
+        MultiAgent: metric(65.7, 78.8, 28.5, 0.0),
+      },
+      normative: {
+        TraditionalAI: metric(77.0, 93.2, 28.2, 58.7),
+        RL: metric(41.3, 21.6, 5.8, 50.4),
+        AIAgent: metric(62.0, 76.0, 36.0, 0.4),
+        AgenticAI: metric(71.7, 92.2, 33.1, 13.7),
+        MultiAgent: metric(66.4, 79.6, 28.7, 1.1),
+      },
+    },
+  },
+  strict: {
+    sessions: 8_820,
+    faulty: 1_326,
+    clean: 7_494,
+    censored: 0,
+    arms: {
+      baseline: {
+        TraditionalAI: metric(69.6, 82.5, 24.5, 8.5),
+        RL: metric(39.2, 18.5, 5.6, 29.8),
+        AIAgent: metric(46.4, 49.3, 35.0, 0.0),
+        AgenticAI: metric(66.9, 85.1, 31.0, 4.2),
+        MultiAgent: metric(60.2, 70.1, 25.0, 1.1),
+      },
+      empirical: {
+        TraditionalAI: metric(76.1, 93.7, 24.6, 23.6),
+        RL: metric(39.2, 18.5, 5.6, 29.8),
+        AIAgent: metric(53.8, 62.1, 35.0, 3.2),
+        AgenticAI: metric(67.6, 85.8, 31.0, 4.4),
+        MultiAgent: metric(67.2, 82.2, 25.2, 1.2),
+      },
+      normative: {
+        TraditionalAI: metric(76.6, 94.3, 24.8, 23.9),
+        RL: metric(39.2, 18.5, 5.6, 29.8),
+        AIAgent: metric(54.4, 62.7, 35.1, 3.3),
+        AgenticAI: metric(68.0, 86.2, 31.1, 4.4),
+        MultiAgent: metric(67.6, 82.8, 25.4, 1.2),
+      },
+    },
+  },
+  reviewed: {
+    sessions: 8_525,
+    faulty: 1_317,
+    clean: 7_208,
+    censored: 295,
+    arms: {
+      baseline: {
+        TraditionalAI: metric(67.9, 78.7, 23.7, 8.4),
+        RL: metric(38.4, 17.0, 5.7, 31.4),
+        AIAgent: metric(47.9, 51.9, 35.2, 0.0),
+        AgenticAI: metric(59.2, 70.8, 30.2, 2.2),
+        MultiAgent: metric(61.0, 71.4, 24.8, 1.1),
+      },
+      empirical: {
+        TraditionalAI: metric(73.8, 90.4, 23.8, 8.5),
+        RL: metric(38.4, 17.0, 5.7, 31.4),
+        AIAgent: metric(54.0, 63.6, 35.3, 3.2),
+        AgenticAI: metric(65.0, 81.9, 30.3, 3.6),
+        MultiAgent: metric(67.1, 83.2, 25.0, 1.2),
+      },
+      normative: {
+        TraditionalAI: metric(74.2, 90.7, 24.0, 17.6),
+        RL: metric(38.4, 17.0, 5.7, 31.4),
+        AIAgent: metric(54.3, 64.0, 35.3, 3.3),
+        AgenticAI: metric(65.3, 82.2, 30.3, 3.7),
+        MultiAgent: metric(67.4, 83.6, 25.2, 1.2),
+      },
+    },
+  },
+};
+
+// Declared before RESEARCH_GRIDS, which reads it at module load (SLAC_RESEARCH
+// further down is initialised later).
+const SLAC_RESEARCH_REPLAY_AGREEMENT = 100;
+
+/**
+ * Every model set with research results, oldest first. The Overview shows the
+ * grid of the models the running edition ships (by artifact id, else by an
+ * exact baseline-arm leaderboard match) and falls back to the first.
+ */
+export const RESEARCH_GRIDS: readonly ResearchGrid[] = [
+  {
+    artifact: RESEARCH_MODEL_ARTIFACT,
+    scoredAt: RESEARCH_SNAPSHOT,
+    profiles: RESEARCH_PROFILES,
+    // published.empirical is the SLAC replay; strict/reviewed empirical rescore it.
+    projectedArms: ["normative"],
+    aiAgentLowerBoundArms: [],
+    // the SLAC projection vs its own replay, 8,820 first-alert times
+    replayAgreement: SLAC_RESEARCH_REPLAY_AGREEMENT,
+  },
+  {
+    artifact: RESEARCH_V4_ARTIFACT,
+    scoredAt: RESEARCH_V4_SNAPSHOT,
+    profiles: RESEARCH_PROFILES_V4,
+    projectedArms: ["empirical", "normative"],
+    aiAgentLowerBoundArms: ["empirical", "normative"],
+    profileNotes: {
+      // Measured: excluding these 369 sessions makes every model's published
+      // false-alarm rate equal its strict one, alert for alert.
+      published: {
+        th: "label ชุดนี้นับ 369 sessions ที่โมเดลชุดนี้ถูกสอนให้แจ้งว่าเป็น fault (NO_POWER_DELIVERED 360, SLAC 9) เป็น session ปกติ การแจ้งเตือนของโมเดลใน sessions เหล่านี้จึงถูกนับเป็นแจ้งเตือนผิด",
+        en: "These labels count 369 sessions this model set was trained to flag (NO_POWER_DELIVERED 360, SLAC 9) as clean, so its alerts on them score as false alarms.",
+      },
+    },
+  },
+];
+
 export const FULL_FLEET_LABELS = {
   sessions: 40_542,
   scoring: 39_142,
@@ -210,6 +384,6 @@ export const SLAC_RESEARCH = {
   completedAgents: 64,
   quotaStoppedAgents: 29,
   replaySessions: 8_820,
-  replayAgreement: 100,
+  replayAgreement: SLAC_RESEARCH_REPLAY_AGREEMENT,
 } as const;
 

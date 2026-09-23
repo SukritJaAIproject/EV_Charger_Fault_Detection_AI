@@ -30,11 +30,17 @@ const COPY = {
   th: {
     title: "รายละเอียดผลวิเคราะห์รายสถานี",
     close: "ปิดรายละเอียดสถานี",
-    benchmarkScore: "คะแนน Benchmark",
+    // Per-station rows are the Agentic AI replay (the summary's byStation sums
+    // equal agentic-ai's tp/late/miss/fp), not the edition's top-ranked model.
+    benchmarkScore: "คะแนน Benchmark · Agentic AI",
+    benchmarkScoreTrain: "คะแนน In-sample · Agentic AI (ชุดฝึก)",
+    overviewTrain: "ภาพรวมข้อมูลชุดฝึก (in-sample)",
+    connectorCountTrain: "Connector ในชุดฝึก",
+    noFamilyDataTrain: "ไม่พบ Fault family ในชุดฝึกของสถานีนี้",
     topFault: "Fault หลัก",
     overview: "ภาพรวมข้อมูลทดสอบ",
     outcomes: "ผลลัพธ์การตรวจจับ",
-    modelMetrics: "ตัวชี้วัดโมเดล",
+    modelMetrics: "ตัวชี้วัดโมเดล Agentic AI",
     connectors: "ผลแยกตาม Connector",
     faultFamilies: "ผลแยกตามประเภท Fault",
     sessions: "Sessions",
@@ -66,17 +72,25 @@ const COPY = {
     noFamilyData: "ไม่พบ Fault family ในชุดทดสอบของสถานีนี้",
     heldOutNote:
       "ผลชุดนี้คำนวณจาก held-out PCAP benchmark เพื่อประเมินคุณภาพโมเดล ไม่ใช่สถานะสุขภาพแบบเรียลไทม์ของสถานี",
+    trainNote:
+      "สถานีนี้อยู่ในชุดฝึก (train split): โมเดลได้เรียนรู้จาก session เหล่านี้แล้ว ผลจึงเป็น in-sample และสูงเกินจริง ไม่ใช่การประเมินคุณภาพโมเดล และไม่ใช่สถานะสุขภาพแบบเรียลไทม์ของสถานี",
+    chipHeldOut: "HELD-OUT · ประเมินจริง",
+    chipTrain: "ชุดฝึก · IN-SAMPLE",
     connectorCount: "Connector ในชุดทดสอบ",
     group: "กลุ่ม",
   },
   en: {
     title: "Station analysis details",
     close: "Close station details",
-    benchmarkScore: "Benchmark score",
+    benchmarkScore: "Benchmark score · Agentic AI",
+    benchmarkScoreTrain: "In-sample score · Agentic AI (training)",
+    overviewTrain: "Training-data overview (in-sample)",
+    connectorCountTrain: "Connectors in training set",
+    noFamilyDataTrain: "No fault family was present for this station in the training set.",
     topFault: "Top fault",
     overview: "Test-data overview",
     outcomes: "Detection outcomes",
-    modelMetrics: "Model metrics",
+    modelMetrics: "Agentic AI metrics",
     connectors: "Results by connector",
     faultFamilies: "Results by fault family",
     sessions: "Sessions",
@@ -108,6 +122,10 @@ const COPY = {
     noFamilyData: "No fault family was present for this station in the test set.",
     heldOutNote:
       "These results are calculated from the held-out PCAP benchmark to evaluate model quality. They are not the station's real-time health status.",
+    trainNote:
+      "This station is in the training split: the models learned from these sessions, so these results are in-sample and optimistic. They do not measure model quality and are not the station's real-time health.",
+    chipHeldOut: "HELD-OUT · evaluation",
+    chipTrain: "TRAINING · IN-SAMPLE",
     connectorCount: "Connectors in test set",
     group: "Group",
   },
@@ -178,6 +196,7 @@ export default function StationDetailDialog({ station, onClose }: Props) {
   const c = COPY[lang];
 
   if (!station) return null;
+  const isTrain = station.split === "train";
 
   const trueNegative = Math.max(0, station.normalSessions - station.fp);
   const scoreTone =
@@ -219,8 +238,18 @@ export default function StationDetailDialog({ station, onClose }: Props) {
                 {displayIdentifier(station.station)}
               </h2>
               <div className="tw-mt-1.5 tw-flex tw-flex-wrap tw-gap-x-3 tw-gap-y-1 tw-text-[12px] tw-font-semibold tw-text-white/60">
+                {station.split && (
+                  <span
+                    className={`tw-rounded-md tw-px-1.5 tw-py-0.5 tw-text-[10px] tw-font-extrabold tw-tracking-wider ${
+                      station.split === "train" ? "tw-bg-amber-400/20 tw-text-amber-200" : "tw-bg-emerald-400/15 tw-text-emerald-200"
+                    }`}
+                    data-testid="fd-dialog-split"
+                  >
+                    {station.split === "train" ? c.chipTrain : c.chipHeldOut}
+                  </span>
+                )}
                 <span>{c.group}: {displayIdentifier(station.group)}</span>
-                <span>{c.connectorCount}: {formatInt(station.connectors)}</span>
+                <span>{isTrain ? c.connectorCountTrain : c.connectorCount}: {formatInt(station.connectors)}</span>
               </div>
             </div>
           </div>
@@ -241,7 +270,7 @@ export default function StationDetailDialog({ station, onClose }: Props) {
           <section className="tw-grid tw-gap-3 sm:tw-grid-cols-2">
             <div className="tw-rounded-2xl tw-bg-gray-900 tw-p-4 tw-text-white tw-shadow-sm">
               <div className="tw-text-[11px] tw-font-bold tw-uppercase tw-tracking-[0.13em] tw-text-white/50">
-                {c.benchmarkScore}
+                {isTrain ? c.benchmarkScoreTrain : c.benchmarkScore}
               </div>
               <div className="tw-mt-2 tw-flex tw-items-end tw-gap-3">
                 <span className={`ai-mono tw-inline-flex tw-rounded-xl tw-px-3 tw-py-2 tw-text-3xl tw-font-black tw-ring-1 ${scoreTone}`}>
@@ -264,7 +293,7 @@ export default function StationDetailDialog({ station, onClose }: Props) {
           </section>
 
           <section>
-            <SectionTitle icon={<BarChart3 className="tw-h-4 tw-w-4" />}>{c.overview}</SectionTitle>
+            <SectionTitle icon={<BarChart3 className="tw-h-4 tw-w-4" />}>{isTrain ? c.overviewTrain : c.overview}</SectionTitle>
             <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 sm:tw-grid-cols-5">
               <MetricCard label={c.sessions} value={formatInt(station.sessions)} />
               <MetricCard label={c.faultSessions} value={formatInt(station.faultySessions)} tone="red" />
@@ -378,7 +407,7 @@ export default function StationDetailDialog({ station, onClose }: Props) {
             <SectionTitle icon={<Clock3 className="tw-h-4 tw-w-4" />}>{c.faultFamilies}</SectionTitle>
             {station.byFaultFamily.length === 0 ? (
               <div className="tw-rounded-xl tw-border tw-border-dashed tw-border-gray-300 tw-bg-white tw-p-5 tw-text-center tw-text-[13px] tw-font-semibold tw-text-gray-500">
-                {c.noFamilyData}
+                {isTrain ? c.noFamilyDataTrain : c.noFamilyData}
               </div>
             ) : (
               <div className="tw-space-y-2.5">
@@ -439,7 +468,7 @@ export default function StationDetailDialog({ station, onClose }: Props) {
 
           <div className="tw-flex tw-items-start tw-gap-2.5 tw-rounded-xl tw-border tw-border-amber-200 tw-bg-amber-50 tw-p-3.5 tw-text-amber-900">
             <AlertTriangle className="tw-mt-0.5 tw-h-4 tw-w-4 tw-flex-shrink-0" />
-            <p className="tw-text-[12px] tw-font-semibold tw-leading-5">{c.heldOutNote}</p>
+            <p className="tw-text-[12px] tw-font-semibold tw-leading-5">{station.split === "train" ? c.trainNote : c.heldOutNote}</p>
           </div>
         </div>
       </DialogBody>

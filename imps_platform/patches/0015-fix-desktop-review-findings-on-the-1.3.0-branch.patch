@@ -1,0 +1,474 @@
+From cc5c27dedca2f433970f9409e9819d92e4225770 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 23 Sep 2026 10:57:40 +0700
+Subject: [PATCH 15/18] fix(desktop): review findings on the 1.3.0 branch
+
+- worker: the ISO 15118-2 [V2G2-448] alert text also contains "no
+  SessionSetupRes", so the older branch blamed the charger; it now gets
+  its own neutral "communication" attribution.
+- export_summary: a supplied data root that is incomplete fails with the
+  missing files instead of silently falling back to the published v4
+  root (which would have shipped the ISO edition with the baseline
+  benchmark); the policy id is checked against the sidecar whitelist and
+  its flags come from there; --train-records is explicit (prepare-desktop
+  forwards IMPS_FAULT_TRAIN_RECORDS) and refused for a non-baseline policy.
+- backend: the training rows are checked against the leaderboard that
+  belongs to the records file (records_<tag> -> leaderboard_<tag>), which
+  must exist, be split=train and carry AgenticAI.
+- sidecar: an invalid detectionPolicy stops the runtime at start-up with
+  the reason instead of hanging the app until the health timeout.
+- job_service: --original-name=<value>, so a capture named "-x.pcap" is
+  not parsed as an option.
+- Stations tab / dialog: training rows get in-sample labels in the dialog,
+  the note follows the split filter, and an empty search offers matches
+  from the other split. Overview footnote omits the policy sentence until
+  a benchmark has loaded.
+- Docs: IMPS_FAULT_TRAIN_RECORDS; fail-fast policy wording.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../backend/routers/fault_detection.py        | 46 +++++++++++--------
+ iMPS_platform/desktop/README.md               |  8 ++++
+ iMPS_platform/desktop/export_summary.py       | 38 +++++++++++----
+ iMPS_platform/desktop/runtime/README.md       |  4 +-
+ .../desktop/runtime/imps_fault_runtime.py     | 10 ++--
+ iMPS_platform/desktop/runtime/job_service.py  |  9 +---
+ iMPS_platform/desktop/runtime/worker.py       |  4 +-
+ .../desktop/scripts/prepare-desktop.mjs       |  4 ++
+ .../app/dashboard/ai/fault-detection/page.tsx | 28 +++++++++--
+ .../ai/fault-detection/research-dashboard.tsx |  2 +-
+ .../fault-detection/station-detail-dialog.tsx | 17 +++++--
+ 11 files changed, 117 insertions(+), 53 deletions(-)
+
+diff --git a/iMPS_platform/backend/routers/fault_detection.py b/iMPS_platform/backend/routers/fault_detection.py
+index f16cdc2b..c80722fa 100644
+--- a/iMPS_platform/backend/routers/fault_detection.py
++++ b/iMPS_platform/backend/routers/fault_detection.py
+@@ -794,25 +794,33 @@ def _load_train_station_analysis(
+             raise FaultDetectionResultError(
+                 f"{train_records.name} stations do not match {_SPLIT_FILE}.train"
+             )
+-    # a leaderboard written by the same replay must agree with the station rows
+-    for candidate in sorted(train_records.parent.glob("leaderboard_train*.json")):
+-        board, _, _ = _read_result(candidate)
+-        agentic = (board.get("detectors") or {}).get("AgenticAI")
+-        if not isinstance(agentic, Mapping):
+-            continue
+-        totals = {key: sum(row[key] for row in rows) for key in ("faultySessions", "normalSessions", "tp", "late", "miss", "fp")}
+-        expected_totals = {
+-            "faultySessions": board.get("n_faulty"),
+-            "normalSessions": board.get("n_clean"),
+-            "tp": agentic.get("tp"),
+-            "late": agentic.get("late"),
+-            "miss": agentic.get("miss"),
+-            "fp": agentic.get("fp"),
+-        }
+-        if totals != expected_totals:
+-            raise FaultDetectionResultError(
+-                f"{train_records.name} station rows do not match {candidate.name}"
+-            )
++    # the leaderboard written by the same replay (records_<tag>.json ->
++    # leaderboard_<tag>.json) must exist and agree with the station rows
++    name = train_records.name
++    if not (name.startswith("records_") and name.endswith(".json")):
++        raise FaultDetectionResultError(f"{name} is not a records_<tag>.json file")
++    candidate = train_records.with_name("leaderboard_" + name[len("records_"):])
++    if not candidate.is_file():
++        raise FaultDetectionResultError(f"{candidate.name} is missing next to {name}")
++    board, _, _ = _read_result(candidate)
++    if board.get("split") != "train":
++        raise FaultDetectionResultError(f"{candidate.name} is not a train-split leaderboard")
++    agentic = (board.get("detectors") or {}).get("AgenticAI")
++    if not isinstance(agentic, Mapping):
++        raise FaultDetectionResultError(f"{candidate.name} has no AgenticAI result")
++    totals = {key: sum(row[key] for row in rows) for key in ("faultySessions", "normalSessions", "tp", "late", "miss", "fp")}
++    expected_totals = {
++        "faultySessions": board.get("n_faulty"),
++        "normalSessions": board.get("n_clean"),
++        "tp": agentic.get("tp"),
++        "late": agentic.get("late"),
++        "miss": agentic.get("miss"),
++        "fp": agentic.get("fp"),
++    }
++    if totals != expected_totals:
++        raise FaultDetectionResultError(
++            f"{train_records.name} station rows do not match {candidate.name}"
++        )
+     return rows, raw
+ 
+ 
+diff --git a/iMPS_platform/desktop/README.md b/iMPS_platform/desktop/README.md
+index 09adc746..e66e84a0 100644
+--- a/iMPS_platform/desktop/README.md
++++ b/iMPS_platform/desktop/README.md
+@@ -93,8 +93,16 @@ IMPS_FAULT_DATA_ROOT
+ IMPS_WIRESHARK_SOURCE
+ IMPS_VC_RUNTIME_SOURCE
+ IMPS_GOLDEN_PCAP
++IMPS_FAULT_TRAIN_RECORDS
+ ```
+ 
++`IMPS_FAULT_TRAIN_RECORDS` points at the records of the in-sample baseline replay over the
++`split.json` training stations (`records_train_AgenticAI.json`, with its
++`leaderboard_train_AgenticAI.json` next to it). The current line sets it so `summary.json`
++carries `analysis.byStationTrain` (167 rows, `split: "train"`), which the Stations tab shows
++behind a held-out / training switch with an in-sample warning; check `trainStations` in
++`.desktop-build\manifest.json`. Leave it unset for the Snapshot and ISO 15118 editions.
++
+ To create both variants in one run, set `IMPS_ONLINE_PACKAGE_URL` and run
+ `npm run desktop:build`. The URL must be the full final HTTPS URL of the x64
+ `.nsis.7z` payload, not just a directory. Upload that payload without renaming it.
+diff --git a/iMPS_platform/desktop/export_summary.py b/iMPS_platform/desktop/export_summary.py
+index b2150cbe..60acae8b 100644
+--- a/iMPS_platform/desktop/export_summary.py
++++ b/iMPS_platform/desktop/export_summary.py
+@@ -55,9 +55,16 @@ def _is_data_root(path: Path) -> bool:
+ 
+ 
+ def _resolve_data_root(explicit: Path | None) -> Path:
++    # A supplied root is the one the caller means (it also decides the edition's
++    # detection policy), so an incomplete one is an error, never a fallback.
++    env_root = os.environ.get("IMPS_FAULT_DATA_ROOT")
++    supplied = explicit if explicit is not None else (Path(env_root) if env_root else None)
++    if supplied is not None:
++        missing = [str(supplied / relative) for relative in REQUIRED_DATA_FILES if not (supplied / relative).is_file()]
++        if missing:
++            raise SystemExit(f"Data root {supplied} is incomplete; missing: {', '.join(missing)}")
++        return supplied.resolve()
+     candidates = [
+-        explicit,
+-        Path(os.environ["IMPS_FAULT_DATA_ROOT"]) if os.environ.get("IMPS_FAULT_DATA_ROOT") else None,
+         Path(r"G:\ev_charger_ai_data_v4"),
+         Path(r"G:\ev_charger_ai_data"),
+         Path(r"E:\ev_charger_ai_data"),
+@@ -86,12 +93,19 @@ def _detection_policy(data_root: Path) -> dict[str, Any] | None:
+         return None
+     if not isinstance(block, dict) or not isinstance(block.get("id"), str):
+         raise SystemExit(f"{manifest_path} has an invalid detectionPolicy block")
+-    return {
+-        "schemaVersion": 1,
+-        "id": block["id"],
+-        "iso2Rules": bool(block.get("iso2Rules")),
+-        "slacRuleMode": str(block.get("slacRuleMode") or "off"),
+-    }
++    # the id is the only source of truth; the flags come from the sidecar's
++    # whitelist and must agree with what the replay manifest recorded
++    sys.path.insert(0, str(PROJECT_ROOT / "desktop" / "runtime"))
++    import detection_policy
++
++    policy_id = block["id"].strip()
++    if policy_id not in detection_policy.POLICIES:
++        raise SystemExit(f"{manifest_path}: unknown detection policy {policy_id!r}")
++    public = detection_policy.public(policy_id)
++    for key in ("iso2Rules", "slacRuleMode"):
++        if key in block and block[key] != public[key]:
++            raise SystemExit(f"{manifest_path}: {key}={block[key]!r} does not match policy {policy_id!r} ({public[key]!r})")
++    return {"schemaVersion": 1, **public}
+ 
+ 
+ def parse_args() -> argparse.Namespace:
+@@ -100,8 +114,8 @@ def parse_args() -> argparse.Namespace:
+     parser.add_argument(
+         "--train-records",
+         type=Path,
+-        default=Path(os.environ["IMPS_FAULT_TRAIN_RECORDS"]) if os.environ.get("IMPS_FAULT_TRAIN_RECORDS") else None,
+-        help="records of the in-sample replay over the training stations (adds analysis.byStationTrain)",
++        default=None,
++        help="records of the in-sample baseline replay over the training stations (adds analysis.byStationTrain)",
+     )
+     parser.add_argument(
+         "--output",
+@@ -140,6 +154,10 @@ def main() -> int:
+             raise SystemExit("Expected training-station rows marked split=train")
+     policy = _detection_policy(data_root)
+     if policy is not None:
++        if args.train_records is not None and policy["id"] != "baseline":
++            # the training-station replay runs the baseline detector; its rows
++            # would misdescribe an edition that runs another policy
++            raise SystemExit(f"--train-records is a baseline replay; it cannot be bundled with policy {policy['id']!r}")
+         summary["detectionPolicy"] = policy
+ 
+     output = args.output.resolve()
+diff --git a/iMPS_platform/desktop/runtime/README.md b/iMPS_platform/desktop/runtime/README.md
+index 2e2a07f6..3b9ee506 100644
+--- a/iMPS_platform/desktop/runtime/README.md
++++ b/iMPS_platform/desktop/runtime/README.md
+@@ -53,8 +53,8 @@ The worker receives the policy as `--detection-policy` (with
+ inherited research switch (`EV_AI_NPD_RULE`, `EV_AI_SLAC_WAIT`, ...), sets the
+ policy's before importing a detector module and raises if the imported modules
+ disagree. `EV_AI_ISO_VEC` is always 0: the packaged weights are 33 features wide.
+-An unknown policy id leaves the sidecar running but not ready (`/health`
+-`missing`). `/health` and every PCAP result report `detectionPolicy`.
++An unknown or malformed policy stops the sidecar at start-up with the reason
++in `desktop-runtime.log`. `/health` and every PCAP result report `detectionPolicy`.
+ 
+ The server launches the same executable in `worker` mode for one queued PCAP
+ at a time. Uploads are limited to 256 MiB, validated by extension and capture
+diff --git a/iMPS_platform/desktop/runtime/imps_fault_runtime.py b/iMPS_platform/desktop/runtime/imps_fault_runtime.py
+index cef3f0cf..dfaabf77 100644
+--- a/iMPS_platform/desktop/runtime/imps_fault_runtime.py
++++ b/iMPS_platform/desktop/runtime/imps_fault_runtime.py
+@@ -289,13 +289,14 @@ def _serve(argv: list[str]) -> int:
+ 
+     origin = _validate_origin(args.origin)
+     summary, summary_bytes, summary_etag = _load_summary(args.summary)
+-    # an unknown policy does not stop the server: /health reports it as missing,
+-    # so the dashboard shows the sidecar as not ready instead of guessing
+-    policy_error = None
++    # a summary whose policy the sidecar does not know is a broken build: stop
++    # at once with the reason (it lands in desktop-runtime.log and Electron
++    # reports the runtime exit) rather than run a detector the benchmark does
++    # not describe
+     try:
+         policy_id = detection_policy.policy_id_from_summary(summary)
+     except detection_policy.PolicyError as exc:
+-        policy_id, policy_error = detection_policy.DEFAULT_POLICY, str(exc)
++        raise SystemExit(f"Summary detectionPolicy is invalid: {exc}") from exc
+     agentic_rank = next(
+         (row.get("rank") for row in summary["leaderboard"]
+          if isinstance(row, dict) and row.get("id") == "agentic-ai" and isinstance(row.get("rank"), int)),
+@@ -307,7 +308,6 @@ def _serve(argv: list[str]) -> int:
+         tshark=args.tshark,
+         runtime_command=_runtime_command(),
+         detection_policy=policy_id,
+-        detection_policy_error=policy_error,
+         benchmark_rank=agentic_rank,
+     )
+     handler = _make_handler(
+diff --git a/iMPS_platform/desktop/runtime/job_service.py b/iMPS_platform/desktop/runtime/job_service.py
+index 99669021..3952a8d5 100644
+--- a/iMPS_platform/desktop/runtime/job_service.py
++++ b/iMPS_platform/desktop/runtime/job_service.py
+@@ -96,7 +96,6 @@ class PcapJobService:
+         timeout_seconds: int = INFERENCE_TIMEOUT_SECONDS,
+         retention_days: int = 30,
+         detection_policy: str = "baseline",
+-        detection_policy_error: str | None = None,
+         benchmark_rank: int | None = None,
+     ) -> None:
+         self.jobs_root = jobs_root.resolve()
+@@ -119,14 +118,11 @@ class PcapJobService:
+         # can show which edition is running. Filled in by _validate_dependencies.
+         self.model_info: dict[str, Any] = {"artifactVersion": None, "createdAt": None}
+         self.detection_policy = detection_policy
+-        self.detection_policy_error = detection_policy_error
+         self.benchmark_rank = benchmark_rank
+         self.jobs_root.mkdir(parents=True, exist_ok=True)
+         self._recover_interrupted_jobs()
+         self._cleanup_expired_jobs()
+         self._dependency_errors = self._validate_dependencies()
+-        if detection_policy_error:
+-            self._dependency_errors.append(f"detection policy: {detection_policy_error}")
+ 
+     def health(self) -> dict[str, Any]:
+         return {
+@@ -141,8 +137,6 @@ class PcapJobService:
+         }
+ 
+     def _public_policy(self) -> dict[str, Any] | None:
+-        if self.detection_policy_error:
+-            return None
+         import detection_policy
+ 
+         return detection_policy.public(self.detection_policy)
+@@ -474,8 +468,7 @@ class PcapJobService:
+                 str(self.model_dir),
+                 "--tshark",
+                 str(self.tshark),
+-                "--original-name",
+-                state["originalName"],
++                f"--original-name={state['originalName']}",
+                 "--sha256",
+                 state["sha256"],
+                 "--detection-policy",
+diff --git a/iMPS_platform/desktop/runtime/worker.py b/iMPS_platform/desktop/runtime/worker.py
+index b16ff898..6570fcd3 100644
+--- a/iMPS_platform/desktop/runtime/worker.py
++++ b/iMPS_platform/desktop/runtime/worker.py
+@@ -263,7 +263,9 @@ def analyze_stop_attribution(
+             "confidence": "high",
+             "evidence": f"EVSE returned {message}:{response}.",
+         }
+-    if "no SessionSetupRes" in reason:
++    # the ISO 15118-2 rule text for [V2G2-448] also contains "no SessionSetupRes";
++    # it has its own, neutral attribution further down
++    if "no SessionSetupRes" in reason and "[V2G2-448]" not in reason:
+         return {
+             "triggeredBy": "charger",
+             "requestSender": request_sender,
+diff --git a/iMPS_platform/desktop/scripts/prepare-desktop.mjs b/iMPS_platform/desktop/scripts/prepare-desktop.mjs
+index 388bad88..f68f7190 100644
+--- a/iMPS_platform/desktop/scripts/prepare-desktop.mjs
++++ b/iMPS_platform/desktop/scripts/prepare-desktop.mjs
+@@ -140,6 +140,10 @@ async function exportSummary() {
+         ...(process.env.IMPS_FAULT_DATA_ROOT
+           ? ["--data-root", process.env.IMPS_FAULT_DATA_ROOT]
+           : []),
++        // the current line bundles the in-sample training-station rows
++        ...(process.env.IMPS_FAULT_TRAIN_RECORDS
++          ? ["--train-records", process.env.IMPS_FAULT_TRAIN_RECORDS]
++          : []),
+       ]);
+       return output;
+     } catch (error) {
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+index 68d4a198..fdda3fa9 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+@@ -133,6 +133,8 @@ const COPY = {
+     score: "Score",
+     viewStationDetails: "ดูรายละเอียดสถานี",
+     noStations: "ไม่พบสถานีที่ตรงกับคำค้น",
++    stationNoteSplit: "กดที่สถานีเพื่อดูผลแยก Connector และ Fault · แต่ละสถานีมีป้ายบอกว่าเป็น held-out หรือชุดฝึก (in-sample) · ไม่ใช่สถานะสุขภาพแบบเรียลไทม์",
++    otherSplitMatches: (count: number) => `พบ ${count} สถานีที่ตรงกับคำค้นในชุดข้อมูลอื่น · แสดงทั้งหมด`,
+     loadingStations: "กำลังโหลดผลรายสถานี",
+     stationLoadFailed: "โหลดผลวิเคราะห์รายสถานีไม่สำเร็จ",
+     retry: "ลองใหม่",
+@@ -235,6 +237,8 @@ const COPY = {
+     score: "Score",
+     viewStationDetails: "View station details",
+     noStations: "No stations match the search.",
++    stationNoteSplit: "Select a station for connector and fault details · Each station is labelled held-out or training (in-sample) · Not real-time station health.",
++    otherSplitMatches: (count: number) => `${count} matching station${count === 1 ? "" : "s"} in the other data split · show all`,
+     loadingStations: "Loading station results",
+     stationLoadFailed: "Unable to load station analysis",
+     retry: "Retry",
+@@ -588,6 +592,12 @@ export default function FaultDetectionPage() {
+     });
+     return rows;
+   }, [stationQuery, stationSort, splitStations]);
++  // the search is scoped to the selected split; say so when the other split has matches
++  const otherSplitMatches = useMemo(() => {
++    const query = stationQuery.trim().toLowerCase();
++    if (!query || !hasTrainStations || stationSplitFilter === "all") return 0;
++    return stations.filter((row) => stationSplitOf(row) !== stationSplitFilter && row.station.toLowerCase().includes(query)).length;
++  }, [hasTrainStations, stationQuery, stationSplitFilter, stations]);
+   // headline numbers are held-out only; training stations are in-sample
+   const stationTotals = useMemo(() => heldOutStationTotals(stations), [stations]);
+   const trainTotals = useMemo(
+@@ -1140,7 +1150,7 @@ export default function FaultDetectionPage() {
+                 icon={<MapPin className="tw-h-5 tw-w-5 sm:tw-h-6 sm:tw-w-6" />}
+                 title={c.stationTitle}
+                 description={c.stationSub(heldOutSessionsLabel)}
+-                note={c.stationNote}
++                note={hasTrainStations && stationSplitFilter !== "test" ? c.stationNoteSplit : c.stationNote}
+                 actions={(
+                   <>
+                   {stationSnapshotLabel && (
+@@ -1335,8 +1345,13 @@ export default function FaultDetectionPage() {
+                     );
+                   })}
+                   {visibleStations.length === 0 && (
+-                    <div className="tw-flex tw-min-h-[180px] tw-items-center tw-justify-center tw-rounded-2xl tw-border tw-border-dashed tw-border-slate-300 tw-bg-slate-50 tw-p-6 tw-text-center tw-text-[13px] tw-font-semibold tw-text-gray-500">
++                    <div className="tw-flex tw-min-h-[180px] tw-flex-col tw-items-center tw-justify-center tw-gap-3 tw-rounded-2xl tw-border tw-border-dashed tw-border-slate-300 tw-bg-slate-50 tw-p-6 tw-text-center tw-text-[13px] tw-font-semibold tw-text-gray-500">
+                       {c.noStations}
++                      {otherSplitMatches > 0 && (
++                        <button type="button" onClick={() => setStationSplitFilter("all")} className="tw-rounded-lg tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-py-1.5 tw-text-[12px] tw-font-bold tw-text-blue-700 hover:tw-border-blue-300">
++                          {c.otherSplitMatches(otherSplitMatches)}
++                        </button>
++                      )}
+                     </div>
+                   )}
+                 </div>
+@@ -1429,7 +1444,14 @@ export default function FaultDetectionPage() {
+                     </tbody>
+                   </table>
+                   {visibleStations.length === 0 && (
+-                    <div className="tw-flex tw-min-h-[180px] tw-items-center tw-justify-center tw-p-6 tw-text-[13px] tw-font-semibold tw-text-gray-500">{c.noStations}</div>
++                    <div className="tw-flex tw-min-h-[180px] tw-flex-col tw-items-center tw-justify-center tw-gap-3 tw-p-6 tw-text-[13px] tw-font-semibold tw-text-gray-500">
++                      {c.noStations}
++                      {otherSplitMatches > 0 && (
++                        <button type="button" onClick={() => setStationSplitFilter("all")} className="tw-rounded-lg tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-py-1.5 tw-text-[12px] tw-font-bold tw-text-blue-700 hover:tw-border-blue-300">
++                          {c.otherSplitMatches(otherSplitMatches)}
++                        </button>
++                      )}
++                    </div>
+                   )}
+                 </div>
+               </>
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+index 2b6076f2..31e674a1 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+@@ -902,7 +902,7 @@ export default function ResearchDashboard({
+           </div>
+           <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{desktop ? c.bundledTitle : c.bundledTitleWeb}</h2>
+           <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{desktop ? c.bundledSub : c.bundledSubWeb}</p>
+-          <p className="tw-mt-2 tw-max-w-3xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-400">{policySentence} {c.researchBasis[modelRelation]}</p>
++          <p className="tw-mt-2 tw-max-w-3xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-400">{bundled ? `${policySentence} ` : ""}{c.researchBasis[modelRelation]}</p>
+         </div>
+         {bundled && (
+           <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-bg-slate-50/70 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx
+index 846c1615..7edc5bc7 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx
+@@ -33,6 +33,10 @@ const COPY = {
+     // Per-station rows are the Agentic AI replay (the summary's byStation sums
+     // equal agentic-ai's tp/late/miss/fp), not the edition's top-ranked model.
+     benchmarkScore: "คะแนน Benchmark · Agentic AI",
++    benchmarkScoreTrain: "คะแนน In-sample · Agentic AI (ชุดฝึก)",
++    overviewTrain: "ภาพรวมข้อมูลชุดฝึก (in-sample)",
++    connectorCountTrain: "Connector ในชุดฝึก",
++    noFamilyDataTrain: "ไม่พบ Fault family ในชุดฝึกของสถานีนี้",
+     topFault: "Fault หลัก",
+     overview: "ภาพรวมข้อมูลทดสอบ",
+     outcomes: "ผลลัพธ์การตรวจจับ",
+@@ -79,6 +83,10 @@ const COPY = {
+     title: "Station analysis details",
+     close: "Close station details",
+     benchmarkScore: "Benchmark score · Agentic AI",
++    benchmarkScoreTrain: "In-sample score · Agentic AI (training)",
++    overviewTrain: "Training-data overview (in-sample)",
++    connectorCountTrain: "Connectors in training set",
++    noFamilyDataTrain: "No fault family was present for this station in the training set.",
+     topFault: "Top fault",
+     overview: "Test-data overview",
+     outcomes: "Detection outcomes",
+@@ -188,6 +196,7 @@ export default function StationDetailDialog({ station, onClose }: Props) {
+   const c = COPY[lang];
+ 
+   if (!station) return null;
++  const isTrain = station.split === "train";
+ 
+   const trueNegative = Math.max(0, station.normalSessions - station.fp);
+   const scoreTone =
+@@ -240,7 +249,7 @@ export default function StationDetailDialog({ station, onClose }: Props) {
+                   </span>
+                 )}
+                 <span>{c.group}: {displayIdentifier(station.group)}</span>
+-                <span>{c.connectorCount}: {formatInt(station.connectors)}</span>
++                <span>{isTrain ? c.connectorCountTrain : c.connectorCount}: {formatInt(station.connectors)}</span>
+               </div>
+             </div>
+           </div>
+@@ -261,7 +270,7 @@ export default function StationDetailDialog({ station, onClose }: Props) {
+           <section className="tw-grid tw-gap-3 sm:tw-grid-cols-2">
+             <div className="tw-rounded-2xl tw-bg-gray-900 tw-p-4 tw-text-white tw-shadow-sm">
+               <div className="tw-text-[11px] tw-font-bold tw-uppercase tw-tracking-[0.13em] tw-text-white/50">
+-                {c.benchmarkScore}
++                {isTrain ? c.benchmarkScoreTrain : c.benchmarkScore}
+               </div>
+               <div className="tw-mt-2 tw-flex tw-items-end tw-gap-3">
+                 <span className={`ai-mono tw-inline-flex tw-rounded-xl tw-px-3 tw-py-2 tw-text-3xl tw-font-black tw-ring-1 ${scoreTone}`}>
+@@ -284,7 +293,7 @@ export default function StationDetailDialog({ station, onClose }: Props) {
+           </section>
+ 
+           <section>
+-            <SectionTitle icon={<BarChart3 className="tw-h-4 tw-w-4" />}>{c.overview}</SectionTitle>
++            <SectionTitle icon={<BarChart3 className="tw-h-4 tw-w-4" />}>{isTrain ? c.overviewTrain : c.overview}</SectionTitle>
+             <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 sm:tw-grid-cols-5">
+               <MetricCard label={c.sessions} value={formatInt(station.sessions)} />
+               <MetricCard label={c.faultSessions} value={formatInt(station.faultySessions)} tone="red" />
+@@ -398,7 +407,7 @@ export default function StationDetailDialog({ station, onClose }: Props) {
+             <SectionTitle icon={<Clock3 className="tw-h-4 tw-w-4" />}>{c.faultFamilies}</SectionTitle>
+             {station.byFaultFamily.length === 0 ? (
+               <div className="tw-rounded-xl tw-border tw-border-dashed tw-border-gray-300 tw-bg-white tw-p-5 tw-text-center tw-text-[13px] tw-font-semibold tw-text-gray-500">
+-                {c.noFamilyData}
++                {isTrain ? c.noFamilyDataTrain : c.noFamilyData}
+               </div>
+             ) : (
+               <div className="tw-space-y-2.5">
+-- 
+2.45.1.windows.1
+

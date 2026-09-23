@@ -39,6 +39,23 @@ name what is running: `productName`, `appVersion`, `artifactVersion` and
 `modelCreatedAt` (from `models/manifest.json`) and `summarySnapshotAt` (from
 the summary file); all are `null` when unknown.
 
+Detection policy: the detector runs under the policy its bundled benchmark
+was measured with, read from `summary.json` `detectionPolicy.id`
+(`detection_policy.py`; absent = `baseline`):
+
+| Policy | Research switches | Meaning |
+|---|---|---|
+| `baseline` | `EV_AI_ISO=0 EV_AI_ISO_VEC=0 EV_AI_SLAC=0` | fleet-tuned rules only (the published v4 benchmark) |
+| `iso15118-standard` | `EV_AI_ISO=1 EV_AI_ISO_VEC=0 EV_AI_SLAC=1 EV_AI_SLAC_RULE_MODE=normative` | ISO 15118-2 rule layer + ISO 15118-3 SLAC timers (600 ms match response, 10 s match session) |
+
+The worker receives the policy as `--detection-policy` (with
+`--benchmark-rank`, Agentic AI's rank in the bundled leaderboard), clears any
+inherited research switch (`EV_AI_NPD_RULE`, `EV_AI_SLAC_WAIT`, ...), sets the
+policy's before importing a detector module and raises if the imported modules
+disagree. `EV_AI_ISO_VEC` is always 0: the packaged weights are 33 features wide.
+An unknown or malformed policy stops the sidecar at start-up with the reason
+in `desktop-runtime.log`. `/health` and every PCAP result report `detectionPolicy`.
+
 The server launches the same executable in `worker` mode for one queued PCAP
 at a time. Uploads are limited to 256 MiB, validated by extension and capture
 magic, and stored under a random 128-bit job ID. Raw PCAP/telemetry files are

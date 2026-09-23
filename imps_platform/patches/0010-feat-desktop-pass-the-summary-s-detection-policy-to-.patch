@@ -1,0 +1,26 @@
+From e18c52f4dc979de55446edbd66e6580ff8eecba2 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 23 Sep 2026 10:17:36 +0700
+Subject: [PATCH 10/18] feat(desktop): pass the summary's detection policy to
+ the Overview
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+index dbc52ac2..d710c801 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+@@ -397,6 +397,7 @@ export default function FaultDetectionPage() {
+         dataset: summary.dataset,
+         leaderboard: summary.leaderboard,
+         faultFamilies: summary.analysis.faultFamilies,
++        detectionPolicy: summary.detectionPolicy ?? null,
+       });
+       setStationHasLoaded(true);
+     } catch (caught) {
+-- 
+2.45.1.windows.1
+

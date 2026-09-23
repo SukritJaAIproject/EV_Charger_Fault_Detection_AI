@@ -1,0 +1,1671 @@
+From 15c9e4247e8d7599d03784dd52b5aac3233e6f16 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 23 Sep 2026 10:16:16 +0700
+Subject: [PATCH 09/18] feat(desktop): detection policies and training-station
+ rows (1.3.0 groundwork)
+
+Detection policy (for the ISO 15118 edition):
+- desktop/runtime/detection_policy.py: whitelisted policies ("baseline",
+  "iso15118-standard" = ISO 15118-2 rule layer + ISO 15118-3 SLAC timers,
+  normative). apply_env() clears inherited research switches (EV_AI_NPD_RULE,
+  EV_AI_SLAC_WAIT, ...) and sets the policy's before any detector module is
+  imported; verify_loaded() raises if the imported modules disagree
+  (ISO_IN_VECTOR must stay off: the packaged weights are 33 features wide).
+- The policy comes from summary.json detectionPolicy (absent = baseline), so
+  the detector runs under the policy its bundled benchmark was measured with.
+  serve() passes it with Agentic AI's real leaderboard rank to every worker
+  (replacing the hard-coded benchmarkRank 1); /health and the PCAP result
+  report it; an unknown id marks the sidecar not ready instead of guessing.
+- Vendored core/iso15118.py and core/iso_features.py (needed once EV_AI_ISO=1)
+  and listed them in the PyInstaller spec; stop attribution knows the
+  [V2G2-711] / [V2G2-443] / [V2G2-448] rule alerts.
+- export_summary.py copies detectionPolicy from results/run_manifest.json.
+
+Training-station rows (212-station view):
+- load_fault_detection_summary(train_records=...) adds analysis.byStationTrain
+  from an in-sample replay (64 MiB cap), rows tagged split="train"; held-out
+  rows are tagged split="test". Checks: no overlap with held-out stations,
+  station set == split.json train, totals equal the replay's leaderboard.
+  The held-out gates, totals, leaderboard and snapshot date are unchanged.
+- export_summary.py --train-records (or IMPS_FAULT_TRAIN_RECORDS).
+- api.ts/data.ts: optional split, byStationTrain and detectionPolicy; an
+  unknown split value is rejected, held-out rows must add up to the dataset;
+  helpers allStationRows / heldOutStationTotals / stationSplitOf; tests.
+- Hero shows a "Standard rules" chip and the PCAP result names the policy
+  when it is not the baseline.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../backend/routers/fault_detection.py        | 107 ++++-
+ iMPS_platform/desktop/export_summary.py       |  48 ++-
+ .../desktop/runtime/detection_policy.py       | 117 ++++++
+ .../desktop/runtime/imps_fault_runtime.py     |  16 +
+ .../desktop/runtime/imps_fault_runtime.spec   |   3 +
+ iMPS_platform/desktop/runtime/job_service.py  |  20 +
+ .../desktop/runtime/vendor/core/iso15118.py   | 259 ++++++++++++
+ .../runtime/vendor/core/iso_features.py       | 381 ++++++++++++++++++
+ iMPS_platform/desktop/runtime/worker.py       |  38 +-
+ .../desktop/scripts/prepare-desktop.mjs       |   2 +
+ .../app/dashboard/ai/fault-detection/api.ts   |  56 ++-
+ .../app/dashboard/ai/fault-detection/data.ts  |  49 ++-
+ .../app/dashboard/ai/fault-detection/page.tsx |  18 +
+ .../ai/fault-detection/station-split.test.ts  | 111 +++++
+ 14 files changed, 1202 insertions(+), 23 deletions(-)
+ create mode 100644 iMPS_platform/desktop/runtime/detection_policy.py
+ create mode 100644 iMPS_platform/desktop/runtime/vendor/core/iso15118.py
+ create mode 100644 iMPS_platform/desktop/runtime/vendor/core/iso_features.py
+ create mode 100644 iMPS_platform/src/app/dashboard/ai/fault-detection/station-split.test.ts
+
+diff --git a/iMPS_platform/backend/routers/fault_detection.py b/iMPS_platform/backend/routers/fault_detection.py
+index 291f97e6..f16cdc2b 100644
+--- a/iMPS_platform/backend/routers/fault_detection.py
++++ b/iMPS_platform/backend/routers/fault_detection.py
+@@ -33,6 +33,9 @@ _ANALYSIS_FILE = "analysis_test.json"
+ _RECORDS_FILE = "records_test.json"
+ _SPLIT_FILE = "split.json"
+ _MAX_RESULT_BYTES = 10 * 1024 * 1024
++# records of the in-sample replay over the training stations (optional, desktop
++# builds only): ~31,800 sessions, so ~20 MB with five detectors
++_MAX_TRAIN_RECORDS_BYTES = 64 * 1024 * 1024
+ _LATE_GRACE_SECONDS = 10.0
+ _LEAD_CAP_SECONDS = 120.0
+ _JOB_SERVICE: PcapJobService | None = None
+@@ -177,14 +180,14 @@ def _read_result(path: Path) -> tuple[Mapping[str, Any], bytes, int]:
+     return _as_mapping(decoded, path.name), raw, modified_ns
+ 
+ 
+-def _read_records(path: Path) -> tuple[list[Any], bytes, int]:
++def _read_records(path: Path, max_bytes: int = _MAX_RESULT_BYTES) -> tuple[list[Any], bytes, int]:
+     """Read the fixed per-session benchmark records used for station rollups."""
+     try:
+         raw = path.read_bytes()
+         modified_ns = path.stat().st_mtime_ns
+     except (OSError, PermissionError) as exc:
+         raise FaultDetectionResultError(f"cannot read {path.name}") from exc
+-    if not raw or len(raw) > _MAX_RESULT_BYTES:
++    if not raw or len(raw) > max_bytes:
+         raise FaultDetectionResultError(f"{path.name} has an invalid size")
+     try:
+         decoded = json.loads(
+@@ -286,11 +289,20 @@ def _station_rollup_metrics(stats: Mapping[str, Any]) -> dict[str, Any]:
+     }
+ 
+ 
+-def _build_station_analysis(records: list[Any]) -> list[dict[str, Any]]:
+-    """Aggregate AgenticAI's held-out results with the competition's exact rules."""
++def _build_station_analysis(
++    records: list[Any],
++    *,
++    split_name: str = "test",
++    source_label: str = _RECORDS_FILE,
++) -> list[dict[str, Any]]:
++    """Aggregate AgenticAI's per-session results with the competition's exact rules.
++
++    Every row carries the split it came from: "test" rows are the held-out
++    evaluation, "train" rows are in-sample (the models were fitted on them).
++    """
+     stations: dict[str, dict[str, Any]] = {}
+     for index, raw_record in enumerate(records):
+-        record_label = f"{_RECORDS_FILE}[{index}]"
++        record_label = f"{source_label}[{index}]"
+         record = _as_mapping(raw_record, record_label)
+         label = _as_mapping(record.get("label"), f"{record_label}.label")
+         station = label.get("station")
+@@ -462,6 +474,7 @@ def _build_station_analysis(records: list[Any]) -> list[dict[str, Any]]:
+         rows.append(
+             {
+                 "station": station,
++                "split": split_name,
+                 "group": stats["group"],
+                 "connectors": len(stats["connectors"]),
+                 **station_metrics,
+@@ -757,10 +770,62 @@ def _build_summary(
+     }
+ 
+ 
++def _load_train_station_analysis(
++    train_records: Path,
++    split_data: Mapping[str, Any] | None,
++    held_out: list[dict[str, Any]],
++) -> tuple[list[dict[str, Any]], bytes]:
++    """Per-station rows for the training stations, from an in-sample replay.
++
++    They never enter the held-out gates, totals or leaderboard; they are only
++    attached as analysis.byStationTrain for the station views.
++    """
++    records, raw, _ = _read_records(train_records, _MAX_TRAIN_RECORDS_BYTES)
++    rows = _build_station_analysis(records, split_name="train", source_label=train_records.name)
++    names = {row["station"] for row in rows}
++    overlap = names & {row["station"] for row in held_out}
++    if overlap:
++        raise FaultDetectionResultError(
++            f"{train_records.name} contains held-out stations: {sorted(overlap)[:3]}"
++        )
++    if split_data is not None:
++        expected = split_data.get("train")
++        if isinstance(expected, list) and set(expected) != names:
++            raise FaultDetectionResultError(
++                f"{train_records.name} stations do not match {_SPLIT_FILE}.train"
++            )
++    # a leaderboard written by the same replay must agree with the station rows
++    for candidate in sorted(train_records.parent.glob("leaderboard_train*.json")):
++        board, _, _ = _read_result(candidate)
++        agentic = (board.get("detectors") or {}).get("AgenticAI")
++        if not isinstance(agentic, Mapping):
++            continue
++        totals = {key: sum(row[key] for row in rows) for key in ("faultySessions", "normalSessions", "tp", "late", "miss", "fp")}
++        expected_totals = {
++            "faultySessions": board.get("n_faulty"),
++            "normalSessions": board.get("n_clean"),
++            "tp": agentic.get("tp"),
++            "late": agentic.get("late"),
++            "miss": agentic.get("miss"),
++            "fp": agentic.get("fp"),
++        }
++        if totals != expected_totals:
++            raise FaultDetectionResultError(
++                f"{train_records.name} station rows do not match {candidate.name}"
++            )
++    return rows, raw
++
++
+ def load_fault_detection_summary(
+     data_root: str | Path | None = None,
++    *,
++    train_records: str | Path | None = None,
+ ) -> tuple[dict[str, Any], str]:
+-    """Load, validate, and transform the two fixed full-fleet result files."""
++    """Load, validate, and transform the two fixed full-fleet result files.
++
++    `train_records` optionally adds the in-sample training-station rows as
++    analysis.byStationTrain (desktop builds); the held-out summary is unchanged.
++    """
+     root = Path(
+         data_root
+         if data_root is not None
+@@ -778,6 +843,7 @@ def load_fault_detection_summary(
+     station_analysis = _build_station_analysis(records)
+     station_count: int | None = None
+     split_raw = b""
++    split_data: Mapping[str, Any] | None = None
+     split_path = root / _SPLIT_FILE
+     if split_path.is_file():
+         split_data, split_raw, _ = _read_result(split_path)
+@@ -797,6 +863,13 @@ def load_fault_detection_summary(
+                 f"{_RECORDS_FILE} stations do not match {_SPLIT_FILE}.{split_name}"
+             )
+ 
++    train_rows: list[dict[str, Any]] | None = None
++    train_raw = b""
++    if train_records is not None:
++        train_rows, train_raw = _load_train_station_analysis(
++            Path(train_records), split_data, station_analysis
++        )
++
+     digest = hashlib.sha256(
+         leaderboard_raw
+         + b"\0"
+@@ -805,18 +878,22 @@ def load_fault_detection_summary(
+         + records_raw
+         + b"\0"
+         + split_raw
++        + b"\0"
++        + train_raw
+     ).hexdigest()
+     etag = f'"{digest}"'
+-    return (
+-        _build_summary(
+-            leaderboard,
+-            analysis,
+-            snapshot_ns=max(leaderboard_ns, analysis_ns, records_ns),
+-            station_count=station_count,
+-            station_analysis=station_analysis,
+-        ),
+-        etag,
++    summary = _build_summary(
++        leaderboard,
++        analysis,
++        # the benchmark date is the held-out result's; the in-sample file must
++        # not move the "data as of" the dashboard shows
++        snapshot_ns=max(leaderboard_ns, analysis_ns, records_ns),
++        station_count=station_count,
++        station_analysis=station_analysis,
+     )
++    if train_rows is not None:
++        summary["analysis"]["byStationTrain"] = train_rows
++    return summary, etag
+ 
+ 
+ def _etag_matches(header: str | None, etag: str) -> bool:
+diff --git a/iMPS_platform/desktop/export_summary.py b/iMPS_platform/desktop/export_summary.py
+index f5830606..b2150cbe 100644
+--- a/iMPS_platform/desktop/export_summary.py
++++ b/iMPS_platform/desktop/export_summary.py
+@@ -69,9 +69,40 @@ def _resolve_data_root(explicit: Path | None) -> Path:
+     raise SystemExit(f"Validated benchmark data was not found. Checked: {locations}")
+ 
+ 
++def _detection_policy(data_root: Path) -> dict[str, Any] | None:
++    """The policy block of the replay that produced this data root, if any.
++
++    A replay run with rule layers switched on writes results/run_manifest.json
++    with a detectionPolicy block; the desktop sidecar runs the detector under
++    the same policy, so it is copied into the summary next to the benchmark
++    it describes. No manifest (the published v4 root) means the baseline.
++    """
++    manifest_path = data_root / "results" / "run_manifest.json"
++    if not manifest_path.is_file():
++        return None
++    manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
++    block = manifest.get("detectionPolicy")
++    if block is None:
++        return None
++    if not isinstance(block, dict) or not isinstance(block.get("id"), str):
++        raise SystemExit(f"{manifest_path} has an invalid detectionPolicy block")
++    return {
++        "schemaVersion": 1,
++        "id": block["id"],
++        "iso2Rules": bool(block.get("iso2Rules")),
++        "slacRuleMode": str(block.get("slacRuleMode") or "off"),
++    }
++
++
+ def parse_args() -> argparse.Namespace:
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("--data-root", type=Path)
++    parser.add_argument(
++        "--train-records",
++        type=Path,
++        default=Path(os.environ["IMPS_FAULT_TRAIN_RECORDS"]) if os.environ.get("IMPS_FAULT_TRAIN_RECORDS") else None,
++        help="records of the in-sample replay over the training stations (adds analysis.byStationTrain)",
++    )
+     parser.add_argument(
+         "--output",
+         type=Path,
+@@ -90,7 +121,9 @@ def main() -> int:
+     from desktop.fault_detection_api import _load_results_module
+ 
+     results_module = _load_results_module(PROJECT_ROOT)
+-    summary, etag = results_module.load_fault_detection_summary(data_root)
++    summary, etag = results_module.load_fault_detection_summary(
++        data_root, train_records=args.train_records
++    )
+     if summary.get("source") != "full_fleet":
+         raise SystemExit("Expected a validated full_fleet summary")
+     if len(summary.get("leaderboard", [])) != 5:
+@@ -98,7 +131,16 @@ def main() -> int:
+     if summary.get("dataset", {}).get("sessions") != 8_820:
+         raise SystemExit("Expected exactly 8,820 held-out sessions")
+     if len(summary.get("analysis", {}).get("byStation", [])) != 45:
+-        raise SystemExit("Expected exactly 45 station summaries")
++        raise SystemExit("Expected exactly 45 held-out station summaries")
++    if any(row.get("split") != "test" for row in summary["analysis"]["byStation"]):
++        raise SystemExit("Every held-out station row must be marked split=test")
++    train_rows = summary["analysis"].get("byStationTrain")
++    if args.train_records is not None:
++        if not train_rows or any(row.get("split") != "train" for row in train_rows):
++            raise SystemExit("Expected training-station rows marked split=train")
++    policy = _detection_policy(data_root)
++    if policy is not None:
++        summary["detectionPolicy"] = policy
+ 
+     output = args.output.resolve()
+     output.parent.mkdir(parents=True, exist_ok=True)
+@@ -114,6 +156,8 @@ def main() -> int:
+                 "output": str(output),
+                 "bytes": output.stat().st_size,
+                 "stations": len(summary["analysis"]["byStation"]),
++                "trainStations": len(summary["analysis"].get("byStationTrain") or []),
++                "detectionPolicy": (summary.get("detectionPolicy") or {}).get("id", "baseline"),
+                 "models": len(summary["leaderboard"]),
+                 "etag": etag,
+                 "dataRoot": str(data_root),
+diff --git a/iMPS_platform/desktop/runtime/detection_policy.py b/iMPS_platform/desktop/runtime/detection_policy.py
+new file mode 100644
+index 00000000..91538d3a
+--- /dev/null
++++ b/iMPS_platform/desktop/runtime/detection_policy.py
+@@ -0,0 +1,117 @@
++"""Detection policies the portable sidecar can run, and how each one is applied.
++
++A desktop edition ships one benchmark (data/summary.json) and the detector must
++run under the same policy that benchmark was measured with, so the policy is
++read from the summary's `detectionPolicy.id` rather than configured separately.
++Only whitelisted policies exist; an unknown id makes the sidecar report itself
++as not ready instead of guessing.
++
++The research code reads its switches from environment variables at import time
++(core/feature_tracker.py, core/slac_features.py), so the worker must call
++`apply_env` before importing any detector module and `verify_loaded` right
++after, which fails loudly if the imported modules are not in the requested
++state (PyInstaller runs with optimize=1, so this uses exceptions, not asserts).
++"""
++
++from __future__ import annotations
++
++import os
++from typing import Any
++
++DEFAULT_POLICY = "baseline"
++
++POLICIES: dict[str, dict[str, Any]] = {
++    "baseline": {
++        "label": "Baseline (fleet-tuned rules, no standard rule layers)",
++        "iso2Rules": False,
++        "slacRuleMode": "off",
++        "env": {"EV_AI_ISO": "0", "EV_AI_ISO_VEC": "0", "EV_AI_SLAC": "0"},
++    },
++    "iso15118-standard": {
++        "label": "ISO 15118-2 rule layer + ISO 15118-3 SLAC timers (normative)",
++        "iso2Rules": True,
++        "slacRuleMode": "normative",
++        # EV_AI_ISO_VEC stays 0: the rule layer sees the ISO state, the
++        # 33-feature vector the v4 weights were trained on does not change.
++        "env": {
++            "EV_AI_ISO": "1",
++            "EV_AI_ISO_VEC": "0",
++            "EV_AI_SLAC": "1",
++            "EV_AI_SLAC_RULE_MODE": "normative",
++        },
++    },
++}
++
++# switches that must never leak in from the parent environment
++_CLEARED_ENV = (
++    "EV_AI_ISO",
++    "EV_AI_ISO_VEC",
++    "EV_AI_SLAC",
++    "EV_AI_SLAC_RULE_MODE",
++    "EV_AI_SLAC_WAIT",
++    "EV_AI_NPD_RULE",
++    "EV_AI_INDEX",
++    "EV_AI_CLEAN_SAMPLE",
++)
++
++
++class PolicyError(ValueError):
++    pass
++
++
++def policy_id_from_summary(summary: dict[str, Any]) -> str:
++    """The summary's policy id; a summary without one was measured on the baseline."""
++    block = summary.get("detectionPolicy")
++    if block is None:
++        return DEFAULT_POLICY
++    if not isinstance(block, dict) or not isinstance(block.get("id"), str):
++        raise PolicyError("detectionPolicy must be an object with a string id")
++    policy_id = block["id"].strip()
++    if policy_id not in POLICIES:
++        raise PolicyError(f"unknown detection policy {policy_id!r}")
++    return policy_id
++
++
++def public(policy_id: str) -> dict[str, Any]:
++    policy = POLICIES[policy_id]
++    return {
++        "id": policy_id,
++        "label": policy["label"],
++        "iso2Rules": policy["iso2Rules"],
++        "slacRuleMode": policy["slacRuleMode"],
++    }
++
++
++def apply_env(policy_id: str, environ: dict[str, str] | None = None) -> None:
++    if policy_id not in POLICIES:
++        raise PolicyError(f"unknown detection policy {policy_id!r}")
++    env = os.environ if environ is None else environ
++    for name in _CLEARED_ENV:
++        env.pop(name, None)
++    env.update(POLICIES[policy_id]["env"])
++
++
++def verify_loaded(policy_id: str) -> None:
++    """Check the imported research modules are in the state the policy asks for."""
++    from core import feature_tracker as ft
++
++    policy = POLICIES[policy_id]
++    want_slac = policy["slacRuleMode"] != "off"
++    problems = []
++    if ft.ISO_ENABLED is not policy["iso2Rules"]:
++        problems.append(f"ISO_ENABLED={ft.ISO_ENABLED}")
++    if ft.ISO_IN_VECTOR:
++        problems.append("ISO_IN_VECTOR=True (the packaged weights are 33 features wide)")
++    if ft.FeatureState.N_FEATURES != 33:
++        problems.append(f"N_FEATURES={ft.FeatureState.N_FEATURES}")
++    if ft.SLAC_ENABLED is not want_slac:
++        problems.append(f"SLAC_ENABLED={ft.SLAC_ENABLED}")
++    if want_slac:
++        from core import slac_features
++
++        if slac_features.RULE_MODE != policy["slacRuleMode"]:
++            problems.append(f"SLAC RULE_MODE={slac_features.RULE_MODE}")
++    if problems:
++        raise RuntimeError(
++            f"detector modules do not match detection policy {policy_id!r}: " + ", ".join(problems)
++        )
+diff --git a/iMPS_platform/desktop/runtime/imps_fault_runtime.py b/iMPS_platform/desktop/runtime/imps_fault_runtime.py
+index fb16ba63..cef3f0cf 100644
+--- a/iMPS_platform/desktop/runtime/imps_fault_runtime.py
++++ b/iMPS_platform/desktop/runtime/imps_fault_runtime.py
+@@ -15,6 +15,7 @@ from pathlib import Path
+ from typing import Any
+ from urllib.parse import unquote, urlsplit
+ 
++import detection_policy
+ from job_service import JobServiceError, PcapJobService
+ 
+ 
+@@ -288,11 +289,26 @@ def _serve(argv: list[str]) -> int:
+ 
+     origin = _validate_origin(args.origin)
+     summary, summary_bytes, summary_etag = _load_summary(args.summary)
++    # an unknown policy does not stop the server: /health reports it as missing,
++    # so the dashboard shows the sidecar as not ready instead of guessing
++    policy_error = None
++    try:
++        policy_id = detection_policy.policy_id_from_summary(summary)
++    except detection_policy.PolicyError as exc:
++        policy_id, policy_error = detection_policy.DEFAULT_POLICY, str(exc)
++    agentic_rank = next(
++        (row.get("rank") for row in summary["leaderboard"]
++         if isinstance(row, dict) and row.get("id") == "agentic-ai" and isinstance(row.get("rank"), int)),
++        None,
++    )
+     service = PcapJobService(
+         jobs_root=args.jobs_root,
+         model_dir=args.model_dir,
+         tshark=args.tshark,
+         runtime_command=_runtime_command(),
++        detection_policy=policy_id,
++        detection_policy_error=policy_error,
++        benchmark_rank=agentic_rank,
+     )
+     handler = _make_handler(
+         summary=summary,
+diff --git a/iMPS_platform/desktop/runtime/imps_fault_runtime.spec b/iMPS_platform/desktop/runtime/imps_fault_runtime.spec
+index ad439c5a..5ef8c0d9 100644
+--- a/iMPS_platform/desktop/runtime/imps_fault_runtime.spec
++++ b/iMPS_platform/desktop/runtime/imps_fault_runtime.spec
+@@ -14,9 +14,12 @@ a = Analysis(
+         "capture",
+         "job_service",
+         "worker",
++        "detection_policy",
+         "core.schema",
+         "core.detector_base",
+         "core.feature_tracker",
++        "core.iso15118",
++        "core.iso_features",
+         "core.iso15118_3",
+         "core.slac_features",
+         "models.agentic_ai",
+diff --git a/iMPS_platform/desktop/runtime/job_service.py b/iMPS_platform/desktop/runtime/job_service.py
+index bb3261fb..99669021 100644
+--- a/iMPS_platform/desktop/runtime/job_service.py
++++ b/iMPS_platform/desktop/runtime/job_service.py
+@@ -95,6 +95,9 @@ class PcapJobService:
+         max_queued_jobs: int = MAX_QUEUED_JOBS,
+         timeout_seconds: int = INFERENCE_TIMEOUT_SECONDS,
+         retention_days: int = 30,
++        detection_policy: str = "baseline",
++        detection_policy_error: str | None = None,
++        benchmark_rank: int | None = None,
+     ) -> None:
+         self.jobs_root = jobs_root.resolve()
+         self.model_dir = model_dir.resolve()
+@@ -115,10 +118,15 @@ class PcapJobService:
+         # Identity of the bundled model, reported on /health so the dashboard
+         # can show which edition is running. Filled in by _validate_dependencies.
+         self.model_info: dict[str, Any] = {"artifactVersion": None, "createdAt": None}
++        self.detection_policy = detection_policy
++        self.detection_policy_error = detection_policy_error
++        self.benchmark_rank = benchmark_rank
+         self.jobs_root.mkdir(parents=True, exist_ok=True)
+         self._recover_interrupted_jobs()
+         self._cleanup_expired_jobs()
+         self._dependency_errors = self._validate_dependencies()
++        if detection_policy_error:
++            self._dependency_errors.append(f"detection policy: {detection_policy_error}")
+ 
+     def health(self) -> dict[str, Any]:
+         return {
+@@ -126,11 +134,19 @@ class PcapJobService:
+             "missing": list(self._dependency_errors),
+             "artifactVersion": self.model_info["artifactVersion"],
+             "modelCreatedAt": self.model_info["createdAt"],
++            "detectionPolicy": self._public_policy(),
+             "maxUploadBytes": self.max_upload_bytes,
+             "maxQueuedJobs": self.max_queued_jobs,
+             "retentionDays": self.retention_days,
+         }
+ 
++    def _public_policy(self) -> dict[str, Any] | None:
++        if self.detection_policy_error:
++            return None
++        import detection_policy
++
++        return detection_policy.public(self.detection_policy)
++
+     @staticmethod
+     def _sha256_file(path: Path) -> str:
+         digest = sha256()
+@@ -462,7 +478,11 @@ class PcapJobService:
+                 state["originalName"],
+                 "--sha256",
+                 state["sha256"],
++                "--detection-policy",
++                self.detection_policy,
+             ]
++            if self.benchmark_rank is not None:
++                command += ["--benchmark-rank", str(self.benchmark_rank)]
+             creation_flags = 0
+             if os.name == "nt":
+                 creation_flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+diff --git a/iMPS_platform/desktop/runtime/vendor/core/iso15118.py b/iMPS_platform/desktop/runtime/vendor/core/iso15118.py
+new file mode 100644
+index 00000000..6631dfa6
+--- /dev/null
++++ b/iMPS_platform/desktop/runtime/vendor/core/iso15118.py
+@@ -0,0 +1,259 @@
++"""Normative constants and tables from ISO 15118-2:2014, clauses 8.7 and 8.8.
++
++Why this file exists
++--------------------
++The fleet speaks DIN 70121 (`urn:din:70121:2012:MsgDef`), the German
++predecessor of ISO 15118-2 — but ~19 % of the observed `supportedAppProtocolReq`
++offers also carry `urn:iso:15118:2:2013:MsgDef`, and the DC message set,
++state machine and timing model are the same shape in both. ISO 15118-2 is the
++document that actually *publishes numbers*: how long each request may go
++unanswered, how long a sequence may stall, how long CableCheck and PreCharge
++may run, and which request may legally follow which response.
++
++Everything here is transcribed from the standard, not invented, so that the
++detector's thresholds are auditable against a clause number rather than being
++hand-tuned. Where a value is a *Timeout* the standard says the party shall
++terminate the session; where it is a *Performance Time* the party is merely
++out of spec (clause 8.7.1) — the two are kept apart deliberately, because on
++real hardware performance times are breached constantly and timeouts are not.
++
++Message names are the DIN 70121 spellings seen on the wire. ISO renames three
++of them (see ``ISO_NAME``); the timing values are keyed by the DIN spelling so
++lookups work directly against the telemetry.
++
++References (clause / table / requirement ids as printed in the standard):
++  Table 109   per-message V2G_EVCC_Msg_Timeout and V2G_SECC_Msg_Performance_Time,
++              V2G_EVCC_Sequence_Performance_Time, V2G_SECC_Sequence_Timeout,
++              V2G_EVCC_Ongoing_Timeout, V2G_SECC_Ongoing_Performance_Time
++  Table 111   communication-setup, CableCheck and PreCharge timers
++  8.7.2.2/.3  [V2G2-436..445]  message and sequence timer handling
++  8.7.3.2/.3  [V2G2-446..449] [V2G2-714..716]  communication setup
++  8.7.3.4/.5  [V2G2-710..713]  EVSEProcessing == Ongoing
++  8.7.3.6/.7  [V2G2-700..707]  CableCheck and PreCharge
++  8.8.4.2.3   [V2G2-524..535] [V2G2-599] [V2G2-617..620] [V2G2-790..794]
++              the DC EVCC state machine of Figure 102
++  8.8.4.2.3   [V2G2-880]  DC_EVSEStatusCodes without explicit requirements are
++              informational and shall not influence the charging process
++"""
++
++# --------------------------------------------------------------------------
++# message naming: DIN 70121 (on the wire) <-> ISO 15118-2 (in the standard)
++# --------------------------------------------------------------------------
++ISO_NAME = {
++    "ServicePaymentSelectionReq": "PaymentServiceSelectionReq",
++    "ServicePaymentSelectionRes": "PaymentServiceSelectionRes",
++    "ContractAuthenticationReq": "AuthorizationReq",
++    "ContractAuthenticationRes": "AuthorizationRes",
++}
++DIN_NAME = {v: k for k, v in ISO_NAME.items()}
++
++# --------------------------------------------------------------------------
++# Table 109 — V2G_EVCC_Msg_Timeout(MessageType), seconds.
++# Exceeding it is an ERROR: the EVCC stops the communication session
++# ([V2G2-438], and per-message [V2G2-524] [V2G2-526] [V2G2-532] [V2G2-534]).
++# --------------------------------------------------------------------------
++MSG_TIMEOUT_S = {
++    "supportedAppProtocolReq": 2.0,
++    "SessionSetupReq": 2.0,
++    "ServiceDiscoveryReq": 2.0,
++    "ServiceDetailReq": 5.0,
++    "ServicePaymentSelectionReq": 2.0,      # ISO: PaymentServiceSelectionReq
++    "PaymentDetailsReq": 5.0,
++    "ContractAuthenticationReq": 2.0,       # ISO: AuthorizationReq
++    "ChargeParameterDiscoveryReq": 2.0,
++    "ChargingStatusReq": 2.0,               # AC only
++    "MeteringReceiptReq": 2.0,
++    "PowerDeliveryReq": 5.0,
++    "CableCheckReq": 2.0,
++    "PreChargeReq": 2.0,
++    "CurrentDemandReq": 0.25,
++    "WeldingDetectionReq": 2.0,
++    "SessionStopReq": 2.0,
++    "CertificateInstallationReq": 5.0,
++    "CertificateUpdateReq": 5.0,
++}
++
++# --------------------------------------------------------------------------
++# Table 109 — V2G_SECC_Msg_Performance_Time(MessageType), seconds.
++# Exceeding it is NOT an error by itself (8.7.1 NOTE): the SECC is slow, and
++# the probability of the EVCC timing out is high. Keyed by response name.
++# --------------------------------------------------------------------------
++RES_PERFORMANCE_S = {
++    "supportedAppProtocolRes": 1.5,
++    "SessionSetupRes": 1.5,
++    "ServiceDiscoveryRes": 1.5,
++    "ServiceDetailRes": 4.5,
++    "ServicePaymentSelectionRes": 1.5,
++    "PaymentDetailsRes": 4.5,
++    "ContractAuthenticationRes": 1.5,
++    "ChargeParameterDiscoveryRes": 1.5,
++    "ChargingStatusRes": 1.5,
++    "MeteringReceiptRes": 1.5,
++    "PowerDeliveryRes": 4.5,
++    "CableCheckRes": 1.5,
++    "PreChargeRes": 1.5,
++    "CurrentDemandRes": 0.025,
++    "WeldingDetectionRes": 1.5,
++    "SessionStopRes": 1.5,
++    "CertificateInstallationRes": 4.5,
++    "CertificateUpdateRes": 4.5,
++}
++
++# --- Table 109, sequence and ongoing timers -------------------------------
++SEQ_PERFORMANCE_S = 40.0     # V2G_EVCC_Sequence_Performance_Time
++SEQ_TIMEOUT_S = 60.0         # V2G_SECC_Sequence_Timeout   [V2G2-443] -> stop
++ONGOING_TIMEOUT_S = 60.0     # V2G_EVCC_Ongoing_Timeout    [V2G2-711] -> stop
++ONGOING_PERFORMANCE_S = 55.0  # V2G_SECC_Ongoing_Performance_Time [V2G2-713]
++
++# --- Table 111, setup / cable check / pre charge --------------------------
++COMM_SETUP_TIMEOUT_S = 20.0       # V2G_EVCC_CommunicationSetup_Timeout
++COMM_SETUP_PERFORMANCE_S = 18.0   # V2G_SECC_CommunicationSetup_Performance_Time
++CABLECHECK_TIMEOUT_S = 40.0       # V2G_EVCC_CableCheck_Timeout   [V2G2-700..702]
++CABLECHECK_PERFORMANCE_S = 38.0   # V2G_SECC_CableCheck_Performance_Time
++PRECHARGE_TIMEOUT_S = 7.0         # V2G_EVCC_PreCharge_Timeout    [V2G2-704..706]
++PRECHARGE_PERFORMANCE_S = 5.0     # V2G_SECC_PreCharge_Performance_Time
++
++# --------------------------------------------------------------------------
++# Figure 102 / clause 8.8.4.2.3 — the DC EVCC state machine.
++#
++# Keyed by the response just received; the value is the set of requests the
++# EVCC may legally send next. Anything else means the dialog left the
++# normative sequence, which is exactly what FAILED_SequenceError is for.
++# Self-loops are legal where the standard says so: CableCheck while
++# EVSEProcessing is 'Ongoing' [V2G2-617], PreCharge until the voltage
++# threshold is met [V2G2-618], CurrentDemand [V2G2-531], WeldingDetection
++# [V2G2-620].
++#
++# ServiceDetail / PaymentDetails / CertificateInstallation / CertificateUpdate
++# are kept as legal successors even though DIN 70121 never uses them: their
++# absence is not an error, only their presence in the wrong place would be.
++# --------------------------------------------------------------------------
++DC_NEXT_REQ = {
++    "": ("supportedAppProtocolReq", "SessionSetupReq"),
++    "supportedAppProtocolRes": ("SessionSetupReq",),
++    "SessionSetupRes": ("ServiceDiscoveryReq",),
++    "ServiceDiscoveryRes": ("ServiceDetailReq", "ServicePaymentSelectionReq"),
++    "ServiceDetailRes": ("ServiceDetailReq", "ServicePaymentSelectionReq"),
++    "ServicePaymentSelectionRes": (
++        "ContractAuthenticationReq", "PaymentDetailsReq",
++        "CertificateInstallationReq", "CertificateUpdateReq"),
++    "CertificateInstallationRes": ("PaymentDetailsReq",
++                                   "ContractAuthenticationReq"),
++    "CertificateUpdateRes": ("PaymentDetailsReq", "ContractAuthenticationReq"),
++    "PaymentDetailsRes": ("ContractAuthenticationReq",),
++    # [V2G2-504] re-poll authorisation while EVSEProcessing == Ongoing
++    "ContractAuthenticationRes": ("ContractAuthenticationReq",
++                                  "ChargeParameterDiscoveryReq"),
++    # [V2G2-506] re-poll parameter discovery while Ongoing; [V2G2-599] -> cable check
++    "ChargeParameterDiscoveryRes": ("ChargeParameterDiscoveryReq",
++                                    "CableCheckReq"),
++    "CableCheckRes": ("CableCheckReq", "PreChargeReq"),          # 617 / 525
++    "PreChargeRes": ("PreChargeReq", "PowerDeliveryReq"),        # 618 / 528
++    # after PowerDelivery(Start) -> CurrentDemand [V2G2-530];
++    # after PowerDelivery(Stop)  -> WeldingDetection [V2G2-533] or
++    #                               SessionStop [V2G2-619];
++    # after PowerDelivery(Renegotiate) -> ChargeParameterDiscovery
++    "PowerDeliveryRes": ("CurrentDemandReq", "WeldingDetectionReq",
++                         "SessionStopReq", "ChargeParameterDiscoveryReq"),
++    "CurrentDemandRes": ("CurrentDemandReq", "MeteringReceiptReq",
++                         "PowerDeliveryReq"),                    # 531/790/527/686
++    "MeteringReceiptRes": ("CurrentDemandReq", "PowerDeliveryReq"),  # 792/793/794
++    "WeldingDetectionRes": ("WeldingDetectionReq", "SessionStopReq"),  # 620/535
++    "SessionStopRes": (),                                        # terminal
++}
++
++# Ordered DC progress states, used as a monotonic "how far did we get" signal.
++DC_STAGE_ORDER = (
++    "supportedAppProtocol", "SessionSetup", "ServiceDiscovery",
++    "ServicePaymentSelection", "ContractAuthentication",
++    "ChargeParameterDiscovery", "CableCheck", "PreCharge",
++    "PowerDelivery", "CurrentDemand", "WeldingDetection", "SessionStop",
++)
++DC_STAGE_INDEX = {name: i for i, name in enumerate(DC_STAGE_ORDER)}
++
++# The terminal sequence the standard prescribes for a clean DC stop:
++# PowerDelivery(Stop) -> [WeldingDetection]* -> SessionStop  [V2G2-533/535/619]
++CLEAN_CLOSE_TAIL = ("PowerDeliveryReq", "SessionStopReq")
++
++
++def base_name(msg):
++    """'CurrentDemandRes' -> 'CurrentDemand'; non-V2G names pass through."""
++    if msg.endswith("Req") or msg.endswith("Res"):
++        return msg[:-3]
++    return msg
++
++
++def stage_index(msg):
++    """-> position in DC_STAGE_ORDER, or None for a message outside the flow."""
++    return DC_STAGE_INDEX.get(base_name(msg))
++
++
++# --------------------------------------------------------------------------
++# ResponseCode semantics (clause 8.8.3, Table 112).
++#
++# 1.0 = the standard requires the session to be terminated with an error.
++# 0.5 = negotiated-but-degraded (an OK_ variant that reports a limitation).
++# 0.0 = success.
++# The DIN dialect also emits the bare 'FAILED' and the SAP-specific
++# CamelCase 'Failed_NoNegotiation', so matching is case-insensitive on the
++# FAILED prefix rather than against a closed set.
++# --------------------------------------------------------------------------
++RC_OK_DEGRADED = {
++    "OK_NEWSESSIONESTABLISHED": 0.0,
++    "OK_OLDSESSIONJOINED": 0.0,
++    "OK_SUCCESSFULNEGOTIATION": 0.0,
++    "OK_CERTIFICATEEXPIRESSOON": 0.5,
++}
++
++
++def rc_severity(resp_code):
++    """ResponseCode text -> 0.0 (ok) .. 1.0 (session must be terminated)."""
++    if not resp_code:
++        return 0.0
++    u = resp_code.upper()
++    if u.startswith("FAILED"):
++        return 1.0
++    return RC_OK_DEGRADED.get(u, 0.0)
++
++
++# --------------------------------------------------------------------------
++# DC_EVSEStatusCode severity.
++#
++# [V2G2-880]: status codes without explicit requirements are informational and
++# shall not influence the charging process; the expected values during a
++# healthy session are EVSE_Ready and EVSE_IsolationMonitoringActive.
++# EVSE_Shutdown is how a normal, EVSE-initiated stop is announced, so it is a
++# context signal (0.3), not a fault — matching what the fleet actually does.
++# --------------------------------------------------------------------------
++EVSE_STATUS_SEVERITY = {
++    "EVSE_NotReady": 0.1,
++    "EVSE_Ready": 0.0,
++    "EVSE_IsolationMonitoringActive": 0.0,
++    "EVSE_Shutdown": 0.3,
++    "EVSE_UtilityInterruptEvent": 0.6,
++    "EVSE_EmergencyShutdown": 1.0,
++    "EVSE_Malfunction": 1.0,
++}
++
++# isolationLevelType (clause 8.5). 'Invalid' is the normal pre-measurement
++# state and 'Warning' occurs transiently in healthy sessions on this fleet;
++# only 'Fault' is hard.
++ISOLATION_SEVERITY = {
++    "Invalid": 0.0, "No_IMD": 0.0, "Valid": 0.0,
++    "Warning": 0.4, "Fault": 1.0,
++}
++
++# EVSENotificationType (clause 8.5). Both non-None values are *requests to act*
++# and legal in a healthy session; they mark a change of intent, not a fault.
++NOTIFICATION_SEVERITY = {"None": 0.0, "StopCharging": 0.4, "ReNegotiation": 0.3}
++
++
++def ev_error_severity(ev_err):
++    """DC_EVErrorCode -> 0.0 (no error / no data) .. 1.0 (EV reports a fault)."""
++    if not ev_err or ev_err in ("NO_ERROR", "NoData"):
++        return 0.0
++    return 1.0
++
++
++PROTOCOL_ISO = "urn:iso:15118:2:2013:MsgDef"
++PROTOCOL_DIN = "urn:din:70121:2012:MsgDef"
+diff --git a/iMPS_platform/desktop/runtime/vendor/core/iso_features.py b/iMPS_platform/desktop/runtime/vendor/core/iso_features.py
+new file mode 100644
+index 00000000..e71e7b8b
+--- /dev/null
++++ b/iMPS_platform/desktop/runtime/vendor/core/iso_features.py
+@@ -0,0 +1,381 @@
++"""Online ISO 15118-2:2014 conformance features.
++
++One instance per session, fed the same event stream as ``FeatureTracker``.
++Every quantity is a *ratio against a published normative limit* rather than a
++hand-tuned threshold, so a value of 1.0 always means "the standard's own
++criterion has just been reached". That is the whole point of the experiment:
++the baseline arm learns where to put its thresholds from data, this arm is
++handed them by the standard.
++
++Two families are kept apart, exactly as clause 8.7.1 does:
++
++  * **Timeout** ratios — reaching 1.0 means the standard requires the party to
++    terminate the communication session. These are genuine fault evidence.
++  * **Performance-time** ratios — reaching 1.0 only means a party is slower
++    than the standard's performance criterion. Real hardware breaches these
++    constantly, so they are informative features, never hard rules.
++
++No lookahead: every value is computable from events already seen. Long stalls
++become visible *while they are still happening* because the PLC link-status
++poll keeps ticking (~20 Hz) even when the V2G dialog is stuck, so the sequence
++timers grow on those events instead of only when the dialog resumes.
++"""
++from core import iso15118 as iso
++
++
++def _clip(x, lo, hi):
++    return lo if x < lo else (hi if x > hi else x)
++
++
++class IsoState:
++    """Snapshot of the ISO conformance view at one event."""
++
++    __slots__ = (
++        "msg_timeout_ratio", "msg_timeout_ratio_max", "msg_perf_ratio",
++        "n_msg_timeout_breach", "seq_gap_ratio", "seq_timeout_ratio",
++        "n_seq_breach", "ongoing_ratio", "ongoing_perf_breach",
++        "comm_setup_ratio", "cablecheck_ratio", "cablecheck_breach",
++        "precharge_ratio", "precharge_breach", "seq_illegal", "n_seq_illegal",
++        "stage_frac", "stage_regress", "rc_sev", "evse_status_sev",
++        "isolation_sev", "notification_sev", "ev_err_sev", "v_over_evse_max",
++        "i_over_evse_max", "precharge_v_gap_ratio", "n_redialog",
++        # non-vector context used by the rule layers
++        "last_timeout_msg", "in_ongoing", "stage_name",
++    )
++
++    # Names of the appended block, in as_vector() order. Offsets into the full
++    # feature vector are FeatureState.N_BASE_FEATURES + index here.
++    FEATURE_NAMES = (
++        "iso_msg_timeout_ratio", "iso_msg_timeout_ratio_max",
++        "iso_msg_perf_ratio", "iso_n_msg_timeout_breach",
++        "iso_seq_gap_ratio", "iso_seq_timeout_ratio", "iso_n_seq_breach",
++        "iso_ongoing_ratio", "iso_ongoing_perf_breach",
++        "iso_comm_setup_ratio", "iso_cablecheck_ratio",
++        "iso_cablecheck_breach", "iso_precharge_ratio",
++        "iso_precharge_breach", "iso_seq_illegal", "iso_n_seq_illegal",
++        "iso_stage_frac", "iso_stage_regress", "iso_rc_sev",
++        "iso_evse_status_sev", "iso_isolation_sev", "iso_notification_sev",
++        "iso_ev_err_sev", "iso_v_over_evse_max", "iso_i_over_evse_max",
++        "iso_precharge_v_gap_ratio", "iso_n_redialog",
++    )
++
++    N_FEATURES = 27
++
++    def as_vector(self):
++        """Fixed-order numeric block appended to the base feature vector."""
++        return [
++            _clip(self.msg_timeout_ratio, 0.0, 8.0),
++            _clip(self.msg_timeout_ratio_max, 0.0, 8.0),
++            _clip(self.msg_perf_ratio, 0.0, 8.0),
++            _clip(self.n_msg_timeout_breach / 5.0, 0.0, 8.0),
++            _clip(self.seq_gap_ratio, 0.0, 8.0),
++            _clip(self.seq_timeout_ratio, 0.0, 8.0),
++            _clip(self.n_seq_breach / 3.0, 0.0, 8.0),
++            _clip(self.ongoing_ratio, 0.0, 8.0),
++            1.0 if self.ongoing_perf_breach else 0.0,
++            _clip(self.comm_setup_ratio, 0.0, 8.0),
++            _clip(self.cablecheck_ratio, 0.0, 8.0),
++            1.0 if self.cablecheck_breach else 0.0,
++            _clip(self.precharge_ratio, 0.0, 8.0),
++            1.0 if self.precharge_breach else 0.0,
++            1.0 if self.seq_illegal else 0.0,
++            _clip(self.n_seq_illegal / 3.0, 0.0, 8.0),
++            self.stage_frac,
++            1.0 if self.stage_regress else 0.0,
++            self.rc_sev,
++            self.evse_status_sev,
++            self.isolation_sev,
++            self.notification_sev,
++            self.ev_err_sev,
++            _clip(self.v_over_evse_max, -1.0, 4.0),
++            _clip(self.i_over_evse_max, -1.0, 4.0),
++            _clip(self.precharge_v_gap_ratio, 0.0, 8.0),
++            _clip(self.n_redialog, 0.0, 4.0),
++        ]
++
++
++class IsoTracker:
++    """Feeds on Events, emits IsoState. One instance per session."""
++
++    def __init__(self):
++        self.t0 = None
++        self.link_ready_t = None      # proxy for D-LINK_READY.indication
++        self.session_setup_res_t = None
++        self.last_res_msg = ""        # drives the Figure 102 successor check
++        self.last_res_t = None        # start of V2G_*_Sequence_Timer
++        self.pending_req = {}         # base name -> t, start of V2G_EVCC_Msg_Timer
++        self.pending_breached = set()  # pending requests already counted once
++        self.max_msg_ratio = 0.0
++        self.n_msg_breach = 0
++        self.n_seq_breach = 0
++        self._seq_breach_armed = True
++        self.n_seq_illegal = 0
++        self.ongoing_t0 = None
++        self.cablecheck_t0 = None
++        self.cablecheck_end_t = None
++        self.precharge_t0 = None
++        self.precharge_done = False
++        self.max_stage = -1
++        self.evse_max_v = None
++        self.evse_max_i = None
++        self.cur_target_v = None
++        self.n_dialog = 0
++
++    def _new_v2g_session(self, t):
++        """A fresh V2G communication session starts: every timer resets.
++
++        A sessionize chunk is cut on a 60 s idle gap, so it can still hold two
++        back-to-back V2G dialogs (a retry after a failure, typically). The
++        standard's timers are per communication session, and leaving CableCheck
++        or Ongoing running across a re-dialog would report a fake multi-minute
++        stall on the second one.
++        """
++        self.n_dialog += 1
++        self.link_ready_t = t
++        self.session_setup_res_t = None
++        self.pending_req.clear()
++        self.pending_breached.clear()
++        self.last_res_msg = ""
++        self.last_res_t = None
++        self._seq_breach_armed = True
++        self.ongoing_t0 = None
++        self.cablecheck_t0 = None
++        self.cablecheck_end_t = None
++        self.precharge_t0 = None
++        self.precharge_done = False
++
++    # -- helpers -----------------------------------------------------------
++    def _sequence_ratios(self, t):
++        if self.last_res_t is None:
++            return 0.0, 0.0
++        gap = t - self.last_res_t
++        return gap / iso.SEQ_PERFORMANCE_S, gap / iso.SEQ_TIMEOUT_S
++
++    def update(self, ev):
++        t = ev.t
++        if self.t0 is None:
++            self.t0 = t
++        st = IsoState()
++        st.last_timeout_msg = ""
++        st.seq_illegal = False
++        st.msg_timeout_ratio = 0.0
++        st.msg_perf_ratio = 0.0
++
++        # --- data-link establishment proxy: SLAC matched, or first V2G ----
++        if ev.kind == "hpav" and "SLAC_MATCH.CNF" in ev.msg:
++            self.link_ready_t = t
++        if ev.kind == "v2g" and self.link_ready_t is None:
++            self.link_ready_t = t
++
++        if ev.kind == "v2g":
++            msg = ev.msg
++            base = iso.base_name(msg)
++
++            # --- V2G_EVCC_Msg_Timer: request sent, response awaited -------
++            if msg.endswith("Req"):
++                # A dialog opens at supportedAppProtocolReq, or at
++                # SessionSetupReq when the app-protocol handshake was not the
++                # thing that just happened (some EVs skip it on a retry).
++                if (msg == "supportedAppProtocolReq"
++                        or (msg == "SessionSetupReq"
++                            and self.last_res_msg != "supportedAppProtocolRes")):
++                    self._new_v2g_session(t)
++                self.pending_req[base] = t
++                self.pending_breached.discard(base)
++                # V2G_*_Sequence_Timer stops here [V2G2-444]
++                if self.last_res_t is not None:
++                    gap = t - self.last_res_t
++                    if gap >= iso.SEQ_PERFORMANCE_S and self._seq_breach_armed:
++                        self.n_seq_breach += 1
++                        self._seq_breach_armed = False
++                # Figure 102: is this a legal successor of the last response?
++                # Only meaningful once we have seen the dialog open — a ring
++                # file that resumes mid-CurrentDemand loop is a capture seam,
++                # not a sequence error.
++                allowed = (iso.DC_NEXT_REQ.get(self.last_res_msg)
++                           if self.n_dialog else None)
++                if allowed is not None and msg not in allowed:
++                    st.seq_illegal = True
++                    self.n_seq_illegal += 1
++                self.last_res_t = None
++                if msg == "CableCheckReq" and self.cablecheck_t0 is None:
++                    self.cablecheck_t0 = t          # [V2G2-700]
++                if msg == "PreChargeReq":
++                    if self.precharge_t0 is None:
++                        self.precharge_t0 = t       # [V2G2-704]
++                    # [V2G2-525]: PreCharge only follows a CableCheckRes that
++                    # said Finished, so the request itself is proof the cable
++                    # check completed — needed because this firmware does not
++                    # always populate EVSEProcessing on CableCheckRes.
++                    if self.cablecheck_end_t is None and self.cablecheck_t0:
++                        self.cablecheck_end_t = t
++                if msg == "PowerDeliveryReq":
++                    self.precharge_done = True      # [V2G2-707] threshold met
++            elif msg.endswith("Res"):
++                t_req = self.pending_req.pop(base, None)
++                already = base in self.pending_breached
++                self.pending_breached.discard(base)
++                if t_req is not None:
++                    lat = t - t_req
++                    lim = iso.MSG_TIMEOUT_S.get(base + "Req")
++                    if lim:
++                        r = lat / lim
++                        st.msg_timeout_ratio = r
++                        if r > self.max_msg_ratio:
++                            self.max_msg_ratio = r
++                        if r >= 1.0 and not already:
++                            self.n_msg_breach += 1
++                            st.last_timeout_msg = base + "Req"
++                    perf = iso.RES_PERFORMANCE_S.get(msg)
++                    if perf:
++                        st.msg_perf_ratio = lat / perf
++                self.last_res_msg = msg
++                self.last_res_t = t                 # [V2G2-441] timer starts
++                self._seq_breach_armed = True
++                # ...but only while a next request is still expected. After
++                # SessionStopRes the EVCC terminates the connection
++                # ([V2G2-508] -> [V2G2-025]) and after a FAILED response it
++                # stops the session ([V2G2-438]) — in both cases no further
++                # request is owed, so the sequence timer must stop. Leaving it
++                # running made every cleanly-closed session whose PLC link
++                # kept polling for another minute look like a 60 s stall
++                # (measured: 2 of 120 clean sessions, both post-SessionStopRes).
++                if msg == "SessionStopRes" or iso.rc_severity(ev.resp_code) >= 1.0:
++                    self.last_res_t = None
++                    self.ongoing_t0 = None
++                # CableCheck finishes on OK + EVSEProcessing Finished [V2G2-703]
++                if (msg == "CableCheckRes" and self.cablecheck_end_t is None
++                        and iso.rc_severity(ev.resp_code) == 0.0
++                        and ev.evse_processing == "Finished"):
++                    self.cablecheck_end_t = t
++                if msg == "SessionSetupRes" and self.session_setup_res_t is None:
++                    self.session_setup_res_t = t
++
++            # --- EVSEProcessing == Ongoing [V2G2-710..713] ----------------
++            if ev.evse_processing == "Ongoing":
++                if self.ongoing_t0 is None:
++                    self.ongoing_t0 = t
++            elif ev.evse_processing == "Finished":
++                self.ongoing_t0 = None
++
++            idx = iso.stage_index(msg)
++            if idx is not None and idx > self.max_stage:
++                self.max_stage = idx
++
++            if ev.evse_max_v is not None:
++                self.evse_max_v = ev.evse_max_v
++            if ev.evse_max_i is not None:
++                self.evse_max_i = ev.evse_max_i
++            if ev.ev_target_v is not None:
++                self.cur_target_v = ev.ev_target_v
++
++        # --- timers evaluated at the current instant ----------------------
++        # V2G_EVCC_Msg_Timer is running RIGHT NOW for every request still
++        # unanswered, so report the worst outstanding one rather than only
++        # scoring pairs that completed. Without this the standard's central
++        # error case — [V2G2-438], the SECC simply stops answering — produces
++        # no signal at all, because the response that would have closed the
++        # timer never arrives. The PLC link-status poll keeps ticking at ~20 Hz
++        # through a dead V2G stream, so this grows while the stall is happening.
++        for pend, t_req in self.pending_req.items():
++            lim = iso.MSG_TIMEOUT_S.get(pend + "Req")
++            if not lim:
++                continue
++            r = (t - t_req) / lim
++            if r > st.msg_timeout_ratio:
++                st.msg_timeout_ratio = r
++                if r >= 1.0:
++                    st.last_timeout_msg = pend + "Req"
++            if r >= 1.0 and pend not in self.pending_breached:
++                self.pending_breached.add(pend)
++                self.n_msg_breach += 1
++        if st.msg_timeout_ratio > self.max_msg_ratio:
++            self.max_msg_ratio = st.msg_timeout_ratio
++        st.msg_timeout_ratio_max = self.max_msg_ratio
++        st.n_msg_timeout_breach = self.n_msg_breach
++        st.seq_gap_ratio, st.seq_timeout_ratio = self._sequence_ratios(t)
++        st.n_seq_breach = self.n_seq_breach
++        st.n_seq_illegal = self.n_seq_illegal
++
++        if self.ongoing_t0 is not None:
++            span = t - self.ongoing_t0
++            st.ongoing_ratio = span / iso.ONGOING_TIMEOUT_S
++            st.ongoing_perf_breach = span >= iso.ONGOING_PERFORMANCE_S
++            st.in_ongoing = True
++        else:
++            st.ongoing_ratio = 0.0
++            st.ongoing_perf_breach = False
++            st.in_ongoing = False
++
++        # [V2G2-446..449] runs from D-LINK_READY to SessionSetupRes. Only
++        # meaningful when this capture actually contains the opening of the
++        # dialog; a ring file that resumes mid-charge has no setup to time.
++        if not self.n_dialog or self.link_ready_t is None:
++            span = 0.0
++        elif self.session_setup_res_t is not None:
++            span = self.session_setup_res_t - self.link_ready_t
++        else:
++            span = t - self.link_ready_t          # still waiting, grows live
++        st.comm_setup_ratio = span / iso.COMM_SETUP_TIMEOUT_S
++
++        if self.cablecheck_t0 is None:
++            st.cablecheck_ratio = 0.0
++        else:
++            # [V2G2-700..702]: one timer per communication session, started at
++            # the first CableCheckReq and stopped when the cable check
++            # finishes. Once stopped the ratio freezes — it is a record of how
++            # close that cable check came to the 40 s limit, not a clock that
++            # keeps running for the rest of the charge.
++            end = self.cablecheck_end_t if self.cablecheck_end_t else t
++            st.cablecheck_ratio = (end - self.cablecheck_t0) / iso.CABLECHECK_TIMEOUT_S
++        st.cablecheck_breach = (self.cablecheck_end_t is None
++                                and st.cablecheck_ratio >= 1.0)
++
++        if self.precharge_t0 is None or self.precharge_done:
++            st.precharge_ratio = 0.0
++            st.precharge_breach = False
++        else:
++            st.precharge_ratio = (t - self.precharge_t0) / iso.PRECHARGE_TIMEOUT_S
++            st.precharge_breach = st.precharge_ratio >= 1.0
++
++        st.stage_frac = (max(self.max_stage, 0)
++                         / (len(iso.DC_STAGE_ORDER) - 1.0))
++        st.stage_name = (iso.DC_STAGE_ORDER[self.max_stage]
++                         if self.max_stage >= 0 else "")
++        cur = iso.stage_index(ev.msg) if ev.kind == "v2g" else None
++        # A drop back to an earlier stage is legal only as renegotiation
++        # ([V2G2-686]/[V2G2-794]: PowerDelivery(Renegotiate) ->
++        # ChargeParameterDiscovery), which the successor table already allows.
++        st.stage_regress = bool(cur is not None and cur < self.max_stage
++                                and st.seq_illegal)
++
++        st.rc_sev = iso.rc_severity(ev.resp_code)
++        st.evse_status_sev = iso.EVSE_STATUS_SEVERITY.get(ev.evse_status, 0.0)
++        st.isolation_sev = iso.ISOLATION_SEVERITY.get(ev.isolation, 0.0)
++        st.notification_sev = iso.NOTIFICATION_SEVERITY.get(ev.notification, 0.0)
++        st.ev_err_sev = iso.ev_error_severity(ev.ev_err)
++
++        st.v_over_evse_max = 0.0
++        st.i_over_evse_max = 0.0
++        if ev.evse_v is not None and self.evse_max_v:
++            st.v_over_evse_max = ev.evse_v / self.evse_max_v - 1.0
++        if ev.evse_i is not None and self.evse_max_i:
++            st.i_over_evse_max = ev.evse_i / self.evse_max_i - 1.0
++
++        # PreCharge ends when the EVSE output has been adjusted to the RESS
++        # voltage [V2G2-705]. Every pre-charge starts with a huge gap (output
++        # ramps from 0 V to ~400 V), so the gap alone says nothing — what
++        # matters is still being far out with the 7 s timer half gone. Below
++        # the halfway mark this feature stays at 0.
++        st.precharge_v_gap_ratio = 0.0
++        if (self.precharge_t0 is not None and not self.precharge_done
++                and ev.evse_v is not None and self.cur_target_v
++                and st.precharge_ratio >= 0.5):
++            band = max(20.0, 0.05 * self.cur_target_v)
++            st.precharge_v_gap_ratio = abs(self.cur_target_v - ev.evse_v) / band
++
++        # A second dialog inside one session means the first one died: the
++        # standard has no "restart" transition, the only way back to
++        # supportedAppProtocolReq/SessionSetupReq is a terminated session.
++        st.n_redialog = max(0, self.n_dialog - 1)
++        return st
+diff --git a/iMPS_platform/desktop/runtime/worker.py b/iMPS_platform/desktop/runtime/worker.py
+index 1a3ba54a..b16ff898 100644
+--- a/iMPS_platform/desktop/runtime/worker.py
++++ b/iMPS_platform/desktop/runtime/worker.py
+@@ -270,6 +270,28 @@ def analyze_stop_attribution(
+             "confidence": "medium",
+             "evidence": "EV sent session setup traffic but no SessionSetupRes was observed from the EVSE.",
+         }
++    # ISO 15118-2 rule layer (detection policy iso15118-standard)
++    if "[V2G2-711]" in reason:
++        return {
++            "triggeredBy": "charger",
++            "requestSender": request_sender,
++            "confidence": "medium",
++            "evidence": "The EVSE kept answering EVSEProcessing=Ongoing past the 60 s limit of [V2G2-711].",
++        }
++    if "[V2G2-443]" in reason:
++        return {
++            "triggeredBy": "vehicle",
++            "requestSender": request_sender,
++            "confidence": "medium",
++            "evidence": "No new request reached the EVSE within the 60 s sequence timeout of [V2G2-443].",
++        }
++    if "[V2G2-448]" in reason:
++        return {
++            "triggeredBy": "communication",
++            "requestSender": request_sender,
++            "confidence": "medium",
++            "evidence": "No SessionSetupRes within the 20 s communication-setup limit of [V2G2-448].",
++        }
+     if family in {"COMM_FREEZE", "SESSION_ABORT"} and "no further request" in reason:
+         return {
+             "triggeredBy": "vehicle",
+@@ -330,6 +352,10 @@ def parse_args() -> argparse.Namespace:
+     parser.add_argument("--tshark", type=Path, required=True)
+     parser.add_argument("--original-name", required=True)
+     parser.add_argument("--sha256", default="")
++    # the edition's detection policy (summary.json detectionPolicy.id) and the
++    # benchmark rank of Agentic AI in that summary, both passed by job_service
++    parser.add_argument("--detection-policy", default="baseline")
++    parser.add_argument("--benchmark-rank", type=int, default=None)
+     return parser.parse_args()
+ 
+ 
+@@ -344,12 +370,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
+         os.environ[name] = "1"
+     os.environ["CUDA_VISIBLE_DEVICES"] = ""
+     os.environ["IMPS_MODEL_DIR"] = str(model_dir)
+-    os.environ["EV_AI_ISO"] = "0"
+-    os.environ["EV_AI_ISO_VEC"] = "0"
+-    os.environ["EV_AI_SLAC"] = "0"
+     vendor_root = Path(__file__).resolve().parent / "vendor"
+     sys.path.insert(0, str(vendor_root))
+     sys.path.insert(0, str(Path(__file__).resolve().parent))
++    import detection_policy
++
++    # the research modules read their switches at import time, so the policy
++    # must be in the environment before any of them is imported
++    detection_policy.apply_env(args.detection_policy)
+ 
+     update_progress(args.progress, "extracting", 12, "Decoding PCAP with TShark")
+     from capture import extract, iter_sessions
+@@ -380,6 +408,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
+         from core.schema import Event
+         from models.agentic_ai import AgenticAI
+ 
++        detection_policy.verify_loaded(args.detection_policy)
+         detector = AgenticAI()
+     else:
+         FeatureTracker = Event = None  # type: ignore[assignment,misc]
+@@ -556,9 +585,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
+         "model": {
+             "id": "agentic-ai",
+             "name": "Agentic AI",
+-            "benchmarkRank": 1,
++            "benchmarkRank": args.benchmark_rank,
+             "artifactVersion": model_version,
+             "coldStart": True,
++            "detectionPolicy": detection_policy.public(args.detection_policy),
+         },
+         "capture": {
+             "extractedEvents": extracted_events,
+diff --git a/iMPS_platform/desktop/scripts/prepare-desktop.mjs b/iMPS_platform/desktop/scripts/prepare-desktop.mjs
+index 9abdb22b..388bad88 100644
+--- a/iMPS_platform/desktop/scripts/prepare-desktop.mjs
++++ b/iMPS_platform/desktop/scripts/prepare-desktop.mjs
+@@ -230,6 +230,8 @@ async function main() {
+     snapshotAt: summary.snapshotAt,
+     sessions: summary.dataset?.sessions ?? null,
+     stations: summary.analysis?.byStation?.length ?? 0,
++    trainStations: summary.analysis?.byStationTrain?.length ?? 0,
++    detectionPolicy: summary.detectionPolicy?.id ?? "baseline",
+     models: summary.leaderboard?.length ?? 0,
+     nextServerRelativePath: path.relative(standaloneRoot, serverEntry).replaceAll("\\", "/"),
+     moduleDirectory: "server_modules",
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts
+index e20131bb..cf785ee6 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts
+@@ -215,6 +215,8 @@ const stationFaultFamilyAnalysisSchema = z.object({
+ 
+ const stationAnalysisSchema = z.object({
+   station: z.string().min(1),
++  // strict on purpose: an unknown value must never be counted as held-out
++  split: z.enum(["test", "train"]).optional(),
+   group: z.string().min(1),
+   connectors: nonNegativeInteger,
+   ...stationRollupShape,
+@@ -249,6 +251,14 @@ const stationAnalysisSchema = z.object({
+   });
+ });
+ 
++const detectionPolicySchema = z.object({
++  schemaVersion: z.number().int().positive().optional(),
++  id: z.string().min(1),
++  label: z.string().nullable().optional(),
++  iso2Rules: z.boolean(),
++  slacRuleMode: z.string().min(1),
++});
++
+ const faultDetectionSummarySchema = z.object({
+   source: z.enum(["preview", "full_fleet"]),
+   snapshotAt: z.string().refine((value) => Number.isFinite(Date.parse(value)), {
+@@ -274,8 +284,10 @@ const faultDetectionSummarySchema = z.object({
+   analysis: z.object({
+     bySource: z.array(sourceAnalysisSchema),
+     byStation: z.array(stationAnalysisSchema),
++    byStationTrain: z.array(stationAnalysisSchema).optional(),
+     faultFamilies: z.array(z.string().min(1)),
+   }),
++  detectionPolicy: detectionPolicySchema.nullable().optional().catch(null),
+ }).superRefine((summary, context) => {
+   const modelIds = summary.leaderboard.map(({ id }) => id);
+   if (new Set(modelIds).size !== modelIds.length) {
+@@ -297,7 +309,47 @@ const faultDetectionSummarySchema = z.object({
+     }
+   });
+ 
+-  const stationNames = summary.analysis.byStation.map(({ station }) => station);
++  summary.analysis.byStation.forEach((station, index) => {
++    if (station.split === "train") {
++      context.addIssue({
++        code: z.ZodIssueCode.custom,
++        message: "Held-out station rows cannot be marked as training rows",
++        path: ["analysis", "byStation", index, "split"],
++      });
++    }
++  });
++  (summary.analysis.byStationTrain ?? []).forEach((station, index) => {
++    if (station.split !== "train") {
++      context.addIssue({
++        code: z.ZodIssueCode.custom,
++        message: "Training station rows must be marked split=train",
++        path: ["analysis", "byStationTrain", index, "split"],
++      });
++    }
++  });
++  const { sessions, faultySessions, normalSessions } = summary.dataset;
++  if (summary.analysis.byStation.length && sessions !== null && faultySessions !== null && normalSessions !== null) {
++    const heldOut = summary.analysis.byStation.reduce(
++      (totals, station) => ({
++        sessions: totals.sessions + station.sessions,
++        faultySessions: totals.faultySessions + station.faultySessions,
++        normalSessions: totals.normalSessions + station.normalSessions,
++      }),
++      { sessions: 0, faultySessions: 0, normalSessions: 0 },
++    );
++    if (heldOut.sessions !== sessions || heldOut.faultySessions !== faultySessions || heldOut.normalSessions !== normalSessions) {
++      context.addIssue({
++        code: z.ZodIssueCode.custom,
++        message: "Held-out station totals must match the dataset",
++        path: ["analysis", "byStation"],
++      });
++    }
++  }
++
++  const stationNames = [
++    ...summary.analysis.byStation.map(({ station }) => station),
++    ...(summary.analysis.byStationTrain ?? []).map(({ station }) => station),
++  ];
+   if (new Set(stationNames).size !== stationNames.length) {
+     context.addIssue({
+       code: z.ZodIssueCode.custom,
+@@ -360,6 +412,7 @@ const inferenceResultSchema = z.object({
+     benchmarkRank: z.number().int().positive().nullable().optional(),
+     artifactVersion: z.string().nullable().optional(),
+     coldStart: z.boolean(),
++    detectionPolicy: detectionPolicySchema.nullable().optional().catch(null),
+   }),
+   capture: z.object({
+     extractedEvents: nonNegativeInteger,
+@@ -518,6 +571,7 @@ const desktopRuntimeStatusSchema = z.object({
+   artifactVersion: optionalText,
+   modelCreatedAt: optionalText,
+   summarySnapshotAt: optionalText,
++  detectionPolicy: detectionPolicySchema.nullable().optional().catch(null),
+ });
+ 
+ export type DesktopRuntimeStatus = z.infer<typeof desktopRuntimeStatusSchema>;
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts
+index 5b74f4b9..4d6e707a 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts
+@@ -106,8 +106,16 @@ export type StationFaultFamilyAnalysis = {
+   }>;
+ };
+ 
++/**
++ * "test" = held-out station (the honest evaluation); "train" = a station the
++ * models were fitted on, so its numbers are in-sample and optimistic.
++ */
++export type StationSplit = "test" | "train";
++
+ export type StationAnalysis = StationRollupMetrics & {
+   station: string;
++  /** Absent in summaries before 1.3.0, which only ever held held-out stations. */
++  split?: StationSplit;
+   group: string;
+   connectors: number;
+   byConnector: StationConnectorAnalysis[];
+@@ -116,10 +124,47 @@ export type StationAnalysis = StationRollupMetrics & {
+ 
+ export type FaultDetectionAnalysis = {
+   bySource: SourceAnalysis[];
++  /** Held-out stations only; dataset totals and the leaderboard describe these. */
+   byStation: StationAnalysis[];
++  /** Training stations from an in-sample replay (desktop builds from 1.3.0). */
++  byStationTrain?: StationAnalysis[];
+   faultFamilies: string[];
+ };
+ 
++export type DetectionPolicy = {
++  schemaVersion?: number;
++  id: string;
++  label?: string | null;
++  iso2Rules: boolean;
++  slacRuleMode: string;
++};
++
++export const stationSplitOf = (station: Pick<StationAnalysis, "split">): StationSplit =>
++  station.split ?? "test";
++
++/** Held-out rows first, then training rows, each tagged with its split. */
++export function allStationRows(analysis: Pick<FaultDetectionAnalysis, "byStation" | "byStationTrain">): StationAnalysis[] {
++  return [
++    ...analysis.byStation.map((station) => ({ ...station, split: "test" as const })),
++    ...(analysis.byStationTrain ?? []).map((station) => ({ ...station, split: "train" as const })),
++  ];
++}
++
++/** Totals over held-out rows only, so in-sample stations never reach a headline number. */
++export function heldOutStationTotals(rows: StationAnalysis[]) {
++  return rows
++    .filter((row) => stationSplitOf(row) === "test")
++    .reduce(
++      (totals, row) => ({
++        stations: totals.stations + 1,
++        sessions: totals.sessions + row.sessions,
++        faultySessions: totals.faultySessions + row.faultySessions,
++        alertedSessions: totals.alertedSessions + row.alertedSessions,
++      }),
++      { stations: 0, sessions: 0, faultySessions: 0, alertedSessions: 0 },
++    );
++}
++
+ export type FaultDetectionSummary = {
+   source: "preview" | "full_fleet";
+   snapshotAt: string;
+@@ -141,6 +186,8 @@ export type FaultDetectionSummary = {
+   pipeline: PipelineStage[];
+   leaderboard: ModelEvaluation[];
+   analysis: FaultDetectionAnalysis;
++  /** The detection policy the benchmark was measured under (absent = baseline). */
++  detectionPolicy?: DetectionPolicy | null;
+ };
+ 
+ /**
+@@ -158,7 +205,7 @@ export const snapshotDateLocale = (lang: "th" | "en"): string =>
+ export type BundledBenchmark = Pick<
+   FaultDetectionSummary,
+   "source" | "snapshotAt" | "dataset" | "leaderboard"
+-> & { faultFamilies: string[] };
++> & { faultFamilies: string[]; detectionPolicy?: DetectionPolicy | null };
+ 
+ /**
+  * Honest fallback shown while the live summary is loading or unavailable.
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+index 937bf3ec..dbc52ac2 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+@@ -129,6 +129,9 @@ const COPY = {
+     editionLabel: "รุ่นโปรแกรม",
+     modelLabel: "โมเดล",
+     dataAsOfLabel: "ข้อมูล benchmark ณ",
++    policyLabel: "กฎมาตรฐาน",
++    policyIso: "ISO 15118-2 + SLAC (ISO 15118-3)",
++    policyOther: "นโยบายตรวจจับ",
+   },
+   en: {
+     eyebrow: "AI · CHARGER FAULT INTELLIGENCE",
+@@ -215,6 +218,9 @@ const COPY = {
+     editionLabel: "Edition",
+     modelLabel: "Model",
+     dataAsOfLabel: "Benchmark data as of",
++    policyLabel: "Standard rules",
++    policyIso: "ISO 15118-2 + SLAC (ISO 15118-3)",
++    policyOther: "Detection policy",
+   },
+ } as const;
+ 
+@@ -584,6 +590,13 @@ export default function FaultDetectionPage() {
+                     {editionName && <EditionChip id="edition" label={c.editionLabel} value={editionName} />}
+                     {runtimeStatus?.artifactVersion && <EditionChip id="model" label={c.modelLabel} value={runtimeStatus.artifactVersion} mono />}
+                     {editionSnapshotLabel && <EditionChip id="snapshot" label={c.dataAsOfLabel} value={editionSnapshotLabel} />}
++                    {runtimeStatus?.detectionPolicy && runtimeStatus.detectionPolicy.id !== "baseline" && (
++                      <EditionChip
++                        id="policy"
++                        label={runtimeStatus.detectionPolicy.id === "iso15118-standard" ? c.policyLabel : c.policyOther}
++                        value={runtimeStatus.detectionPolicy.id === "iso15118-standard" ? c.policyIso : runtimeStatus.detectionPolicy.label ?? runtimeStatus.detectionPolicy.id}
++                      />
++                    )}
+                   </div>
+                 )}
+               </div>
+@@ -869,6 +882,11 @@ export default function FaultDetectionPage() {
+                       <div className="tw-rounded-xl tw-bg-slate-50 tw-p-3.5 tw-ring-1 tw-ring-slate-200/80">
+                         <div className="tw-text-[11px] tw-font-bold tw-uppercase tw-tracking-wider tw-text-gray-500">{c.modelUsed}</div>
+                         <div className="tw-mt-1 tw-text-[13px] tw-font-extrabold tw-text-gray-900">{analysisResult.model.name}</div>
++                        {analysisResult.model.detectionPolicy && analysisResult.model.detectionPolicy.id !== "baseline" && (
++                          <div className="tw-mt-0.5 tw-text-[11px] tw-font-semibold tw-text-emerald-700" data-testid="fd-result-policy">
++                            {analysisResult.model.detectionPolicy.id === "iso15118-standard" ? c.policyIso : analysisResult.model.detectionPolicy.label ?? analysisResult.model.detectionPolicy.id}
++                          </div>
++                        )}
+                       </div>
+                     </div>
+                     <div className="tw-mt-2 tw-rounded-xl tw-bg-slate-50 tw-p-3.5 tw-ring-1 tw-ring-slate-200/80">
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/station-split.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/station-split.test.ts
+new file mode 100644
+index 00000000..8135a96c
+--- /dev/null
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/station-split.test.ts
+@@ -0,0 +1,111 @@
++import { describe, expect, it } from "vitest";
++
++import { parseDesktopRuntimeStatus, parseFaultDetectionSummary } from "./api";
++import { allStationRows, faultDetectionPreview, heldOutStationTotals, stationSplitOf, type StationAnalysis } from "./data";
++
++function station(name: string, sessions: number, faulty: number, split?: "test" | "train"): StationAnalysis {
++  const normal = sessions - faulty;
++  const rollup = {
++    sessions,
++    faultySessions: faulty,
++    normalSessions: normal,
++    alertedSessions: faulty,
++    faultRate: (faulty / sessions) * 100,
++    score: 80,
++    recall: 100,
++    falseAlarmRate: 0,
++    precision: 100,
++    f1: 100,
++    medianLeadSeconds: 4,
++    tp: faulty,
++    late: 0,
++    miss: 0,
++    fp: 0,
++    topFaultFamily: faulty ? "EVSE_FAULT" : null,
++  };
++  return {
++    station: name,
++    ...(split ? { split } : {}),
++    group: "main",
++    connectors: 1,
++    ...rollup,
++    byConnector: [{ connector: "connector1", ...rollup }],
++    byFaultFamily: faulty
++      ? [{ family: "EVSE_FAULT", faultySessions: faulty, tp: faulty, late: 0, miss: 0, recall: 100, medianLeadSeconds: 4, topEvidence: [] }]
++      : [],
++  };
++}
++
++function summaryWith(byStation: StationAnalysis[], byStationTrain?: StationAnalysis[], dataset?: { sessions: number; faultySessions: number; normalSessions: number; stations: number }) {
++  const base = structuredClone(faultDetectionPreview);
++  return {
++    ...base,
++    dataset: dataset ?? base.dataset,
++    analysis: { ...base.analysis, byStation, ...(byStationTrain ? { byStationTrain } : {}) },
++  };
++}
++
++describe("training-station rows (byStationTrain)", () => {
++  it("accepts held-out rows plus training rows and keeps both", () => {
++    const summary = parseFaultDetectionSummary(
++      summaryWith([station("held-a", 2, 1, "test")], [station("train-b", 5, 2, "train")], { sessions: 2, faultySessions: 1, normalSessions: 1, stations: 1 }),
++    );
++    const rows = allStationRows(summary.analysis);
++    expect(rows.map((row) => [row.station, row.split])).toEqual([["held-a", "test"], ["train-b", "train"]]);
++  });
++
++  it("still parses a pre-1.3.0 summary with no split and no training rows", () => {
++    const summary = parseFaultDetectionSummary(summaryWith([station("held-a", 2, 1)], undefined, { sessions: 2, faultySessions: 1, normalSessions: 1, stations: 1 }));
++    expect(summary.analysis.byStationTrain).toBeUndefined();
++    expect(stationSplitOf(summary.analysis.byStation[0])).toBe("test");
++    expect(allStationRows(summary.analysis)).toHaveLength(1);
++  });
++
++  it("rejects a held-out row marked as training and a training row not marked", () => {
++    expect(() => parseFaultDetectionSummary(summaryWith([station("held-a", 2, 1, "train")]))).toThrow(/invalid response/);
++    expect(() => parseFaultDetectionSummary(summaryWith([station("held-a", 2, 1)], [station("train-b", 5, 2)]))).toThrow(/invalid response/);
++    expect(() => parseFaultDetectionSummary(summaryWith([station("held-a", 2, 1)], [station("train-b", 5, 2, "test")]))).toThrow(/invalid response/);
++  });
++
++  it("rejects an unknown split value instead of treating it as held-out", () => {
++    const row = { ...station("held-a", 2, 1), split: "validation" } as unknown as StationAnalysis;
++    expect(() => parseFaultDetectionSummary(summaryWith([row]))).toThrow(/invalid response/);
++  });
++
++  it("rejects a station that appears in both arrays", () => {
++    expect(() => parseFaultDetectionSummary(summaryWith([station("same", 2, 1, "test")], [station("same", 5, 2, "train")]))).toThrow(/invalid response/);
++  });
++
++  it("requires held-out rows to add up to the dataset, whatever the training rows hold", () => {
++    const dataset = { sessions: 2, faultySessions: 1, normalSessions: 1, stations: 1 };
++    expect(() => parseFaultDetectionSummary(summaryWith([station("held-a", 2, 1, "test")], [station("train-b", 5, 2, "train")], dataset))).not.toThrow();
++    expect(() => parseFaultDetectionSummary(summaryWith([station("held-a", 2, 1, "test"), station("train-b", 5, 2, "test")], undefined, dataset))).toThrow(/invalid response/);
++  });
++
++  it("counts only held-out rows in the totals", () => {
++    const rows = [station("held-a", 2, 1, "test"), station("train-b", 5, 2, "train"), station("held-c", 3, 0)];
++    expect(heldOutStationTotals(rows)).toEqual({ stations: 2, sessions: 5, faultySessions: 1, alertedSessions: 1 });
++  });
++});
++
++describe("detection policy", () => {
++  it("reads the policy from the summary and from /health, and tolerates its absence", () => {
++    const summary = parseFaultDetectionSummary({
++      ...summaryWith([station("held-a", 2, 1, "test")], undefined, { sessions: 2, faultySessions: 1, normalSessions: 1, stations: 1 }),
++      detectionPolicy: { schemaVersion: 1, id: "iso15118-standard", iso2Rules: true, slacRuleMode: "normative" },
++    });
++    expect(summary.detectionPolicy?.id).toBe("iso15118-standard");
++    const status = parseDesktopRuntimeStatus({
++      service: "fault-detection-portable",
++      status: "ok",
++      detectionPolicy: { id: "baseline", label: "Baseline", iso2Rules: false, slacRuleMode: "off" },
++    });
++    expect(status.detectionPolicy?.slacRuleMode).toBe("off");
++    expect(parseDesktopRuntimeStatus({ service: "fault-detection-portable", status: "ok" }).detectionPolicy).toBeUndefined();
++  });
++
++  it("drops a malformed policy block instead of rejecting the payload", () => {
++    const status = parseDesktopRuntimeStatus({ service: "fault-detection-portable", status: "ok", detectionPolicy: { id: 7 } });
++    expect(status.detectionPolicy).toBeNull();
++  });
++});
+-- 
+2.45.1.windows.1
+

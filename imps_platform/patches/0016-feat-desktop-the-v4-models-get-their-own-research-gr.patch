@@ -1,0 +1,826 @@
+From 44b0c95dad5d7e32d7e6f6feaed829381f8d6048 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 23 Sep 2026 13:39:54 +0700
+Subject: [PATCH 16/18] feat(desktop): the v4 models get their own research
+ grid
+
+The Overview's research panel only held results for the 2026-09-12 model set
+(41ded2cdd5c2ba3f), so the v4 edition showed another model's numbers. It now
+carries one grid per model set and shows the grid of the models the running
+edition ships.
+
+- research-data.ts: RESEARCH_PROFILES_V4 for artifact 53b6f14244c2e633 -
+  baseline, +SLAC 10 s and +SLAC 600 ms under the published, strict and
+  reviewed labels. Generated from ev_charger_ai
+  results/research_grid_v4.json (benchmark/research_grid_from_cache.py): the
+  v4 first-alert records rescored per label profile, with the cached SLAC
+  fire times projected onto them - no replay. The same method reproduces all
+  180 shipped 41ded2cd numbers exactly; v4 strict.baseline equals the v4
+  leaderboard to full precision; an independent re-implementation matched 15
+  of 15 cells. RESEARCH_GRIDS lists both sets with their provenance.
+- selectResearchGrid() picks the grid by the sidecar's artifact id, else by
+  an exact baseline-arm leaderboard match; disagreement falls back to the
+  first grid and says "unknown".
+- ISO 15118-2 was never replayed for v4: its tab is disabled with "not
+  measured (needs a replay)". Projected arms say so, and for v4 AI Agent's
+  recall and false-alarm rate are marked as lower bounds (its evidence board
+  is not replayed; 0.0-0.2 points low on 41ded2cd).
+- On the published labels the v4 grid warns that those labels count 369
+  sessions it was trained to flag (NO_POWER_DELIVERED 360, SLAC 9) as clean -
+  measured: excluding them makes every published false-alarm rate equal the
+  strict one, alert for alert.
+
+Tests: 16 files / 294 pass; tsc adds no error anywhere.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../fault-detection/edition-benchmark.test.ts |  47 +++++-
+ .../ai/fault-detection/edition-benchmark.ts   |  77 ++++++---
+ .../research-dashboard.test.ts                |  81 ++++++++-
+ .../ai/fault-detection/research-dashboard.tsx | 101 +++++++----
+ .../ai/fault-detection/research-data.test.ts  |  45 +++++
+ .../ai/fault-detection/research-data.ts       | 157 ++++++++++++++++++
+ 6 files changed, 439 insertions(+), 69 deletions(-)
+
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+index 86ce5b0d..b5ab5f9e 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+@@ -7,6 +7,7 @@ import {
+   percentOf,
+   researchModelRelation,
+   researchProfileForBundled,
++  selectResearchGrid,
+ } from "./edition-benchmark";
+ import {
+   CURRENT_EDITION,
+@@ -16,7 +17,16 @@ import {
+   fixtureBundle,
+   fixtureStation,
+ } from "./edition-fixtures";
+-import { RESEARCH_MODEL_ARTIFACT } from "./research-data";
++import { RESEARCH_MODEL_ARTIFACT, RESEARCH_V4_ARTIFACT } from "./research-data";
++
++const V4_PUBLISHED_BASELINE = fixtureBundle(957, SNAPSHOT_FAMILIES, [
++  // the v4 models scored on the 2026-09-12 labels (research_grid_v4.json published.baseline)
++  ["traditional", 67.3, 76.9, 28.0],
++  ["agentic-ai", 70.2, 90.7, 33.0],
++  ["multi-agent", 56.3, 62.6, 28.3],
++  ["ai-agent", 51.3, 58.0, 35.9],
++  ["rl", 41.3, 21.6, 5.8],
++]);
+ 
+ describe("held-out fault distribution", () => {
+   it("reads this edition's family counts and sums to its fault sessions", () => {
+@@ -92,13 +102,38 @@ describe("held-out stations", () => {
+   });
+ });
+ 
++describe("research grid choice", () => {
++  it("shows each model set its own grid", () => {
++    expect(selectResearchGrid(SNAPSHOT_EDITION).grid.artifact).toBe(RESEARCH_MODEL_ARTIFACT);
++    expect(selectResearchGrid(CURRENT_EDITION).grid.artifact).toBe(RESEARCH_V4_ARTIFACT);
++    expect(selectResearchGrid(CURRENT_EDITION, RESEARCH_V4_ARTIFACT).grid.artifact).toBe(RESEARCH_V4_ARTIFACT);
++    // v4 weights under the old labels are still recognised as v4
++    expect(selectResearchGrid(V4_PUBLISHED_BASELINE)).toMatchObject({ relation: "same" });
++    expect(selectResearchGrid(V4_PUBLISHED_BASELINE).grid.artifact).toBe(RESEARCH_V4_ARTIFACT);
++  });
++
++  it("falls back to the first grid, marked different, for models with no grid", () => {
++    const choice = selectResearchGrid(null, "0123456789abcdef");
++    expect(choice.relation).toBe("different");
++    expect(choice.grid.artifact).toBe(RESEARCH_MODEL_ARTIFACT);
++  });
++
++  it("falls back to the first grid when artifact and leaderboard disagree", () => {
++    const choice = selectResearchGrid(SNAPSHOT_EDITION, RESEARCH_V4_ARTIFACT);
++    expect(choice.relation).toBe("unknown");
++    expect(choice.grid.artifact).toBe(RESEARCH_MODEL_ARTIFACT);
++    // an unknown artifact next to a leaderboard that matches a known grid is a contradiction too
++    expect(selectResearchGrid(CURRENT_EDITION, "0123456789abcdef").relation).toBe("unknown");
++  });
++});
++
+ describe("research model relation", () => {
+   it("uses the sidecar's artifact id when the leaderboard agrees or cannot tell", () => {
+     expect(researchModelRelation(SNAPSHOT_EDITION, RESEARCH_MODEL_ARTIFACT)).toBe("same");
+-    expect(researchModelRelation(CURRENT_EDITION, "53b6f14244c2e633")).toBe("different");
++    expect(researchModelRelation(CURRENT_EDITION, RESEARCH_V4_ARTIFACT)).toBe("same");
+     expect(researchModelRelation(null, ` ${RESEARCH_MODEL_ARTIFACT.toUpperCase()} `)).toBe("same");
+     // the ISO edition's leaderboard is rule-armed and proves nothing; the artifact decides
+-    expect(researchModelRelation(ISO_EDITION, "53b6f14244c2e633")).toBe("different");
++    expect(researchModelRelation(ISO_EDITION, RESEARCH_V4_ARTIFACT)).toBe("same");
+   });
+ 
+   it("says unknown when the artifact and the leaderboard contradict each other", () => {
+@@ -114,10 +149,10 @@ describe("research model relation", () => {
+   });
+ 
+   it("recognises the research model set from the bundled leaderboard alone", () => {
+-    // Snapshot edition: its benchmark IS the research published-baseline arm.
++    // Snapshot edition: its benchmark IS the 41ded2cd published-baseline arm,
++    // and the v4 edition's is the v4 grid's strict-baseline arm.
+     expect(researchModelRelation(SNAPSHOT_EDITION)).toBe("same");
+-    // v4 edition: same labels as the strict profile, different weights.
+-    expect(researchModelRelation(CURRENT_EDITION)).toBe("different");
++    expect(researchModelRelation(CURRENT_EDITION)).toBe("same");
+   });
+ 
+   it("says unknown instead of guessing", () => {
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
+index 292092a9..09f48307 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
+@@ -8,8 +8,8 @@ import {
+ import {
+   LABEL_LINEAGE,
+   MODEL_ORDER,
+-  RESEARCH_MODEL_ARTIFACT,
+-  RESEARCH_PROFILES,
++  RESEARCH_GRIDS,
++  type ResearchGrid,
+   type ResearchModelId,
+   type ResearchProfileId,
+ } from "./research-data";
+@@ -88,48 +88,73 @@ export type ResearchModelRelation = "same" | "different" | "unknown";
+ const oneDecimal = (value: number) => Number(value.toFixed(1));
+ 
+ /**
+- * The bundled leaderboard's own verdict: under the same labels and the
+- * baseline policy, the research model set must reproduce all five models'
+- * score, recall and false-alarm rate to the research data's one decimal. A
+- * rule-armed benchmark (ISO 15118 edition) matches no single research arm, so
+- * it proves nothing either way.
++ * The bundled leaderboard's own verdict on which research grid it belongs to:
++ * under the same labels and the baseline policy, a grid's baseline arm must
++ * reproduce all five models' score, recall and false-alarm rate to the
++ * research data's one decimal. `checkable` is false when the leaderboard
++ * cannot speak - nothing bundled, labels that match no profile, a partial
++ * leaderboard, or a rule-armed benchmark (ISO 15118 edition), which matches
++ * no single research arm.
+  */
+-function leaderboardRelation(bundled: BundledBenchmark | null): ResearchModelRelation {
+-  if (!bundled || detectionPolicyKind(bundled.detectionPolicy) !== "baseline") return "unknown";
++function gridFromLeaderboard(bundled: BundledBenchmark | null): { checkable: boolean; grid: ResearchGrid | null } {
++  if (!bundled || detectionPolicyKind(bundled.detectionPolicy) !== "baseline") return { checkable: false, grid: null };
+   const profileId = researchProfileForBundled(bundled);
+-  if (!profileId) return "unknown";
++  if (!profileId) return { checkable: false, grid: null };
+   const scored = bundled.leaderboard.filter(
+     (row) => row.score !== null && row.recall !== null && row.falseAlarmRate !== null,
+   );
+-  if (scored.length !== MODEL_ORDER.length) return "unknown";
+-  const baseline = RESEARCH_PROFILES[profileId].arms.baseline;
+-  const matches = scored.every((row) => {
+-    const research = baseline[RESEARCH_ID_BY_MODEL_ID[row.id]];
++  if (scored.length !== MODEL_ORDER.length) return { checkable: false, grid: null };
++  const grid = RESEARCH_GRIDS.find((candidate) => {
++    const baseline = candidate.profiles[profileId].arms.baseline;
+     return (
+-      oneDecimal(row.score as number) === research.score &&
+-      oneDecimal(row.recall as number) === research.recall &&
+-      oneDecimal(row.falseAlarmRate as number) === research.far
++      baseline !== undefined &&
++      scored.every((row) => {
++        const research = baseline[RESEARCH_ID_BY_MODEL_ID[row.id]];
++        return (
++          oneDecimal(row.score as number) === research.score &&
++          oneDecimal(row.recall as number) === research.recall &&
++          oneDecimal(row.falseAlarmRate as number) === research.far
++        );
++      })
+     );
+   });
+-  return matches ? "same" : "different";
++  return { checkable: true, grid: grid ?? null };
+ }
+ 
++export type ResearchGridChoice = { grid: ResearchGrid; relation: ResearchModelRelation };
++
+ /**
+- * Whether the research panel's rescored models are the models behind the
++ * The research grid to show and how it relates to the models behind the
+  * bundled benchmark. The sidecar's artifact id decides when it is known, the
+  * leaderboard when it is not (web build, older sidecar). When both can speak
+- * and disagree, the models and the summary were packaged from different runs
+- * and the page says it does not know rather than pick one.
++ * and disagree, the models and the summary were packaged from different runs:
++ * the page falls back to the first grid and says it does not know. Models with
++ * no grid of their own get the first grid, marked "different".
+  */
++export function selectResearchGrid(
++  bundled: BundledBenchmark | null,
++  modelArtifact?: string | null,
++): ResearchGridChoice {
++  const fallback = RESEARCH_GRIDS[0];
++  const fromLeaderboard = gridFromLeaderboard(bundled);
++  const artifact = modelArtifact?.trim().toLowerCase();
++  if (artifact) {
++    const byArtifact = RESEARCH_GRIDS.find((grid) => grid.artifact === artifact) ?? null;
++    if (fromLeaderboard.checkable && fromLeaderboard.grid !== byArtifact) {
++      return { grid: fallback, relation: "unknown" };
++    }
++    return byArtifact ? { grid: byArtifact, relation: "same" } : { grid: fallback, relation: "different" };
++  }
++  if (fromLeaderboard.grid) return { grid: fromLeaderboard.grid, relation: "same" };
++  return { grid: fallback, relation: fromLeaderboard.checkable ? "different" : "unknown" };
++}
++
++/** How the shown research grid relates to the models behind the benchmark. */
+ export function researchModelRelation(
+   bundled: BundledBenchmark | null,
+   modelArtifact?: string | null,
+ ): ResearchModelRelation {
+-  const fromLeaderboard = leaderboardRelation(bundled);
+-  const artifact = modelArtifact?.trim().toLowerCase();
+-  if (!artifact) return fromLeaderboard;
+-  const fromArtifact: ResearchModelRelation = artifact === RESEARCH_MODEL_ARTIFACT ? "same" : "different";
+-  return fromLeaderboard === "unknown" || fromLeaderboard === fromArtifact ? fromArtifact : "unknown";
++  return selectResearchGrid(bundled, modelArtifact).relation;
+ }
+ 
+ /**
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+index eb41d31e..d9d27da7 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+@@ -3,7 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
+ import { describe, expect, it } from "vitest";
+ 
+ import type { BundledBenchmark, StationAnalysis } from "./data";
+-import { CURRENT_EDITION, ISO_EDITION, SNAPSHOT_EDITION, fixtureStation } from "./edition-fixtures";
++import {
++  CURRENT_EDITION,
++  ISO_EDITION,
++  SNAPSHOT_EDITION,
++  SNAPSHOT_FAMILIES,
++  fixtureBundle,
++  fixtureStation,
++} from "./edition-fixtures";
+ import ResearchDashboard from "./research-dashboard";
+ 
+ // Renders the Overview the way each edition ships it and reads the text a user
+@@ -32,6 +39,13 @@ const render = (
+     }),
+   );
+ 
++/** The opening tag of one detection-policy tab, whatever order React wrote its attributes in. */
++const armTab = (html: string, arm: string) => {
++  const tag = html.match(new RegExp(`<button[^>]*data-testid="fd-arm-${arm}"[^>]*>`));
++  if (!tag) throw new Error(`no tab for arm ${arm}`);
++  return tag[0];
++};
++
+ const ENTITIES: Record<string, string> = { "&#x27;": "'", "&quot;": '"', "&lt;": "<", "&gt;": ">", "&amp;": "&" };
+ const text = (html: string) =>
+   html
+@@ -73,18 +87,63 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(text(render(SNAPSHOT_EDITION))).toContain(
+       "Computed on the same models as the benchmark above (41ded2cdd5c2ba3f)",
+     );
+-    expect(render(CURRENT_EDITION)).toContain('data-relation="different"');
+-    // the research id sits with "earlier model set", not after "not ... this"
++    // v4 now has its own grid
++    expect(render(CURRENT_EDITION)).toContain('data-relation="same"');
+     expect(text(render(CURRENT_EDITION))).toContain(
+-      "Computed on an earlier model set (41ded2cdd5c2ba3f), not the one behind the benchmark above",
++      "Computed on the same models as the benchmark above (53b6f14244c2e633)",
+     );
+     // the sidecar's artifact id agrees with the v4 leaderboard
+-    expect(render(CURRENT_EDITION, { modelArtifact: "53b6f14244c2e633" })).toContain('data-relation="different"');
++    expect(render(CURRENT_EDITION, { modelArtifact: "53b6f14244c2e633" })).toContain('data-relation="same"');
++    // models with no grid of their own get the 2026-09-12 grid, and say so; the
++    // research id sits with "earlier model set", not after "not ... this"
++    expect(text(render(null, { modelArtifact: "0123456789abcdef" }))).toContain(
++      "Computed on an earlier model set (41ded2cdd5c2ba3f), not the one behind the benchmark above",
++    );
+     // and a contradiction is reported as unknown rather than guessed
+     expect(render(SNAPSHOT_EDITION, { modelArtifact: "53b6f14244c2e633" })).toContain('data-relation="unknown"');
+     expect(render(null)).toContain('data-relation="unknown"');
+   });
+ 
++  it("shows the v4 models' own research numbers in the v4 edition", () => {
++    const t = text(render(CURRENT_EDITION));
++    // strict labels (the edition's own) x "+ SLAC 600 ms": v4 TraditionalAI 76.6 / 94.3% / 24.8% / 23.9 s
++    expect(t).toContain("76.6 Traditional AI · Highest score in this view");
++    expect(t).toContain("Recall 94.3% False alarm 24.8% Median lead 23.9s");
++    expect(t).not.toContain("69.2 Traditional AI · Highest score in this view");
++    expect(t).toContain("Verified: 23 Sept 2026");
++    // the snapshot edition keeps the 2026-09-12 numbers
++    expect(text(render(SNAPSHOT_EDITION))).toContain("77.7 Traditional AI · Highest score in this view");
++  });
++
++  it("marks what was not measured and what was projected for the v4 models", () => {
++    const v4 = render(CURRENT_EDITION);
++    expect(armTab(v4, "iso2")).toContain('disabled=""');
++    expect(armTab(v4, "iso2")).toContain('title="Not measured for this model set (needs a replay)"');
++    expect(armTab(v4, "normative")).not.toContain('disabled=""');
++    expect(text(v4)).toContain(
++      "This policy is projected from recorded alerts, not replayed · AI Agent's recall and false-alarm rate are lower bounds",
++    );
++    // the 2026-09-12 set was replayed under ISO-2; only its normative arm is a projection
++    const old = render(SNAPSHOT_EDITION);
++    expect(armTab(old, "iso2")).not.toContain('disabled=""');
++    expect(text(old)).toContain("This policy is projected from recorded alerts, not replayed");
++    expect(text(old)).not.toContain("lower bounds");
++  });
++
++  it("warns that the old labels count the v4 models' NO_POWER_DELIVERED alerts as false alarms", () => {
++    // v4 weights benchmarked on the 2026-09-12 labels: opens on the published profile of the v4 grid
++    const v4OnOldLabels = fixtureBundle(957, SNAPSHOT_FAMILIES, [
++      ["traditional", 67.3, 76.9, 28.0],
++      ["agentic-ai", 70.2, 90.7, 33.0],
++      ["multi-agent", 56.3, 62.6, 28.3],
++      ["ai-agent", 51.3, 58.0, 35.9],
++      ["rl", 41.3, 21.6, 5.8],
++    ]);
++    const t = text(render(v4OnOldLabels));
++    expect(t).toContain("These labels count 369 sessions this model set was trained to flag");
++    expect(text(render(SNAPSHOT_EDITION))).not.toContain("369 sessions");
++  });
++
+   it("opens the research panel on the label profile this benchmark was scored with", () => {
+     const current = text(render(CURRENT_EDITION));
+     expect(current).toContain("Recomputed strict labels · no censorship same labels as the benchmark above");
+@@ -94,7 +153,8 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+ 
+   it("keeps the footnote honest about which models the research rescored", () => {
+     expect(text(render(SNAPSHOT_EDITION))).toContain("rescores these same models");
+-    expect(text(render(CURRENT_EDITION))).toContain("rescores earlier models");
++    expect(text(render(CURRENT_EDITION))).toContain("rescores these same models");
++    expect(text(render(null, { modelArtifact: "0123456789abcdef" }))).toContain("rescores earlier models");
+   });
+ 
+   it("renders the Thai copy with the same data", () => {
+@@ -102,7 +162,11 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(t).toContain("สัดส่วน Fault · ชุดทดสอบ held-out");
+     expect(t).toContain("1,326 fault sessions จาก 8,820 sessions ทดสอบใน 45 สถานีที่โมเดลไม่เคยเห็น");
+     expect(t).toContain("7 ประเภท");
+-    expect(t).toContain("คำนวณบนโมเดลชุดก่อน (41ded2cdd5c2ba3f) ไม่ใช่ชุดที่ใช้ใน benchmark ด้านบน");
++    expect(t).toContain("คำนวณบนโมเดลชุดเดียวกับ benchmark ด้านบน (53b6f14244c2e633)");
++    expect(armTab(render(CURRENT_EDITION, { lang: "th" }), "iso2")).toContain('title="ยังไม่ได้วัดกับโมเดลชุดนี้ (ต้อง replay)"');
++    expect(text(render(null, { lang: "th", modelArtifact: "0123456789abcdef" }))).toContain(
++      "คำนวณบนโมเดลชุดก่อน (41ded2cdd5c2ba3f) ไม่ใช่ชุดที่ใช้ใน benchmark ด้านบน",
++    );
+   });
+ 
+   it("derives the research stat-row shares instead of hard-coding them", () => {
+@@ -135,7 +199,8 @@ describe("Overview wording follows where the numbers came from", () => {
+     expect(iso).toContain(
+       "under a detection policy with standard rule layers: ISO 15118-2 rules + ISO 15118-3 SLAC timers (normative)",
+     );
+-    expect(iso).toContain("rescores earlier models");
++    // the ISO edition ships the v4 weights, so its research grid is v4's own
++    expect(iso).toContain("rescores these same models");
+     expect(text(render(ISO_EDITION, { lang: "th" }))).toContain("กฎ ISO 15118-2 + ตัวจับเวลา SLAC ของ ISO 15118-3 (normative)");
+   });
+ 
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+index 31e674a1..e99c28ee 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+@@ -25,11 +25,10 @@ import {
+   LABEL_LINEAGE,
+   MODEL_META,
+   MODEL_ORDER,
+-  RESEARCH_MODEL_ARTIFACT,
+   RESEARCH_PROFILES,
+-  RESEARCH_SNAPSHOT,
+   SLAC_RESEARCH,
+   type ResearchArmId,
++  type ResearchGrid,
+   type ResearchModelId,
+   type ResearchProfileId,
+ } from "./research-data";
+@@ -40,7 +39,7 @@ import {
+   heldOutFaultDistribution,
+   heldOutStations,
+   percentOf,
+-  researchModelRelation,
++  selectResearchGrid,
+   researchProfileForBundled,
+   type FaultCount,
+   type ResearchModelRelation,
+@@ -174,7 +173,7 @@ const COPY = {
+     policySlac: (mode: string) => `ตัวจับเวลา SLAC ของ ISO 15118-3 (${mode})`,
+     // ...and how the research panel below relates to it.
+     researchBasis: {
+-      same: `แผงวิจัยด้านล่างคือโมเดลชุดเดียวกันนี้ rescore บน label policy ${Object.keys(RESEARCH_PROFILES).length} แบบ และกฎ ISO/SLAC`,
++      same: `แผงวิจัยด้านล่างคือโมเดลชุดเดียวกันนี้ rescore บน label policy ${Object.keys(RESEARCH_PROFILES).length} แบบ และกฎตามมาตรฐานที่วัดไว้`,
+       different: `แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดก่อนบน label policy ${Object.keys(RESEARCH_PROFILES).length} แบบ ไม่ใช่ benchmark นี้`,
+       unknown: `แผงวิจัยด้านล่างเป็นการ rescore โมเดลชุดหนึ่งที่คงที่บน label policy ${Object.keys(RESEARCH_PROFILES).length} แบบ`,
+     },
+@@ -183,7 +182,10 @@ const COPY = {
+     sourcePreview: "ตัวอย่าง",
+     bundledLoading: "กำลังโหลดผล benchmark…",
+     bundledFailed: "โหลดผล benchmark ไม่สำเร็จ",
+-    fixedResearchNote: "ชุดข้อมูลวิจัยคงที่ · เหมือนกันทุกรุ่นโปรแกรม",
++    fixedResearchNote: "ผลวิจัยคงที่ของโมเดลชุดนี้",
++    armNotMeasured: "ยังไม่ได้วัดกับโมเดลชุดนี้ (ต้อง replay)",
++    projectedArm: "นโยบายนี้คำนวณจาก alert ที่บันทึกไว้ ไม่ได้ replay ใหม่",
++    aiAgentLowerBound: "recall และ false alarm ของ AI Agent เป็นค่าขั้นต่ำ",
+     f1: "F1",
+     bundledRetry: "ลองใหม่",
+   },
+@@ -308,7 +310,7 @@ const COPY = {
+     policySlac: (mode: string) => `ISO 15118-3 SLAC timers (${mode})`,
+     // ...and how the research panel below relates to it.
+     researchBasis: {
+-      same: `The research panel below rescores these same models under ${Object.keys(RESEARCH_PROFILES).length} label policies and ISO/SLAC rule arms.`,
++      same: `The research panel below rescores these same models under ${Object.keys(RESEARCH_PROFILES).length} label policies and the standard rule arms measured for them.`,
+       different: `The research panel below rescores earlier models under ${Object.keys(RESEARCH_PROFILES).length} label policies and is not this benchmark.`,
+       unknown: `The research panel below rescores one fixed model set under ${Object.keys(RESEARCH_PROFILES).length} label policies.`,
+     },
+@@ -317,7 +319,10 @@ const COPY = {
+     sourcePreview: "preview",
+     bundledLoading: "Loading the bundled benchmark…",
+     bundledFailed: "Could not load the bundled benchmark",
+-    fixedResearchNote: "Fixed research dataset · identical in every edition",
++    fixedResearchNote: "Fixed research results for this model set",
++    armNotMeasured: "Not measured for this model set (needs a replay)",
++    projectedArm: "This policy is projected from recorded alerts, not replayed",
++    aiAgentLowerBound: "AI Agent's recall and false-alarm rate are lower bounds",
+     f1: "F1",
+     bundledRetry: "Retry",
+   },
+@@ -823,12 +828,15 @@ export default function ResearchDashboard({
+   const editionProfileId = researchProfileForBundled(bundled);
+   const [chosenProfileId, setProfileId] = useState<ResearchProfileId | null>(null);
+   const profileId = chosenProfileId ?? editionProfileId ?? "published";
+-  const [armId, setArmId] = useState<ResearchArmId>("normative");
++  const [chosenArmId, setArmId] = useState<ResearchArmId>("normative");
+   const [selectedSummaryStationId, setSelectedSummaryStationId] = useState<string | null>(null);
+   // Everything on this tab is captioned held-out; in-sample training stations
+   // (1.3.0 summaries) are kept off it even if the page passes them in.
+   const heldOut = useMemo(() => heldOutStations(stations), [stations]);
+-  const modelRelation: ResearchModelRelation = researchModelRelation(bundled, modelArtifact);
++  // The research grid of the models this benchmark was scored with, if there
++  // is one (41ded2cd = the 2026-09-12 set, 53b6f142 = v4); else the first grid.
++  const { grid: researchGrid, relation: modelRelation }: { grid: ResearchGrid; relation: ResearchModelRelation } =
++    selectResearchGrid(bundled, modelArtifact);
+   const policy = bundled?.detectionPolicy ?? null;
+   const policySentence =
+     detectionPolicyKind(policy) === "baseline" || !policy
+@@ -844,15 +852,24 @@ export default function ResearchDashboard({
+   const editionMix = useMemo(() => heldOutFaultDistribution(bundled), [bundled]);
+   const [chosenMix, setMix] = useState<"edition" | "research" | null>(null);
+   const mix = editionMix.length === 0 ? "research" : chosenMix ?? "edition";
+-  const profile = RESEARCH_PROFILES[profileId];
+-  const rows = useMemo(
+-    () => MODEL_ORDER.map((id) => ({
+-      id,
+-      current: profile.arms[armId][id],
+-      baseline: profile.arms.baseline[id],
+-    })).sort((left, right) => right.current.score - left.current.score),
+-    [armId, profile],
+-  );
++  const profile = researchGrid.profiles[profileId];
++  // An arm this model set was never measured under (v4 has no ISO 15118-2
++  // replay) cannot be selected; a stale choice falls back to the first
++  // measured arm rather than rendering empty rows.
++  const armMeasured = (id: ResearchArmId) => profile.arms[id] !== undefined;
++  const armId: ResearchArmId = armMeasured(chosenArmId)
++    ? chosenArmId
++    : (["normative", "empirical", "baseline", "iso2"] as const).find(armMeasured) ?? "baseline";
++  const armIsProjected = researchGrid.projectedArms.includes(armId);
++  const aiAgentIsLowerBound = researchGrid.aiAgentLowerBoundArms.includes(armId);
++  const profileNote = researchGrid.profileNotes?.[profileId]?.[lang] ?? null;
++  const rows = useMemo(() => {
++    const current = profile.arms[armId];
++    const baseline = profile.arms.baseline;
++    if (!current || !baseline) return [];
++    return MODEL_ORDER.map((id) => ({ id, current: current[id], baseline: baseline[id] }))
++      .sort((left, right) => right.current.score - left.current.score);
++  }, [armId, profile]);
+   const topModel = rows[0];
+   const selectedSummaryStation = useMemo(
+     () => heldOut.find((station) => station.station === selectedSummaryStationId)
+@@ -874,7 +891,7 @@ export default function ResearchDashboard({
+   };
+   const verifiedDate = new Intl.DateTimeFormat(snapshotDateLocale(lang), {
+     dateStyle: "medium",
+-  }).format(new Date(RESEARCH_SNAPSHOT));
++  }).format(new Date(researchGrid.scoredAt));
+   // The benchmark bundled with this build, ranked by score (unscored models last).
+   const bundledRows = useMemo(
+     () => (bundled ? [...bundled.leaderboard].sort((left, right) => (right.score ?? -1) - (left.score ?? -1)) : []),
+@@ -976,7 +993,7 @@ export default function ResearchDashboard({
+                 data-testid="fd-research-model"
+                 data-relation={modelRelation}
+               >
+-                {c.researchModel[modelRelation](RESEARCH_MODEL_ARTIFACT)}
++                {c.researchModel[modelRelation](researchGrid.artifact)}
+               </span>
+             </div>
+             <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{c.title}</h2>
+@@ -1079,10 +1096,12 @@ export default function ResearchDashboard({
+                 <div className="tw-flex tw-items-center tw-gap-2 tw-text-[11px] tw-font-extrabold tw-uppercase tw-tracking-wider tw-text-slate-400">
+                   <Gauge className="tw-h-4 tw-w-4 tw-text-blue-600" /> {c.score}
+                 </div>
+-                <div className="tw-mt-2 tw-flex tw-items-baseline tw-gap-2">
+-                  <span className="ai-mono tw-text-3xl tw-font-black tw-text-slate-950">{topModel.current.score.toFixed(1)}</span>
+-                  <span className="tw-text-[12px] tw-font-bold tw-text-slate-500">{MODEL_META[topModel.id].name} · {c.bestModel}</span>
+-                </div>
++                {topModel && (
++                  <div className="tw-mt-2 tw-flex tw-items-baseline tw-gap-2">
++                    <span className="ai-mono tw-text-3xl tw-font-black tw-text-slate-950">{topModel.current.score.toFixed(1)}</span>
++                    <span className="tw-text-[12px] tw-font-bold tw-text-slate-500">{MODEL_META[topModel.id].name} · {c.bestModel}</span>
++                  </div>
++                )}
+               </div>
+               <span className="tw-inline-flex tw-items-center tw-gap-1.5 tw-self-start tw-rounded-lg tw-bg-amber-50 tw-px-2.5 tw-py-1.5 tw-text-[11px] tw-font-bold tw-text-amber-800 tw-ring-1 tw-ring-amber-100 lg:tw-self-auto">
+                 <Sparkles className="tw-h-3.5 tw-w-3.5" /> {c.rescored}
+@@ -1107,15 +1126,34 @@ export default function ResearchDashboard({
+                     </span>
+                   )}
+                 </p>
++                {profileNote && (
++                  <p className="tw-mt-1.5 tw-rounded-lg tw-bg-amber-50 tw-px-2.5 tw-py-2 tw-text-[10px] tw-font-semibold tw-leading-4 tw-text-amber-900 tw-ring-1 tw-ring-amber-100" data-testid="fd-profile-note">
++                    {profileNote}
++                  </p>
++                )}
+               </fieldset>
+               <fieldset>
+                 <legend className="tw-mb-2 tw-text-[10px] tw-font-extrabold tw-uppercase tw-tracking-wider tw-text-slate-400">{c.arm}</legend>
+                 <div className="tw-grid tw-grid-cols-2 tw-gap-1 tw-rounded-xl tw-bg-slate-100 tw-p-1 sm:tw-grid-cols-4" role="tablist" aria-label={c.arm}>
+-                  {(Object.keys(armLabels) as ResearchArmId[]).map((id) => (
+-                    <button key={id} type="button" role="tab" aria-selected={armId === id} onClick={() => setArmId(id)} className={`tw-min-h-10 tw-rounded-lg tw-px-2 tw-py-2 tw-text-[10px] tw-font-extrabold tw-leading-4 tw-transition focus:tw-outline-none focus:tw-ring-2 focus:tw-ring-blue-400 ${armId === id ? "tw-bg-slate-950 tw-text-white tw-shadow-sm" : "tw-text-slate-500 hover:tw-text-slate-800"}`}>
+-                      {armLabels[id]}
+-                    </button>
+-                  ))}
++                  {(Object.keys(armLabels) as ResearchArmId[]).map((id) => {
++                    const measured = armMeasured(id);
++                    return (
++                      <button
++                        key={id}
++                        type="button"
++                        role="tab"
++                        aria-selected={armId === id}
++                        aria-disabled={!measured}
++                        disabled={!measured}
++                        title={measured ? undefined : c.armNotMeasured}
++                        data-testid={`fd-arm-${id}`}
++                        onClick={() => setArmId(id)}
++                        className={`tw-min-h-10 tw-rounded-lg tw-px-2 tw-py-2 tw-text-[10px] tw-font-extrabold tw-leading-4 tw-transition focus:tw-outline-none focus:tw-ring-2 focus:tw-ring-blue-400 ${!measured ? "tw-cursor-not-allowed tw-text-slate-300 tw-line-through" : armId === id ? "tw-bg-slate-950 tw-text-white tw-shadow-sm" : "tw-text-slate-500 hover:tw-text-slate-800"}`}
++                      >
++                        {armLabels[id]}
++                      </button>
++                    );
++                  })}
+                 </div>
+               </fieldset>
+             </div>
+@@ -1155,6 +1193,11 @@ export default function ResearchDashboard({
+                 </div>
+               );
+             })}
++            {armIsProjected && (
++              <p className="tw-px-3 tw-pt-2 tw-text-[10px] tw-font-medium tw-leading-4 tw-text-slate-400" data-testid="fd-arm-provenance">
++                {c.projectedArm}{aiAgentIsLowerBound ? ` · ${c.aiAgentLowerBound}` : ""}
++              </p>
++            )}
+           </div>
+         </div>
+ 
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
+index 6fb1190d..694a14fa 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
+@@ -3,7 +3,11 @@ import {
+   FULL_FLEET_LABELS,
+   LABEL_LINEAGE,
+   MODEL_ORDER,
++  RESEARCH_GRIDS,
++  RESEARCH_MODEL_ARTIFACT,
+   RESEARCH_PROFILES,
++  RESEARCH_PROFILES_V4,
++  RESEARCH_V4_ARTIFACT,
+   SLAC_RESEARCH,
+   type ResearchArmId,
+ } from "./research-data";
+@@ -59,6 +63,47 @@ describe("fault-detection research snapshot", () => {
+     );
+   });
+ 
++  it("gives the v4 models baseline and both SLAC arms under every label profile, and no ISO-2 arm", () => {
++    for (const profile of Object.values(RESEARCH_PROFILES_V4)) {
++      expect(Object.keys(profile.arms).sort()).toEqual(["baseline", "empirical", "normative"]);
++      for (const arm of Object.values(profile.arms)) {
++        expect(Object.keys(arm ?? {}).sort()).toEqual([...MODEL_ORDER].sort());
++      }
++      expect(profile.faulty + profile.clean).toBe(profile.sessions);
++    }
++  });
++
++  it("pins v4 strict.baseline to the shipped v4 benchmark leaderboard", () => {
++    // G:/ev_charger_ai_data_v4/results/leaderboard_test.json, rounded to 1 dp
++    const baseline = RESEARCH_PROFILES_V4.strict.arms.baseline!;
++    expect(baseline.TraditionalAI.score).toBe(69.6);
++    expect(baseline.AgenticAI.score).toBe(66.9);
++    expect(baseline.MultiAgent.score).toBe(60.2);
++    expect(baseline.AIAgent.score).toBe(46.4);
++    expect(baseline.RL.score).toBe(39.2);
++  });
++
++  it("holds the invariants that make the v4 grid comparable with the 41ded2cd one", () => {
++    const measured: ResearchArmId[] = ["baseline", "empirical", "normative"];
++    for (const [profileId, profile] of Object.entries(RESEARCH_PROFILES_V4)) {
++      const old = RESEARCH_PROFILES[profileId as keyof typeof RESEARCH_PROFILES];
++      expect([profile.sessions, profile.faulty, profile.clean]).toEqual([old.sessions, old.faulty, old.clean]);
++      for (const arm of measured) {
++        // MultiAgent has no trained weights: its alerts are identical for both model sets
++        expect(profile.arms[arm]!.MultiAgent).toEqual(old.arms[arm].MultiAgent);
++        // RL has no SLAC path, so the SLAC arms cannot move it
++        expect(profile.arms[arm]!.RL).toEqual(profile.arms.baseline!.RL);
++      }
++    }
++  });
++
++  it("lists one grid per model set, the 2026-09-12 set first", () => {
++    expect(RESEARCH_GRIDS.map((grid) => grid.artifact)).toEqual([RESEARCH_MODEL_ARTIFACT, RESEARCH_V4_ARTIFACT]);
++    expect(RESEARCH_GRIDS[0].profiles).toBe(RESEARCH_PROFILES);
++    expect(RESEARCH_GRIDS[1].profiles).toBe(RESEARCH_PROFILES_V4);
++    expect(RESEARCH_GRIDS[1].aiAgentLowerBoundArms).toEqual(["empirical", "normative"]);
++  });
++
+   it("keeps lineage and SLAC fire totals consistent", () => {
+     expect(LABEL_LINEAGE.map((row) => row.id)).toEqual([
+       "published",
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+index d1250bab..c8d2f3d9 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+@@ -22,6 +22,27 @@ export type ResearchProfile = {
+   arms: Record<ResearchArmId, Record<ResearchModelId, ResearchMetric>>;
+ };
+ 
++/** A profile in a grid where some arms may not have been measured. */
++export type ResearchGridProfile = Omit<ResearchProfile, "arms"> & {
++  arms: Partial<Record<ResearchArmId, Record<ResearchModelId, ResearchMetric>>>;
++};
++
++type LocalizedNote = { th: string; en: string };
++
++/** One model set's research results: label profiles x detection-policy arms. */
++export type ResearchGrid = {
++  /** artifactVersion of the models every cell was scored with */
++  artifact: string;
++  scoredAt: string;
++  profiles: Record<ResearchProfileId, ResearchGridProfile>;
++  /** Arms computed from recorded alerts rather than a replay, for every model. */
++  projectedArms: readonly ResearchArmId[];
++  /** Arms whose AIAgent cell is a lower bound (its evidence board was not replayed). */
++  aiAgentLowerBoundArms: readonly ResearchArmId[];
++  /** What a reader must know about a profile for this model set. */
++  profileNotes?: Partial<Record<ResearchProfileId, LocalizedNote>>;
++};
++
+ const metric = (
+   score: number,
+   recall: number,
+@@ -174,6 +195,142 @@ export const RESEARCH_PROFILES: Record<ResearchProfileId, ResearchProfile> = {
+   },
+ };
+ 
++/**
++ * The same grid for the v4 model set (artifact 53b6f14244c2e633), computed
++ * 2026-09-23 by ev_charger_ai/benchmark/research_grid_from_cache.py into
++ * results/research_grid_v4.json and generated into this file from there.
++ * No replay: the baseline arm rescores the v4 first-alert records under each
++ * label profile; the SLAC arms project the cached SLAC fire times onto them.
++ * The same method reproduces every 41ded2cdd5c2ba3f cell above exactly, and
++ * strict.baseline equals the v4 benchmark's leaderboard to full precision.
++ * AIAgent's SLAC cells are lower bounds (its evidence board is not replayed;
++ * on 41ded2cd the same shortcut was 0.0-0.2 points low). The ISO 15118-2 arm
++ * needs a replay and is absent.
++ */
++export const RESEARCH_V4_ARTIFACT = "53b6f14244c2e633";
++export const RESEARCH_V4_SNAPSHOT = "2026-09-23T13:31:35+07:00";
++
++export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile> = {
++  published: {
++    sessions: 8_820,
++    faulty: 957,
++    clean: 7_863,
++    censored: 0,
++    arms: {
++      baseline: {
++        TraditionalAI: metric(67.3, 76.9, 28.0, 52.7),
++        RL: metric(41.3, 21.6, 5.8, 50.4),
++        AIAgent: metric(51.3, 58.0, 35.9, 0.0),
++        AgenticAI: metric(70.2, 90.7, 33.0, 11.7),
++        MultiAgent: metric(56.3, 62.6, 28.3, 0.0),
++      },
++      empirical: {
++        TraditionalAI: metric(76.3, 92.4, 28.1, 49.5),
++        RL: metric(41.3, 21.6, 5.8, 50.4),
++        AIAgent: metric(61.2, 75.0, 36.0, 0.0),
++        AgenticAI: metric(71.2, 91.6, 33.1, 12.7),
++        MultiAgent: metric(65.7, 78.8, 28.5, 0.0),
++      },
++      normative: {
++        TraditionalAI: metric(77.0, 93.2, 28.2, 58.7),
++        RL: metric(41.3, 21.6, 5.8, 50.4),
++        AIAgent: metric(62.0, 76.0, 36.0, 0.4),
++        AgenticAI: metric(71.7, 92.2, 33.1, 13.7),
++        MultiAgent: metric(66.4, 79.6, 28.7, 1.1),
++      },
++    },
++  },
++  strict: {
++    sessions: 8_820,
++    faulty: 1_326,
++    clean: 7_494,
++    censored: 0,
++    arms: {
++      baseline: {
++        TraditionalAI: metric(69.6, 82.5, 24.5, 8.5),
++        RL: metric(39.2, 18.5, 5.6, 29.8),
++        AIAgent: metric(46.4, 49.3, 35.0, 0.0),
++        AgenticAI: metric(66.9, 85.1, 31.0, 4.2),
++        MultiAgent: metric(60.2, 70.1, 25.0, 1.1),
++      },
++      empirical: {
++        TraditionalAI: metric(76.1, 93.7, 24.6, 23.6),
++        RL: metric(39.2, 18.5, 5.6, 29.8),
++        AIAgent: metric(53.8, 62.1, 35.0, 3.2),
++        AgenticAI: metric(67.6, 85.8, 31.0, 4.4),
++        MultiAgent: metric(67.2, 82.2, 25.2, 1.2),
++      },
++      normative: {
++        TraditionalAI: metric(76.6, 94.3, 24.8, 23.9),
++        RL: metric(39.2, 18.5, 5.6, 29.8),
++        AIAgent: metric(54.4, 62.7, 35.1, 3.3),
++        AgenticAI: metric(68.0, 86.2, 31.1, 4.4),
++        MultiAgent: metric(67.6, 82.8, 25.4, 1.2),
++      },
++    },
++  },
++  reviewed: {
++    sessions: 8_525,
++    faulty: 1_317,
++    clean: 7_208,
++    censored: 295,
++    arms: {
++      baseline: {
++        TraditionalAI: metric(67.9, 78.7, 23.7, 8.4),
++        RL: metric(38.4, 17.0, 5.7, 31.4),
++        AIAgent: metric(47.9, 51.9, 35.2, 0.0),
++        AgenticAI: metric(59.2, 70.8, 30.2, 2.2),
++        MultiAgent: metric(61.0, 71.4, 24.8, 1.1),
++      },
++      empirical: {
++        TraditionalAI: metric(73.8, 90.4, 23.8, 8.5),
++        RL: metric(38.4, 17.0, 5.7, 31.4),
++        AIAgent: metric(54.0, 63.6, 35.3, 3.2),
++        AgenticAI: metric(65.0, 81.9, 30.3, 3.6),
++        MultiAgent: metric(67.1, 83.2, 25.0, 1.2),
++      },
++      normative: {
++        TraditionalAI: metric(74.2, 90.7, 24.0, 17.6),
++        RL: metric(38.4, 17.0, 5.7, 31.4),
++        AIAgent: metric(54.3, 64.0, 35.3, 3.3),
++        AgenticAI: metric(65.3, 82.2, 30.3, 3.7),
++        MultiAgent: metric(67.4, 83.6, 25.2, 1.2),
++      },
++    },
++  },
++};
++
++/**
++ * Every model set with research results, oldest first. The Overview shows the
++ * grid of the models the running edition ships (by artifact id, else by an
++ * exact baseline-arm leaderboard match) and falls back to the first.
++ */
++export const RESEARCH_GRIDS: readonly ResearchGrid[] = [
++  {
++    artifact: RESEARCH_MODEL_ARTIFACT,
++    scoredAt: RESEARCH_SNAPSHOT,
++    profiles: RESEARCH_PROFILES,
++    // published.empirical is the SLAC replay; strict/reviewed empirical rescore it.
++    projectedArms: ["normative"],
++    aiAgentLowerBoundArms: [],
++  },
++  {
++    artifact: RESEARCH_V4_ARTIFACT,
++    scoredAt: RESEARCH_V4_SNAPSHOT,
++    profiles: RESEARCH_PROFILES_V4,
++    projectedArms: ["empirical", "normative"],
++    aiAgentLowerBoundArms: ["empirical", "normative"],
++    profileNotes: {
++      // Measured: excluding these 369 sessions makes every model's published
++      // false-alarm rate equal its strict one, alert for alert.
++      published: {
++        th: "label ชุดนี้นับ 369 sessions ที่โมเดลนี้ถูกสอนให้เป็น fault (NO_POWER_DELIVERED 360, SLAC 9) เป็นปกติ การแจ้งเตือนเหล่านั้นจึงถูกนับเป็นแจ้งเตือนผิด",
++        en: "These labels count 369 sessions this model set was trained to flag (NO_POWER_DELIVERED 360, SLAC 9) as clean, so its alerts on them score as false alarms.",
++      },
++    },
++  },
++];
++
+ export const FULL_FLEET_LABELS = {
+   sessions: 40_542,
+   scoring: 39_142,
+-- 
+2.45.1.windows.1
+

@@ -1,0 +1,209 @@
+From bf7279ea181ca80715540e934742cce2318fca56 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 23 Sep 2026 13:52:08 +0700
+Subject: [PATCH 17/18] fix(desktop): research panel claims follow the grid on
+ screen
+
+Review findings on the v4 research grid, each reproduced first:
+
+- "Projection-replay agreement 100%" is now a per-grid field. It was measured
+  only for the 2026-09-12 set's SLAC replay; the v4 set was never replayed, so
+  its tile reads "Not replayed for this model set".
+- The panel subtitle mentions ISO 15118-2 results only when the grid has an
+  ISO-2 arm; for v4 it says ISO 15118-2 is not yet measured.
+- An unmeasured arm's reason was only a tooltip on a disabled tab, which
+  keyboard and touch users never see. It is now a visible caption under the
+  tabs, linked with aria-describedby.
+- The Thai published-profile note now says the models were trained to flag
+  those 369 sessions, as the English does.
+
+Tests: 16 files / 294 pass; tsc adds no error.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../research-dashboard.test.ts                | 14 +++++++++
+ .../ai/fault-detection/research-dashboard.tsx | 30 +++++++++++++++----
+ .../ai/fault-detection/research-data.ts       | 12 ++++++--
+ 3 files changed, 48 insertions(+), 8 deletions(-)
+
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+index d9d27da7..95969c30 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+@@ -123,9 +123,20 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(text(v4)).toContain(
+       "This policy is projected from recorded alerts, not replayed · AI Agent's recall and false-alarm rate are lower bounds",
+     );
++    // the reason is visible text, not only a tooltip on a tab that cannot take focus
++    expect(text(v4)).toContain("+ ISO 15118-2: Not measured for this model set (needs a replay)");
++    expect(armTab(v4, "iso2")).toContain('aria-describedby="fd-arms-not-measured"');
++    // nothing on the page claims ISO-2 results or a replay check for the v4 set
++    expect(text(v4)).toContain("(ISO 15118-2 rules not yet measured for this model set)");
++    expect(text(v4)).toContain("— Not replayed for this model set");
++    expect(text(v4)).not.toContain("Projection–replay agreement");
++
+     // the 2026-09-12 set was replayed under ISO-2; only its normative arm is a projection
+     const old = render(SNAPSHOT_EDITION);
+     expect(armTab(old, "iso2")).not.toContain('disabled=""');
++    expect(text(old)).not.toContain("Not measured for this model set");
++    expect(text(old)).toContain("including ISO 15118-2 rules and ISO 15118-3 SLAC timing.");
++    expect(text(old)).toContain("100% Projection–replay agreement");
+     expect(text(old)).toContain("This policy is projected from recorded alerts, not replayed");
+     expect(text(old)).not.toContain("lower bounds");
+   });
+@@ -141,6 +152,9 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     ]);
+     const t = text(render(v4OnOldLabels));
+     expect(t).toContain("These labels count 369 sessions this model set was trained to flag");
++    expect(text(render(v4OnOldLabels, { lang: "th" }))).toContain(
++      "369 sessions ที่โมเดลชุดนี้ถูกสอนให้แจ้งว่าเป็น fault (NO_POWER_DELIVERED 360, SLAC 9) เป็น session ปกติ",
++    );
+     expect(text(render(SNAPSHOT_EDITION))).not.toContain("369 sessions");
+   });
+ 
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+index e99c28ee..4d509345 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+@@ -55,13 +55,16 @@ const COPY = {
+   th: {
+     verified: "VERIFIED RESEARCH SNAPSHOT",
+     title: "ภาพรวมประสิทธิภาพการตรวจจับ Fault",
+-    subtitle:
+-      "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ ISO 15118-2 และ SLAC จาก ISO 15118-3",
++    subtitle: (hasIso2: boolean) =>
++      hasIso2
++        ? "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ ISO 15118-2 และ SLAC จาก ISO 15118-3"
++        : "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ SLAC จาก ISO 15118-3 (กฎ ISO 15118-2 ยังไม่ได้วัดกับโมเดลชุดนี้)",
+     fullFleet: "Fleet ทั้งหมด",
+     scoringSessions: "ใช้ประเมินผล",
+     faultLabels: "Fault labels",
+     censored: "ตัดออกอย่างมีเหตุผล",
+     replay: "Replay ตรงกับ projection",
++    replayNotRun: "ยังไม่ได้ replay กับโมเดลชุดนี้",
+     profile: "Label snapshot",
+     arm: "Detection policy",
+     published: "Published",
+@@ -192,13 +195,16 @@ const COPY = {
+   en: {
+     verified: "VERIFIED RESEARCH SNAPSHOT",
+     title: "Fault-detection performance overview",
+-    subtitle:
+-      "Compare five model architectures under the same label policy, including ISO 15118-2 rules and ISO 15118-3 SLAC timing.",
++    subtitle: (hasIso2: boolean) =>
++      hasIso2
++        ? "Compare five model architectures under the same label policy, including ISO 15118-2 rules and ISO 15118-3 SLAC timing."
++        : "Compare five model architectures under the same label policy, including ISO 15118-3 SLAC timing (ISO 15118-2 rules not yet measured for this model set).",
+     fullFleet: "Full fleet",
+     scoringSessions: "Scoring cohort",
+     faultLabels: "Fault labels",
+     censored: "Evidence-based exclusions",
+     replay: "Projection–replay agreement",
++    replayNotRun: "Not replayed for this model set",
+     profile: "Label snapshot",
+     arm: "Detection policy",
+     published: "Published",
+@@ -860,6 +866,8 @@ export default function ResearchDashboard({
+   const armId: ResearchArmId = armMeasured(chosenArmId)
+     ? chosenArmId
+     : (["normative", "empirical", "baseline", "iso2"] as const).find(armMeasured) ?? "baseline";
++  const gridHasIso2 = Object.values(researchGrid.profiles).some((candidate) => candidate.arms.iso2 !== undefined);
++  const unmeasuredArms = (["baseline", "iso2", "empirical", "normative"] as const).filter((id) => !armMeasured(id));
+   const armIsProjected = researchGrid.projectedArms.includes(armId);
+   const aiAgentIsLowerBound = researchGrid.aiAgentLowerBoundArms.includes(armId);
+   const profileNote = researchGrid.profileNotes?.[profileId]?.[lang] ?? null;
+@@ -997,7 +1005,7 @@ export default function ResearchDashboard({
+               </span>
+             </div>
+             <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{c.title}</h2>
+-            <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle}</p>
++            <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle(gridHasIso2)}</p>
+           </div>
+           <div className={`tw-grid tw-w-full tw-gap-2 lg:tw-flex lg:tw-w-auto lg:tw-flex-wrap ${onOpenPcap ? "tw-grid-cols-2" : "tw-grid-cols-1"}`}>
+             <button type="button" onClick={onOpenStations} className="tw-inline-flex tw-min-h-11 tw-items-center tw-justify-center tw-gap-2 tw-rounded-xl tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-py-2.5 tw-text-[11px] tw-font-bold tw-text-slate-700 tw-shadow-sm tw-transition hover:tw-border-blue-300 hover:tw-text-blue-700 focus:tw-outline-none focus:tw-ring-4 focus:tw-ring-blue-100 sm:tw-px-4 sm:tw-text-[12px]">
+@@ -1144,6 +1152,7 @@ export default function ResearchDashboard({
+                         role="tab"
+                         aria-selected={armId === id}
+                         aria-disabled={!measured}
++                        aria-describedby={measured ? undefined : "fd-arms-not-measured"}
+                         disabled={!measured}
+                         title={measured ? undefined : c.armNotMeasured}
+                         data-testid={`fd-arm-${id}`}
+@@ -1155,6 +1164,12 @@ export default function ResearchDashboard({
+                     );
+                   })}
+                 </div>
++                {/* Visible, not only a tooltip: a disabled tab takes no focus or tap. */}
++                {unmeasuredArms.length > 0 && (
++                  <p id="fd-arms-not-measured" className="tw-mt-2 tw-text-[10px] tw-font-medium tw-leading-4 tw-text-slate-400" data-testid="fd-arms-not-measured">
++                    {unmeasuredArms.map((id) => armLabels[id]).join(", ")}: {c.armNotMeasured}
++                  </p>
++                )}
+               </fieldset>
+             </div>
+           </div>
+@@ -1319,7 +1334,10 @@ export default function ResearchDashboard({
+               { value: SLAC_RESEARCH.corroborated, label: c.corroborated, icon: <CheckCircle2 className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-emerald-700" },
+               { value: SLAC_RESEARCH.pending, label: c.pending, icon: <Clock3 className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-amber-700" },
+               { value: SLAC_RESEARCH.completedAgents, label: c.completedAgents, icon: <Sparkles className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-blue-700" },
+-              { value: SLAC_RESEARCH.replayAgreement, label: c.replay, icon: <Gauge className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-violet-700", suffix: "%" },
++              // measured for the 2026-09-12 set's SLAC replay only; never shown for a set that was not replayed
++              researchGrid.replayAgreement !== undefined
++                ? { value: researchGrid.replayAgreement, label: c.replay, icon: <Gauge className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-violet-700", suffix: "%" }
++                : { value: "—", label: c.replayNotRun, icon: <Gauge className="tw-h-3.5 tw-w-3.5" />, tone: "tw-text-slate-400" },
+             ].map((item) => (
+               <div key={item.label} className="tw-rounded-xl tw-bg-slate-50 tw-p-3 tw-ring-1 tw-ring-slate-100">
+                 <div className={`tw-flex tw-items-center tw-gap-1.5 ${item.tone}`}>{item.icon}<span className="ai-mono tw-text-lg tw-font-black">{item.value}{item.suffix ?? ""}</span></div>
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+index c8d2f3d9..bde7d543 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+@@ -41,6 +41,8 @@ export type ResearchGrid = {
+   aiAgentLowerBoundArms: readonly ResearchArmId[];
+   /** What a reader must know about a profile for this model set. */
+   profileNotes?: Partial<Record<ResearchProfileId, LocalizedNote>>;
++  /** % of first-alert times a projection reproduced in a full replay, if one was run. */
++  replayAgreement?: number;
+ };
+ 
+ const metric = (
+@@ -300,6 +302,10 @@ export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile
+   },
+ };
+ 
++// Declared before RESEARCH_GRIDS, which reads it at module load (SLAC_RESEARCH
++// further down is initialised later).
++const SLAC_RESEARCH_REPLAY_AGREEMENT = 100;
++
+ /**
+  * Every model set with research results, oldest first. The Overview shows the
+  * grid of the models the running edition ships (by artifact id, else by an
+@@ -313,6 +319,8 @@ export const RESEARCH_GRIDS: readonly ResearchGrid[] = [
+     // published.empirical is the SLAC replay; strict/reviewed empirical rescore it.
+     projectedArms: ["normative"],
+     aiAgentLowerBoundArms: [],
++    // the SLAC projection vs its own replay, 8,820 first-alert times
++    replayAgreement: SLAC_RESEARCH_REPLAY_AGREEMENT,
+   },
+   {
+     artifact: RESEARCH_V4_ARTIFACT,
+@@ -324,7 +332,7 @@ export const RESEARCH_GRIDS: readonly ResearchGrid[] = [
+       // Measured: excluding these 369 sessions makes every model's published
+       // false-alarm rate equal its strict one, alert for alert.
+       published: {
+-        th: "label ชุดนี้นับ 369 sessions ที่โมเดลนี้ถูกสอนให้เป็น fault (NO_POWER_DELIVERED 360, SLAC 9) เป็นปกติ การแจ้งเตือนเหล่านั้นจึงถูกนับเป็นแจ้งเตือนผิด",
++        th: "label ชุดนี้นับ 369 sessions ที่โมเดลชุดนี้ถูกสอนให้แจ้งว่าเป็น fault (NO_POWER_DELIVERED 360, SLAC 9) เป็น session ปกติ การแจ้งเตือนของโมเดลใน sessions เหล่านี้จึงถูกนับเป็นแจ้งเตือนผิด",
+         en: "These labels count 369 sessions this model set was trained to flag (NO_POWER_DELIVERED 360, SLAC 9) as clean, so its alerts on them score as false alarms.",
+       },
+     },
+@@ -376,6 +384,6 @@ export const SLAC_RESEARCH = {
+   completedAgents: 64,
+   quotaStoppedAgents: 29,
+   replaySessions: 8_820,
+-  replayAgreement: 100,
++  replayAgreement: SLAC_RESEARCH_REPLAY_AGREEMENT,
+ } as const;
+ 
+-- 
+2.45.1.windows.1
+

@@ -140,6 +140,10 @@ async function exportSummary() {
         ...(process.env.IMPS_FAULT_DATA_ROOT
           ? ["--data-root", process.env.IMPS_FAULT_DATA_ROOT]
           : []),
+        // the current line bundles the in-sample training-station rows
+        ...(process.env.IMPS_FAULT_TRAIN_RECORDS
+          ? ["--train-records", process.env.IMPS_FAULT_TRAIN_RECORDS]
+          : []),
       ]);
       return output;
     } catch (error) {
@@ -230,6 +234,8 @@ async function main() {
     snapshotAt: summary.snapshotAt,
     sessions: summary.dataset?.sessions ?? null,
     stations: summary.analysis?.byStation?.length ?? 0,
+    trainStations: summary.analysis?.byStationTrain?.length ?? 0,
+    detectionPolicy: summary.detectionPolicy?.id ?? "baseline",
     models: summary.leaderboard?.length ?? 0,
     nextServerRelativePath: path.relative(standaloneRoot, serverEntry).replaceAll("\\", "/"),
     moduleDirectory: "server_modules",

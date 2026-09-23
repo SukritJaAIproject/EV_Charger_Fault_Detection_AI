@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
+import detection_policy
 from job_service import JobServiceError, PcapJobService
 
 
@@ -288,11 +289,26 @@ def _serve(argv: list[str]) -> int:
 
     origin = _validate_origin(args.origin)
     summary, summary_bytes, summary_etag = _load_summary(args.summary)
+    # a summary whose policy the sidecar does not know is a broken build: stop
+    # at once with the reason (it lands in desktop-runtime.log and Electron
+    # reports the runtime exit) rather than run a detector the benchmark does
+    # not describe
+    try:
+        policy_id = detection_policy.policy_id_from_summary(summary)
+    except detection_policy.PolicyError as exc:
+        raise SystemExit(f"Summary detectionPolicy is invalid: {exc}") from exc
+    agentic_rank = next(
+        (row.get("rank") for row in summary["leaderboard"]
+         if isinstance(row, dict) and row.get("id") == "agentic-ai" and isinstance(row.get("rank"), int)),
+        None,
+    )
     service = PcapJobService(
         jobs_root=args.jobs_root,
         model_dir=args.model_dir,
         tshark=args.tshark,
         runtime_command=_runtime_command(),
+        detection_policy=policy_id,
+        benchmark_rank=agentic_rank,
     )
     handler = _make_handler(
         summary=summary,

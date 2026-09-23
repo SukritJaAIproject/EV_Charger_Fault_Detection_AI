@@ -31,7 +31,16 @@ import {
   type DesktopRuntimeStatus,
   type PcapAnalysisJob,
 } from "./api";
-import { snapshotDateLocale, type BundledBenchmark, type StationAnalysis } from "./data";
+import {
+  snapshotDateLocale,
+  type BundledBenchmark,
+  type StationAnalysis,
+  allStationRows,
+  heldOutStationTotals,
+  stationSplitOf,
+  type StationSplit,
+} from "./data";
+import { supportedFaultFamilies } from "./fault-catalog";
 import FaultExplanationPanel, {
   FaultExplanationInline,
   ObservedStopAttribution,
@@ -51,9 +60,11 @@ const COPY = {
     desktopSubtitle: "สำรวจผล benchmark ที่ตรวจสอบแล้วทั้ง fleet เปรียบเทียบกฎ ISO 15118 และเจาะลึกสัดส่วน Fault ของทุกสถานีในโปรแกรมเดียว",
     modelBadge: "VERIFIED RESEARCH",
     formatBadge: "ISO 15118-2 / -3",
-    workflowUpload: "40,542 · Fleet sessions",
-    workflowAnalyze: "5 · AI architectures",
-    workflowReview: "31 · Regression checks",
+    // Hero counts come from the bundled benchmark (see heroStats); the labels
+    // stay English in both languages, as the original design had them.
+    workflowSessions: "Held-out sessions",
+    workflowModels: "AI architectures",
+    workflowFamilies: "Held-out fault families",
     overviewTab: "ภาพรวม",
     stationsTab: "ผลรายสถานี",
     pcapTab: "วิเคราะห์ PCAP",
@@ -98,7 +109,10 @@ const COPY = {
     fileTooLarge: "ไฟล์มีขนาดเกิน 256 MiB",
     uploadFailed: "ไม่สามารถส่งไฟล์ไปวิเคราะห์ได้",
     stationTitle: "ผลวิเคราะห์ PCAP แยกตามสถานี",
-    stationSub: "ผล Agentic AI จาก held-out test 8,820 sessions แสดงแยกทุกสถานี โดยใช้เกณฑ์เดียวกับ benchmark",
+    stationSub: (sessions: string | null) =>
+      sessions
+        ? `ผล Agentic AI จาก held-out test ${sessions} sessions แสดงแยกทุกสถานี โดยใช้เกณฑ์เดียวกับ benchmark`
+        : "ผล Agentic AI จาก held-out test แสดงแยกทุกสถานี โดยใช้เกณฑ์เดียวกับ benchmark",
     stationNote: "กดที่สถานีเพื่อดูผลแยก Connector และ Fault · เป็นข้อมูล PCAP ทดสอบ ไม่ใช่สถานะสุขภาพแบบเรียลไทม์",
     stationsAnalyzed: "สถานีที่วิเคราะห์",
     testSessions: "Test sessions",
@@ -119,16 +133,31 @@ const COPY = {
     score: "Score",
     viewStationDetails: "ดูรายละเอียดสถานี",
     noStations: "ไม่พบสถานีที่ตรงกับคำค้น",
+    stationNoteSplit: "กดที่สถานีเพื่อดูผลแยก Connector และ Fault · แต่ละสถานีมีป้ายบอกว่าเป็น held-out หรือชุดฝึก (in-sample) · ไม่ใช่สถานะสุขภาพแบบเรียลไทม์",
+    otherSplitMatches: (count: number) => `พบ ${count} สถานีที่ตรงกับคำค้นในชุดข้อมูลอื่น · แสดงทั้งหมด`,
     loadingStations: "กำลังโหลดผลรายสถานี",
     stationLoadFailed: "โหลดผลวิเคราะห์รายสถานีไม่สำเร็จ",
     retry: "ลองใหม่",
     updatedAt: "ข้อมูลล่าสุด",
     faultGuide: "คู่มือ Fault",
-    openFaultGuide: "เปิดคู่มือ Fault ทั้ง 7 ประเภท",
+    openFaultGuide: (count: number) => `เปิดคู่มือ Fault ทั้ง ${count} ประเภท`,
     visibleStations: "สถานีที่แสดง",
+    splitLabel: "ชุดข้อมูล",
+    splitHeldOut: "Held-out (ประเมินจริง)",
+    splitTrain: "ชุดฝึก (in-sample)",
+    splitAll: "ทั้งหมด",
+    badgeHeldOut: "HELD-OUT",
+    badgeTrain: "ชุดฝึก · IN-SAMPLE",
+    trainBanner:
+      "สถานีชุดฝึก: โมเดลเรียนรู้จาก session เหล่านี้มาแล้ว คะแนนและ Recall จึงสูงเกินจริงและไม่ใช่ผลประเมิน ใช้ดูสัดส่วน Fault ของสถานีเท่านั้น",
+    excludesTrain: (stations: number, sessions: string) =>
+      `ตัวเลขด้านบนนับเฉพาะสถานี held-out · ไม่รวม ${stations} สถานีชุดฝึก (${sessions} sessions, in-sample)`,
     editionLabel: "รุ่นโปรแกรม",
     modelLabel: "โมเดล",
     dataAsOfLabel: "ข้อมูล benchmark ณ",
+    policyLabel: "กฎมาตรฐาน",
+    policyIso: "ISO 15118-2 + SLAC (ISO 15118-3)",
+    policyOther: "นโยบายตรวจจับ",
   },
   en: {
     eyebrow: "AI · CHARGER FAULT INTELLIGENCE",
@@ -137,9 +166,9 @@ const COPY = {
     desktopSubtitle: "Explore the verified fleet benchmark, compare ISO 15118 rule profiles, and inspect fault distributions for every station in one desktop app.",
     modelBadge: "VERIFIED RESEARCH",
     formatBadge: "ISO 15118-2 / -3",
-    workflowUpload: "40,542 · Fleet sessions",
-    workflowAnalyze: "5 · AI architectures",
-    workflowReview: "31 · Regression checks",
+    workflowSessions: "Held-out sessions",
+    workflowModels: "AI architectures",
+    workflowFamilies: "Held-out fault families",
     overviewTab: "Overview",
     stationsTab: "Stations",
     pcapTab: "Analyze PCAP",
@@ -184,7 +213,10 @@ const COPY = {
     fileTooLarge: "The selected file exceeds 256 MiB.",
     uploadFailed: "The capture could not be submitted for analysis.",
     stationTitle: "PCAP analysis by station",
-    stationSub: "Agentic AI results from 8,820 held-out sessions, broken down by station using the benchmark's exact scoring rules.",
+    stationSub: (sessions: string | null) =>
+      sessions
+        ? `Agentic AI results from ${sessions} held-out sessions, broken down by station using the benchmark's exact scoring rules.`
+        : "Agentic AI results on the held-out sessions, broken down by station using the benchmark's exact scoring rules.",
     stationNote: "Select a station for connector and fault details · These are held-out PCAP results, not real-time station health.",
     stationsAnalyzed: "Stations analyzed",
     testSessions: "Test sessions",
@@ -205,20 +237,50 @@ const COPY = {
     score: "Score",
     viewStationDetails: "View station details",
     noStations: "No stations match the search.",
+    stationNoteSplit: "Select a station for connector and fault details · Each station is labelled held-out or training (in-sample) · Not real-time station health.",
+    otherSplitMatches: (count: number) => `${count} matching station${count === 1 ? "" : "s"} in the other data split · show all`,
     loadingStations: "Loading station results",
     stationLoadFailed: "Unable to load station analysis",
     retry: "Retry",
     updatedAt: "Updated",
     faultGuide: "Fault guide",
-    openFaultGuide: "Open the guide to all 7 fault families",
+    openFaultGuide: (count: number) => `Open the guide to all ${count} fault families`,
     visibleStations: "Stations shown",
+    splitLabel: "Data split",
+    splitHeldOut: "Held-out (evaluation)",
+    splitTrain: "Training (in-sample)",
+    splitAll: "All",
+    badgeHeldOut: "HELD-OUT",
+    badgeTrain: "TRAIN · IN-SAMPLE",
+    trainBanner:
+      "Training stations: the models learned from these sessions, so score and recall are optimistic and are not an evaluation. Use them for the station's fault mix only.",
+    excludesTrain: (stations: number, sessions: string) =>
+      `The figures above count held-out stations only · ${stations} training stations (${sessions} sessions, in-sample) are excluded`,
     editionLabel: "Edition",
     modelLabel: "Model",
     dataAsOfLabel: "Benchmark data as of",
+    policyLabel: "Standard rules",
+    policyIso: "ISO 15118-2 + SLAC (ISO 15118-3)",
+    policyOther: "Detection policy",
   },
 } as const;
 
 type StationSort = "station" | "fault_rate" | "recall" | "far";
+type StationSplitFilter = StationSplit | "all";
+
+/** Held-out / in-sample marker next to a station name. */
+function SplitBadge({ split, heldOut, train }: { split: StationSplit; heldOut: string; train: string }) {
+  return (
+    <span
+      className={`tw-inline-flex tw-flex-shrink-0 tw-items-center tw-rounded-md tw-px-1.5 tw-py-0.5 tw-text-[9px] tw-font-extrabold tw-tracking-wider tw-ring-1 ${
+        split === "train" ? "tw-bg-amber-50 tw-text-amber-800 tw-ring-amber-200" : "tw-bg-emerald-50 tw-text-emerald-700 tw-ring-emerald-100"
+      }`}
+      data-testid={`fd-split-badge-${split}`}
+    >
+      {split === "train" ? train : heldOut}
+    </span>
+  );
+}
 type DashboardView = "overview" | "stations" | "pcap";
 const PCAP_ANALYSIS_ENABLED = process.env.NEXT_PUBLIC_FAULT_PCAP_ENABLED !== "false";
 
@@ -373,6 +435,8 @@ export default function FaultDetectionPage() {
   );
   const [stationQuery, setStationQuery] = useState("");
   const [stationSort, setStationSort] = useState<StationSort>("station");
+  // default to the held-out evaluation, so the first view is the same as before 1.3.0
+  const [stationSplitFilter, setStationSplitFilter] = useState<StationSplitFilter>("test");
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [faultGlossaryOpen, setFaultGlossaryOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -383,7 +447,7 @@ export default function FaultDetectionPage() {
     setStationError(null);
     try {
       const summary = await getFaultDetectionSummary({ signal });
-      setStations(summary.analysis.byStation);
+      setStations(allStationRows(summary.analysis));
       setStationSnapshot(summary.snapshotAt);
       setBundled({
         source: summary.source,
@@ -391,6 +455,7 @@ export default function FaultDetectionPage() {
         dataset: summary.dataset,
         leaderboard: summary.leaderboard,
         faultFamilies: summary.analysis.faultFamilies,
+        detectionPolicy: summary.detectionPolicy ?? null,
       });
       setStationHasLoaded(true);
     } catch (caught) {
@@ -504,28 +569,41 @@ export default function FaultDetectionPage() {
       : analysisResult?.verdict.status === "no_fault_detected"
         ? c.noFaultDetected
         : c.inconclusive;
+  const hasTrainStations = useMemo(() => stations.some((row) => stationSplitOf(row) === "train"), [stations]);
+  const splitStations = useMemo(
+    () => (!hasTrainStations || stationSplitFilter === "all"
+      ? stations
+      : stations.filter((row) => stationSplitOf(row) === stationSplitFilter)),
+    [hasTrainStations, stationSplitFilter, stations],
+  );
   const visibleStations = useMemo(() => {
     const query = stationQuery.trim().toLowerCase();
     const rows = query
-      ? stations.filter((row) => row.station.toLowerCase().includes(query))
-      : [...stations];
+      ? splitStations.filter((row) => row.station.toLowerCase().includes(query))
+      : [...splitStations];
     rows.sort((left, right) => {
+      // in "all", held-out stations come first
+      const bySplit = (stationSplitOf(left) === "train" ? 1 : 0) - (stationSplitOf(right) === "train" ? 1 : 0);
+      if (bySplit) return bySplit;
       if (stationSort === "fault_rate") return right.faultRate - left.faultRate || left.station.localeCompare(right.station);
       if (stationSort === "recall") return left.recall - right.recall || left.station.localeCompare(right.station);
       if (stationSort === "far") return right.falseAlarmRate - left.falseAlarmRate || left.station.localeCompare(right.station);
       return left.station.localeCompare(right.station, undefined, { numeric: true });
     });
     return rows;
-  }, [stationQuery, stationSort, stations]);
-  const stationTotals = useMemo(
-    () => stations.reduce(
-      (totals, row) => ({
-        sessions: totals.sessions + row.sessions,
-        faults: totals.faults + row.faultySessions,
-        alerts: totals.alerts + row.alertedSessions,
-      }),
-      { sessions: 0, faults: 0, alerts: 0 },
-    ),
+  }, [stationQuery, stationSort, splitStations]);
+  // the search is scoped to the selected split; say so when the other split has matches
+  const otherSplitMatches = useMemo(() => {
+    const query = stationQuery.trim().toLowerCase();
+    if (!query || !hasTrainStations || stationSplitFilter === "all") return 0;
+    return stations.filter((row) => stationSplitOf(row) !== stationSplitFilter && row.station.toLowerCase().includes(query)).length;
+  }, [hasTrainStations, stationQuery, stationSplitFilter, stations]);
+  // headline numbers are held-out only; training stations are in-sample
+  const stationTotals = useMemo(() => heldOutStationTotals(stations), [stations]);
+  const trainTotals = useMemo(
+    () => stations
+      .filter((row) => stationSplitOf(row) === "train")
+      .reduce((totals, row) => ({ stations: totals.stations + 1, sessions: totals.sessions + row.sessions }), { stations: 0, sessions: 0 }),
     [stations],
   );
   const stationSnapshotLabel = stationSnapshot
@@ -552,6 +630,15 @@ export default function FaultDetectionPage() {
   const editionName = runtimeStatus?.productName
     ? `${runtimeStatus.productName}${runtimeStatus.appVersion ? ` v${runtimeStatus.appVersion}` : ""}`
     : null;
+  // Hero counts from the benchmark bundled with this edition (held-out totals
+  // from `dataset`, never a sum over stations); just the label until it loads.
+  const heroStats: Array<[React.ReactNode, number | null, string]> = [
+    [<Upload key="upload" className="tw-h-4 tw-w-4" />, bundled?.dataset.sessions ?? null, c.workflowSessions],
+    [<BrainCircuit key="analyze" className="tw-h-4 tw-w-4" />, bundled?.leaderboard.length || null, c.workflowModels],
+    [<BookOpenCheck key="review" className="tw-h-4 tw-w-4" />, bundled?.faultFamilies.length || null, c.workflowFamilies],
+  ];
+  const heldOutSessionsLabel =
+    bundled?.dataset.sessions != null ? bundled.dataset.sessions.toLocaleString("en-US") : null;
 
   return (
     <main className={`ai-root fd-page fd-lang-${lang} tw-min-h-screen`}>
@@ -584,6 +671,13 @@ export default function FaultDetectionPage() {
                     {editionName && <EditionChip id="edition" label={c.editionLabel} value={editionName} />}
                     {runtimeStatus?.artifactVersion && <EditionChip id="model" label={c.modelLabel} value={runtimeStatus.artifactVersion} mono />}
                     {editionSnapshotLabel && <EditionChip id="snapshot" label={c.dataAsOfLabel} value={editionSnapshotLabel} />}
+                    {runtimeStatus?.detectionPolicy && runtimeStatus.detectionPolicy.id !== "baseline" && (
+                      <EditionChip
+                        id="policy"
+                        label={runtimeStatus.detectionPolicy.id === "iso15118-standard" ? c.policyLabel : c.policyOther}
+                        value={runtimeStatus.detectionPolicy.id === "iso15118-standard" ? c.policyIso : runtimeStatus.detectionPolicy.label ?? runtimeStatus.detectionPolicy.id}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -599,14 +693,10 @@ export default function FaultDetectionPage() {
               </div>
             </div>
             <div className="fd-hero-stats tw-mt-7 tw-grid tw-gap-px tw-overflow-hidden tw-rounded-2xl tw-bg-white/10 tw-ring-1 tw-ring-white/10 sm:tw-grid-cols-3 lg:tw-max-w-4xl">
-              {[
-                [<Upload key="upload" className="tw-h-4 tw-w-4" />, c.workflowUpload],
-                [<BrainCircuit key="analyze" className="tw-h-4 tw-w-4" />, c.workflowAnalyze],
-                [<BookOpenCheck key="review" className="tw-h-4 tw-w-4" />, c.workflowReview],
-              ].map(([icon, label]) => (
-                <div key={String(label)} className="tw-flex tw-min-h-12 tw-items-center tw-gap-2.5 tw-bg-white/[0.045] tw-px-4 tw-py-3 tw-text-[12px] tw-font-semibold tw-text-slate-200">
+              {heroStats.map(([icon, value, label]) => (
+                <div key={label} className="tw-flex tw-min-h-12 tw-items-center tw-gap-2.5 tw-bg-white/[0.045] tw-px-4 tw-py-3 tw-text-[12px] tw-font-semibold tw-text-slate-200" data-testid="fd-hero-stat">
                   <span className="tw-flex tw-h-7 tw-w-7 tw-flex-shrink-0 tw-items-center tw-justify-center tw-rounded-lg tw-bg-yellow-300/10 tw-text-yellow-300">{icon}</span>
-                  <span>{label}</span>
+                  <span>{value === null ? label : `${value.toLocaleString("en-US")} · ${label}`}</span>
                 </div>
               ))}
             </div>
@@ -654,6 +744,7 @@ export default function FaultDetectionPage() {
               lang={lang}
               bundled={bundled}
               desktop={bundledFromSidecar}
+              modelArtifact={runtimeStatus?.artifactVersion ?? null}
               stations={stations}
               stationLoading={stationLoading}
               stationError={stationError}
@@ -869,6 +960,11 @@ export default function FaultDetectionPage() {
                       <div className="tw-rounded-xl tw-bg-slate-50 tw-p-3.5 tw-ring-1 tw-ring-slate-200/80">
                         <div className="tw-text-[11px] tw-font-bold tw-uppercase tw-tracking-wider tw-text-gray-500">{c.modelUsed}</div>
                         <div className="tw-mt-1 tw-text-[13px] tw-font-extrabold tw-text-gray-900">{analysisResult.model.name}</div>
+                        {analysisResult.model.detectionPolicy && analysisResult.model.detectionPolicy.id !== "baseline" && (
+                          <div className="tw-mt-0.5 tw-text-[11px] tw-font-semibold tw-text-emerald-700" data-testid="fd-result-policy">
+                            {analysisResult.model.detectionPolicy.id === "iso15118-standard" ? c.policyIso : analysisResult.model.detectionPolicy.label ?? analysisResult.model.detectionPolicy.id}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="tw-mt-2 tw-rounded-xl tw-bg-slate-50 tw-p-3.5 tw-ring-1 tw-ring-slate-200/80">
@@ -1053,8 +1149,8 @@ export default function FaultDetectionPage() {
                 tone="blue"
                 icon={<MapPin className="tw-h-5 tw-w-5 sm:tw-h-6 sm:tw-w-6" />}
                 title={c.stationTitle}
-                description={c.stationSub}
-                note={c.stationNote}
+                description={c.stationSub(heldOutSessionsLabel)}
+                note={hasTrainStations && stationSplitFilter !== "test" ? c.stationNoteSplit : c.stationNote}
                 actions={(
                   <>
                   {stationSnapshotLabel && (
@@ -1067,8 +1163,8 @@ export default function FaultDetectionPage() {
                     onClick={() => setFaultGlossaryOpen(true)}
                     aria-haspopup="dialog"
                     aria-controls="fault-glossary-dialog"
-                    aria-label={c.openFaultGuide}
-                    title={c.openFaultGuide}
+                    aria-label={c.openFaultGuide(supportedFaultFamilies.length)}
+                    title={c.openFaultGuide(supportedFaultFamilies.length)}
                     className="tw-inline-flex tw-h-11 tw-items-center tw-justify-center tw-gap-1.5 tw-rounded-xl tw-border tw-border-blue-200 tw-bg-blue-50 tw-px-3.5 tw-text-[12px] tw-font-black tw-text-blue-700 tw-shadow-sm tw-transition hover:tw-border-blue-300 hover:tw-bg-blue-100 focus:tw-outline-none focus:tw-ring-2 focus:tw-ring-blue-400 focus:tw-ring-offset-2"
                   >
                     <BookOpenCheck className="tw-h-4 tw-w-4" />
@@ -1110,11 +1206,16 @@ export default function FaultDetectionPage() {
               <>
                 <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-border-b tw-border-gray-100 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
                   {[
-                    { label: c.stationsAnalyzed, value: formatInt(stations.length), icon: <MapPin className="tw-h-4 tw-w-4" />, tone: "blue" as const },
+                    { label: c.stationsAnalyzed, value: formatInt(stationTotals.stations), icon: <MapPin className="tw-h-4 tw-w-4" />, tone: "blue" as const },
                     { label: c.testSessions, value: formatInt(stationTotals.sessions), icon: <Database className="tw-h-4 tw-w-4" />, tone: "slate" as const },
-                    { label: c.knownFaults, value: formatInt(stationTotals.faults), icon: <AlertTriangle className="tw-h-4 tw-w-4" />, tone: "red" as const },
-                    { label: c.aiAlerts, value: formatInt(stationTotals.alerts), icon: <Sparkles className="tw-h-4 tw-w-4" />, tone: "purple" as const },
+                    { label: c.knownFaults, value: formatInt(stationTotals.faultySessions), icon: <AlertTriangle className="tw-h-4 tw-w-4" />, tone: "red" as const },
+                    { label: c.aiAlerts, value: formatInt(stationTotals.alertedSessions), icon: <Sparkles className="tw-h-4 tw-w-4" />, tone: "purple" as const },
                   ].map((metric) => <SummaryMetric key={metric.label} {...metric} />)}
+                  {hasTrainStations && (
+                    <p className="tw-col-span-2 tw-text-[11px] tw-font-semibold tw-text-slate-500 sm:tw-col-span-4" data-testid="fd-excludes-train">
+                      {c.excludesTrain(trainTotals.stations, formatInt(trainTotals.sessions))}
+                    </p>
+                  )}
                 </div>
 
                 <div className="tw-flex tw-flex-col tw-gap-2.5 tw-border-b tw-border-gray-100 tw-bg-gray-50/70 tw-p-4 sm:tw-flex-row sm:tw-items-center sm:tw-justify-between sm:tw-px-6 sm:tw-py-4">
@@ -1129,9 +1230,27 @@ export default function FaultDetectionPage() {
                       className="tw-h-11 tw-w-full tw-rounded-xl tw-border tw-border-gray-200 tw-bg-white tw-pl-10 tw-pr-3 tw-text-[13px] tw-font-semibold tw-text-gray-800 tw-outline-none tw-transition placeholder:tw-text-gray-400 focus:tw-border-blue-500 focus:tw-ring-4 focus:tw-ring-blue-100"
                     />
                   </label>
-                  <div className="tw-flex tw-items-center tw-gap-3">
+                  <div className="tw-flex tw-flex-wrap tw-items-center tw-gap-3">
+                    {hasTrainStations && (
+                      <div role="radiogroup" aria-label={c.splitLabel} className="tw-inline-flex tw-rounded-xl tw-bg-slate-100 tw-p-1" data-testid="fd-split-filter">
+                        {([["test", c.splitHeldOut], ["train", c.splitTrain], ["all", c.splitAll]] as const).map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            role="radio"
+                            aria-checked={stationSplitFilter === value}
+                            onClick={() => setStationSplitFilter(value)}
+                            className={`tw-min-h-9 tw-rounded-lg tw-px-2.5 tw-text-[11px] tw-font-bold tw-transition focus:tw-outline-none focus-visible:tw-ring-2 focus-visible:tw-ring-blue-400 ${
+                              stationSplitFilter === value ? "tw-bg-white tw-text-slate-900 tw-shadow-sm" : "tw-text-slate-500 hover:tw-text-slate-800"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <span className="tw-hidden tw-whitespace-nowrap tw-text-[11px] tw-font-bold tw-text-slate-500 md:tw-inline">
-                      {c.visibleStations}: <span className="ai-mono tw-text-slate-900">{visibleStations.length}/{stations.length}</span>
+                      {c.visibleStations}: <span className="ai-mono tw-text-slate-900">{visibleStations.length}/{splitStations.length}</span>
                     </span>
                     <select
                       value={stationSort}
@@ -1150,6 +1269,13 @@ export default function FaultDetectionPage() {
                 {stationError && (
                   <div className="tw-border-b tw-border-amber-200 tw-bg-amber-50 tw-px-5 tw-py-3 tw-text-[12px] tw-font-semibold tw-text-amber-800">
                     {c.stationLoadFailed}: {stationError}
+                  </div>
+                )}
+
+                {hasTrainStations && stationSplitFilter !== "test" && (
+                  <div role="note" className="tw-flex tw-items-start tw-gap-2.5 tw-border-b tw-border-amber-200 tw-bg-amber-50 tw-px-5 tw-py-3 tw-text-[12px] tw-font-semibold tw-leading-5 tw-text-amber-900" data-testid="fd-train-banner">
+                    <AlertTriangle className="tw-mt-0.5 tw-h-4 tw-w-4 tw-flex-shrink-0" />
+                    <span>{c.trainBanner}</span>
                   </div>
                 )}
 
@@ -1179,8 +1305,9 @@ export default function FaultDetectionPage() {
                               <span className="tw-block tw-truncate tw-text-[15px] tw-font-black tw-text-slate-950" title={station.station}>
                                 {displayStation(station.station)}
                               </span>
-                              <span className="tw-mt-0.5 tw-block tw-truncate tw-text-[11px] tw-font-semibold tw-uppercase tw-tracking-wide tw-text-slate-400">
-                                {station.group} · {station.connectors} connector{station.connectors === 1 ? "" : "s"}
+                              <span className="tw-mt-0.5 tw-flex tw-min-w-0 tw-items-center tw-gap-1.5 tw-text-[11px] tw-font-semibold tw-uppercase tw-tracking-wide tw-text-slate-400">
+                                {hasTrainStations && <SplitBadge split={stationSplitOf(station)} heldOut={c.badgeHeldOut} train={c.badgeTrain} />}
+                                <span className="tw-truncate">{station.group} · {station.connectors} connector{station.connectors === 1 ? "" : "s"}</span>
                               </span>
                             </span>
                           </span>
@@ -1218,8 +1345,13 @@ export default function FaultDetectionPage() {
                     );
                   })}
                   {visibleStations.length === 0 && (
-                    <div className="tw-flex tw-min-h-[180px] tw-items-center tw-justify-center tw-rounded-2xl tw-border tw-border-dashed tw-border-slate-300 tw-bg-slate-50 tw-p-6 tw-text-center tw-text-[13px] tw-font-semibold tw-text-gray-500">
+                    <div className="tw-flex tw-min-h-[180px] tw-flex-col tw-items-center tw-justify-center tw-gap-3 tw-rounded-2xl tw-border tw-border-dashed tw-border-slate-300 tw-bg-slate-50 tw-p-6 tw-text-center tw-text-[13px] tw-font-semibold tw-text-gray-500">
                       {c.noStations}
+                      {otherSplitMatches > 0 && (
+                        <button type="button" onClick={() => setStationSplitFilter("all")} className="tw-rounded-lg tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-py-1.5 tw-text-[12px] tw-font-bold tw-text-blue-700 hover:tw-border-blue-300">
+                          {c.otherSplitMatches(otherSplitMatches)}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1274,7 +1406,10 @@ export default function FaultDetectionPage() {
                                 </div>
                                 <div className="tw-min-w-0 tw-flex-1">
                                   <div className="tw-truncate tw-text-[13px] tw-font-extrabold tw-text-gray-900" title={station.station}>{displayStation(station.station)}</div>
-                                  <div className="tw-mt-0.5 tw-truncate tw-text-[10px] tw-font-semibold tw-uppercase tw-tracking-wider tw-text-gray-400">{station.group} · {station.connectors} connector{station.connectors === 1 ? "" : "s"}</div>
+                                  <div className="tw-mt-0.5 tw-flex tw-min-w-0 tw-items-center tw-gap-1.5 tw-text-[10px] tw-font-semibold tw-uppercase tw-tracking-wider tw-text-gray-400">
+                                    {hasTrainStations && <SplitBadge split={stationSplitOf(station)} heldOut={c.badgeHeldOut} train={c.badgeTrain} />}
+                                    <span className="tw-truncate">{station.group} · {station.connectors} connector{station.connectors === 1 ? "" : "s"}</span>
+                                  </div>
                                 </div>
                                 <ChevronRight className="tw-mt-2 tw-h-3.5 tw-w-3.5 tw-flex-shrink-0 tw-text-gray-300 tw-transition-transform group-hover:tw-translate-x-0.5 group-hover:tw-text-blue-600" />
                               </button>
@@ -1309,7 +1444,14 @@ export default function FaultDetectionPage() {
                     </tbody>
                   </table>
                   {visibleStations.length === 0 && (
-                    <div className="tw-flex tw-min-h-[180px] tw-items-center tw-justify-center tw-p-6 tw-text-[13px] tw-font-semibold tw-text-gray-500">{c.noStations}</div>
+                    <div className="tw-flex tw-min-h-[180px] tw-flex-col tw-items-center tw-justify-center tw-gap-3 tw-p-6 tw-text-[13px] tw-font-semibold tw-text-gray-500">
+                      {c.noStations}
+                      {otherSplitMatches > 0 && (
+                        <button type="button" onClick={() => setStationSplitFilter("all")} className="tw-rounded-lg tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-py-1.5 tw-text-[12px] tw-font-bold tw-text-blue-700 hover:tw-border-blue-300">
+                          {c.otherSplitMatches(otherSplitMatches)}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </>

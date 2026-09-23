@@ -3,7 +3,11 @@ import {
   FULL_FLEET_LABELS,
   LABEL_LINEAGE,
   MODEL_ORDER,
+  RESEARCH_GRIDS,
+  RESEARCH_MODEL_ARTIFACT,
   RESEARCH_PROFILES,
+  RESEARCH_PROFILES_V4,
+  RESEARCH_V4_ARTIFACT,
   SLAC_RESEARCH,
   type ResearchArmId,
 } from "./research-data";
@@ -57,6 +61,47 @@ describe("fault-detection research snapshot", () => {
     expect(FULL_FLEET_LABELS.clean + FULL_FLEET_LABELS.faulty).toBe(
       FULL_FLEET_LABELS.scoring,
     );
+  });
+
+  it("gives the v4 models baseline and both SLAC arms under every label profile, and no ISO-2 arm", () => {
+    for (const profile of Object.values(RESEARCH_PROFILES_V4)) {
+      expect(Object.keys(profile.arms).sort()).toEqual(["baseline", "empirical", "normative"]);
+      for (const arm of Object.values(profile.arms)) {
+        expect(Object.keys(arm ?? {}).sort()).toEqual([...MODEL_ORDER].sort());
+      }
+      expect(profile.faulty + profile.clean).toBe(profile.sessions);
+    }
+  });
+
+  it("pins v4 strict.baseline to the shipped v4 benchmark leaderboard", () => {
+    // G:/ev_charger_ai_data_v4/results/leaderboard_test.json, rounded to 1 dp
+    const baseline = RESEARCH_PROFILES_V4.strict.arms.baseline!;
+    expect(baseline.TraditionalAI.score).toBe(69.6);
+    expect(baseline.AgenticAI.score).toBe(66.9);
+    expect(baseline.MultiAgent.score).toBe(60.2);
+    expect(baseline.AIAgent.score).toBe(46.4);
+    expect(baseline.RL.score).toBe(39.2);
+  });
+
+  it("holds the invariants that make the v4 grid comparable with the 41ded2cd one", () => {
+    const measured: ResearchArmId[] = ["baseline", "empirical", "normative"];
+    for (const [profileId, profile] of Object.entries(RESEARCH_PROFILES_V4)) {
+      const old = RESEARCH_PROFILES[profileId as keyof typeof RESEARCH_PROFILES];
+      expect([profile.sessions, profile.faulty, profile.clean]).toEqual([old.sessions, old.faulty, old.clean]);
+      for (const arm of measured) {
+        // MultiAgent has no trained weights: its alerts are identical for both model sets
+        expect(profile.arms[arm]!.MultiAgent).toEqual(old.arms[arm].MultiAgent);
+        // RL has no SLAC path, so the SLAC arms cannot move it
+        expect(profile.arms[arm]!.RL).toEqual(profile.arms.baseline!.RL);
+      }
+    }
+  });
+
+  it("lists one grid per model set, the 2026-09-12 set first", () => {
+    expect(RESEARCH_GRIDS.map((grid) => grid.artifact)).toEqual([RESEARCH_MODEL_ARTIFACT, RESEARCH_V4_ARTIFACT]);
+    expect(RESEARCH_GRIDS[0].profiles).toBe(RESEARCH_PROFILES);
+    expect(RESEARCH_GRIDS[1].profiles).toBe(RESEARCH_PROFILES_V4);
+    expect(RESEARCH_GRIDS[1].aiAgentLowerBoundArms).toEqual(["empirical", "normative"]);
   });
 
   it("keeps lineage and SLAC fire totals consistent", () => {

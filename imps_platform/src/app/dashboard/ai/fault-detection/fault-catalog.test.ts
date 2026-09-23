@@ -8,7 +8,7 @@ import {
 
 describe("fault catalog", () => {
   it("documents every fault family produced by the detector", () => {
-    expect(supportedFaultFamilies).toHaveLength(7);
+    expect(supportedFaultFamilies).toHaveLength(8);
     expect(supportedFaultFamilies).toEqual(expect.arrayContaining([
       "PROTOCOL_FAILED",
       "EVSE_FAULT",
@@ -17,6 +17,7 @@ describe("fault catalog", () => {
       "SESSION_ABORT",
       "SLAC_FAILURE",
       "COMM_FREEZE",
+      "NO_POWER_DELIVERED",
     ]));
     for (const family of supportedFaultFamilies) {
       const detail = getFaultExplanation(family, "th");
@@ -32,6 +33,20 @@ describe("fault catalog", () => {
       .toBe("EV_ERROR");
     expect(resolveFaultFamily(null, "goal 'session established' failed: no SessionSetupRes within 20s [V2G2-448]"))
       .toBe("SESSION_ABORT");
+  });
+
+  it("explains NO_POWER_DELIVERED instead of calling it an unclassified anomaly", () => {
+    // The largest family in the v4 benchmark (360 of 1,326 held-out faults);
+    // before it had a definition every such session read "Unclassified AI anomaly".
+    expect(getFaultExplanation("NO_POWER_DELIVERED", "en").knownFamily).toBe(true);
+    expect(getFaultExplanation("no_power_delivered", "th").family).toBe("NO_POWER_DELIVERED");
+    // the labeller's detail string and the online rule's reason string
+    expect(resolveFaultFamily(null, "stopped after PreCharge, never reached CurrentDemand"))
+      .toBe("NO_POWER_DELIVERED");
+    expect(resolveFaultFamily(null, "closed after CableCheck, no CurrentDemand"))
+      .toBe("NO_POWER_DELIVERED");
+    // a healthy CurrentDemand mention must not be mistaken for the fault
+    expect(resolveFaultFamily(null, "CurrentDemand stalled for 7s")).not.toBe("NO_POWER_DELIVERED");
   });
 
   it("does not pretend an unknown model anomaly identifies the stopping party", () => {

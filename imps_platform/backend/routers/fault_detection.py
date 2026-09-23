@@ -33,6 +33,9 @@ _ANALYSIS_FILE = "analysis_test.json"
 _RECORDS_FILE = "records_test.json"
 _SPLIT_FILE = "split.json"
 _MAX_RESULT_BYTES = 10 * 1024 * 1024
+# records of the in-sample replay over the training stations (optional, desktop
+# builds only): ~31,800 sessions, so ~20 MB with five detectors
+_MAX_TRAIN_RECORDS_BYTES = 64 * 1024 * 1024
 _LATE_GRACE_SECONDS = 10.0
 _LEAD_CAP_SECONDS = 120.0
 _JOB_SERVICE: PcapJobService | None = None
@@ -177,14 +180,14 @@ def _read_result(path: Path) -> tuple[Mapping[str, Any], bytes, int]:
     return _as_mapping(decoded, path.name), raw, modified_ns
 
 
-def _read_records(path: Path) -> tuple[list[Any], bytes, int]:
+def _read_records(path: Path, max_bytes: int = _MAX_RESULT_BYTES) -> tuple[list[Any], bytes, int]:
     """Read the fixed per-session benchmark records used for station rollups."""
     try:
         raw = path.read_bytes()
         modified_ns = path.stat().st_mtime_ns
     except (OSError, PermissionError) as exc:
         raise FaultDetectionResultError(f"cannot read {path.name}") from exc
-    if not raw or len(raw) > _MAX_RESULT_BYTES:
+    if not raw or len(raw) > max_bytes:
         raise FaultDetectionResultError(f"{path.name} has an invalid size")
     try:
         decoded = json.loads(
@@ -286,11 +289,20 @@ def _station_rollup_metrics(stats: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_station_analysis(records: list[Any]) -> list[dict[str, Any]]:
-    """Aggregate AgenticAI's held-out results with the competition's exact rules."""
+def _build_station_analysis(
+    records: list[Any],
+    *,
+    split_name: str = "test",
+    source_label: str = _RECORDS_FILE,
+) -> list[dict[str, Any]]:
+    """Aggregate AgenticAI's per-session results with the competition's exact rules.
+
+    Every row carries the split it came from: "test" rows are the held-out
+    evaluation, "train" rows are in-sample (the models were fitted on them).
+    """
     stations: dict[str, dict[str, Any]] = {}
     for index, raw_record in enumerate(records):
-        record_label = f"{_RECORDS_FILE}[{index}]"
+        record_label = f"{source_label}[{index}]"
         record = _as_mapping(raw_record, record_label)
         label = _as_mapping(record.get("label"), f"{record_label}.label")
         station = label.get("station")
@@ -462,6 +474,7 @@ def _build_station_analysis(records: list[Any]) -> list[dict[str, Any]]:
         rows.append(
             {
                 "station": station,
+                "split": split_name,
                 "group": stats["group"],
                 "connectors": len(stats["connectors"]),
                 **station_metrics,
@@ -757,10 +770,70 @@ def _build_summary(
     }
 
 
+def _load_train_station_analysis(
+    train_records: Path,
+    split_data: Mapping[str, Any] | None,
+    held_out: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bytes]:
+    """Per-station rows for the training stations, from an in-sample replay.
+
+    They never enter the held-out gates, totals or leaderboard; they are only
+    attached as analysis.byStationTrain for the station views.
+    """
+    records, raw, _ = _read_records(train_records, _MAX_TRAIN_RECORDS_BYTES)
+    rows = _build_station_analysis(records, split_name="train", source_label=train_records.name)
+    names = {row["station"] for row in rows}
+    overlap = names & {row["station"] for row in held_out}
+    if overlap:
+        raise FaultDetectionResultError(
+            f"{train_records.name} contains held-out stations: {sorted(overlap)[:3]}"
+        )
+    if split_data is not None:
+        expected = split_data.get("train")
+        if isinstance(expected, list) and set(expected) != names:
+            raise FaultDetectionResultError(
+                f"{train_records.name} stations do not match {_SPLIT_FILE}.train"
+            )
+    # the leaderboard written by the same replay (records_<tag>.json ->
+    # leaderboard_<tag>.json) must exist and agree with the station rows
+    name = train_records.name
+    if not (name.startswith("records_") and name.endswith(".json")):
+        raise FaultDetectionResultError(f"{name} is not a records_<tag>.json file")
+    candidate = train_records.with_name("leaderboard_" + name[len("records_"):])
+    if not candidate.is_file():
+        raise FaultDetectionResultError(f"{candidate.name} is missing next to {name}")
+    board, _, _ = _read_result(candidate)
+    if board.get("split") != "train":
+        raise FaultDetectionResultError(f"{candidate.name} is not a train-split leaderboard")
+    agentic = (board.get("detectors") or {}).get("AgenticAI")
+    if not isinstance(agentic, Mapping):
+        raise FaultDetectionResultError(f"{candidate.name} has no AgenticAI result")
+    totals = {key: sum(row[key] for row in rows) for key in ("faultySessions", "normalSessions", "tp", "late", "miss", "fp")}
+    expected_totals = {
+        "faultySessions": board.get("n_faulty"),
+        "normalSessions": board.get("n_clean"),
+        "tp": agentic.get("tp"),
+        "late": agentic.get("late"),
+        "miss": agentic.get("miss"),
+        "fp": agentic.get("fp"),
+    }
+    if totals != expected_totals:
+        raise FaultDetectionResultError(
+            f"{train_records.name} station rows do not match {candidate.name}"
+        )
+    return rows, raw
+
+
 def load_fault_detection_summary(
     data_root: str | Path | None = None,
+    *,
+    train_records: str | Path | None = None,
 ) -> tuple[dict[str, Any], str]:
-    """Load, validate, and transform the two fixed full-fleet result files."""
+    """Load, validate, and transform the two fixed full-fleet result files.
+
+    `train_records` optionally adds the in-sample training-station rows as
+    analysis.byStationTrain (desktop builds); the held-out summary is unchanged.
+    """
     root = Path(
         data_root
         if data_root is not None
@@ -778,6 +851,7 @@ def load_fault_detection_summary(
     station_analysis = _build_station_analysis(records)
     station_count: int | None = None
     split_raw = b""
+    split_data: Mapping[str, Any] | None = None
     split_path = root / _SPLIT_FILE
     if split_path.is_file():
         split_data, split_raw, _ = _read_result(split_path)
@@ -797,6 +871,13 @@ def load_fault_detection_summary(
                 f"{_RECORDS_FILE} stations do not match {_SPLIT_FILE}.{split_name}"
             )
 
+    train_rows: list[dict[str, Any]] | None = None
+    train_raw = b""
+    if train_records is not None:
+        train_rows, train_raw = _load_train_station_analysis(
+            Path(train_records), split_data, station_analysis
+        )
+
     digest = hashlib.sha256(
         leaderboard_raw
         + b"\0"
@@ -805,18 +886,22 @@ def load_fault_detection_summary(
         + records_raw
         + b"\0"
         + split_raw
+        + b"\0"
+        + train_raw
     ).hexdigest()
     etag = f'"{digest}"'
-    return (
-        _build_summary(
-            leaderboard,
-            analysis,
-            snapshot_ns=max(leaderboard_ns, analysis_ns, records_ns),
-            station_count=station_count,
-            station_analysis=station_analysis,
-        ),
-        etag,
+    summary = _build_summary(
+        leaderboard,
+        analysis,
+        # the benchmark date is the held-out result's; the in-sample file must
+        # not move the "data as of" the dashboard shows
+        snapshot_ns=max(leaderboard_ns, analysis_ns, records_ns),
+        station_count=station_count,
+        station_analysis=station_analysis,
     )
+    if train_rows is not None:
+        summary["analysis"]["byStationTrain"] = train_rows
+    return summary, etag
 
 
 def _etag_matches(header: str | None, etag: str) -> bool:

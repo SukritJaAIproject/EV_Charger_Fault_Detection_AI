@@ -22,7 +22,8 @@ const COPY = {
     eyebrow: "PCAP FAULT REFERENCE",
     title: "คู่มือ Fault จาก PCAP",
     subtitle: "ความหมาย สาเหตุ มาตรฐานที่เกี่ยวข้อง และฝ่ายรถ/ตู้ตามหลักฐานใน packet",
-    count: "7 ประเภทที่ระบบจำแนก",
+    // the number itself is rendered above the label from the catalog
+    count: "ประเภทที่ระบบจำแนก",
     close: "ปิดคู่มือ Fault",
     attributionTitle: "อ่านคำว่า ‘ฝ่ายที่หยุด/รายงาน’ อย่างไร",
     attributionBody:
@@ -34,7 +35,7 @@ const COPY = {
     eyebrow: "PCAP FAULT REFERENCE",
     title: "PCAP fault guide",
     subtitle: "Meanings, probable causes, related standards, and EV/charger attribution from packet evidence",
-    count: "7 classified fault families",
+    count: "classified fault families",
     close: "Close fault guide",
     attributionTitle: "How to read ‘stopping or reporting party’",
     attributionBody:

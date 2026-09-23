@@ -215,6 +215,8 @@ const stationFaultFamilyAnalysisSchema = z.object({
 
 const stationAnalysisSchema = z.object({
   station: z.string().min(1),
+  // strict on purpose: an unknown value must never be counted as held-out
+  split: z.enum(["test", "train"]).optional(),
   group: z.string().min(1),
   connectors: nonNegativeInteger,
   ...stationRollupShape,
@@ -249,6 +251,14 @@ const stationAnalysisSchema = z.object({
   });
 });
 
+const detectionPolicySchema = z.object({
+  schemaVersion: z.number().int().positive().optional(),
+  id: z.string().min(1),
+  label: z.string().nullable().optional(),
+  iso2Rules: z.boolean(),
+  slacRuleMode: z.string().min(1),
+});
+
 const faultDetectionSummarySchema = z.object({
   source: z.enum(["preview", "full_fleet"]),
   snapshotAt: z.string().refine((value) => Number.isFinite(Date.parse(value)), {
@@ -274,8 +284,10 @@ const faultDetectionSummarySchema = z.object({
   analysis: z.object({
     bySource: z.array(sourceAnalysisSchema),
     byStation: z.array(stationAnalysisSchema),
+    byStationTrain: z.array(stationAnalysisSchema).optional(),
     faultFamilies: z.array(z.string().min(1)),
   }),
+  detectionPolicy: detectionPolicySchema.nullable().optional().catch(null),
 }).superRefine((summary, context) => {
   const modelIds = summary.leaderboard.map(({ id }) => id);
   if (new Set(modelIds).size !== modelIds.length) {
@@ -297,7 +309,47 @@ const faultDetectionSummarySchema = z.object({
     }
   });
 
-  const stationNames = summary.analysis.byStation.map(({ station }) => station);
+  summary.analysis.byStation.forEach((station, index) => {
+    if (station.split === "train") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Held-out station rows cannot be marked as training rows",
+        path: ["analysis", "byStation", index, "split"],
+      });
+    }
+  });
+  (summary.analysis.byStationTrain ?? []).forEach((station, index) => {
+    if (station.split !== "train") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Training station rows must be marked split=train",
+        path: ["analysis", "byStationTrain", index, "split"],
+      });
+    }
+  });
+  const { sessions, faultySessions, normalSessions } = summary.dataset;
+  if (summary.analysis.byStation.length && sessions !== null && faultySessions !== null && normalSessions !== null) {
+    const heldOut = summary.analysis.byStation.reduce(
+      (totals, station) => ({
+        sessions: totals.sessions + station.sessions,
+        faultySessions: totals.faultySessions + station.faultySessions,
+        normalSessions: totals.normalSessions + station.normalSessions,
+      }),
+      { sessions: 0, faultySessions: 0, normalSessions: 0 },
+    );
+    if (heldOut.sessions !== sessions || heldOut.faultySessions !== faultySessions || heldOut.normalSessions !== normalSessions) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Held-out station totals must match the dataset",
+        path: ["analysis", "byStation"],
+      });
+    }
+  }
+
+  const stationNames = [
+    ...summary.analysis.byStation.map(({ station }) => station),
+    ...(summary.analysis.byStationTrain ?? []).map(({ station }) => station),
+  ];
   if (new Set(stationNames).size !== stationNames.length) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -360,6 +412,7 @@ const inferenceResultSchema = z.object({
     benchmarkRank: z.number().int().positive().nullable().optional(),
     artifactVersion: z.string().nullable().optional(),
     coldStart: z.boolean(),
+    detectionPolicy: detectionPolicySchema.nullable().optional().catch(null),
   }),
   capture: z.object({
     extractedEvents: nonNegativeInteger,
@@ -518,6 +571,7 @@ const desktopRuntimeStatusSchema = z.object({
   artifactVersion: optionalText,
   modelCreatedAt: optionalText,
   summarySnapshotAt: optionalText,
+  detectionPolicy: detectionPolicySchema.nullable().optional().catch(null),
 });
 
 export type DesktopRuntimeStatus = z.infer<typeof desktopRuntimeStatusSchema>;

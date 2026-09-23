@@ -95,6 +95,8 @@ class PcapJobService:
         max_queued_jobs: int = MAX_QUEUED_JOBS,
         timeout_seconds: int = INFERENCE_TIMEOUT_SECONDS,
         retention_days: int = 30,
+        detection_policy: str = "baseline",
+        benchmark_rank: int | None = None,
     ) -> None:
         self.jobs_root = jobs_root.resolve()
         self.model_dir = model_dir.resolve()
@@ -115,6 +117,8 @@ class PcapJobService:
         # Identity of the bundled model, reported on /health so the dashboard
         # can show which edition is running. Filled in by _validate_dependencies.
         self.model_info: dict[str, Any] = {"artifactVersion": None, "createdAt": None}
+        self.detection_policy = detection_policy
+        self.benchmark_rank = benchmark_rank
         self.jobs_root.mkdir(parents=True, exist_ok=True)
         self._recover_interrupted_jobs()
         self._cleanup_expired_jobs()
@@ -126,10 +130,16 @@ class PcapJobService:
             "missing": list(self._dependency_errors),
             "artifactVersion": self.model_info["artifactVersion"],
             "modelCreatedAt": self.model_info["createdAt"],
+            "detectionPolicy": self._public_policy(),
             "maxUploadBytes": self.max_upload_bytes,
             "maxQueuedJobs": self.max_queued_jobs,
             "retentionDays": self.retention_days,
         }
+
+    def _public_policy(self) -> dict[str, Any] | None:
+        import detection_policy
+
+        return detection_policy.public(self.detection_policy)
 
     @staticmethod
     def _sha256_file(path: Path) -> str:
@@ -458,11 +468,14 @@ class PcapJobService:
                 str(self.model_dir),
                 "--tshark",
                 str(self.tshark),
-                "--original-name",
-                state["originalName"],
+                f"--original-name={state['originalName']}",
                 "--sha256",
                 state["sha256"],
+                "--detection-policy",
+                self.detection_policy,
             ]
+            if self.benchmark_rank is not None:
+                command += ["--benchmark-rank", str(self.benchmark_rank)]
             creation_flags = 0
             if os.name == "nt":
                 creation_flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP

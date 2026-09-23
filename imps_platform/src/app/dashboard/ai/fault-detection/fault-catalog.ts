@@ -148,6 +148,23 @@ const FAULT_DEFINITIONS: Record<string, FaultDefinition> = {
       en: "Use the last Req/Res, subsequent packets, and timeout evidence to identify which party stopped responding.",
     },
   },
+  NO_POWER_DELIVERED: {
+    title: { th: "เริ่มชาร์จแล้วแต่ไม่มีการจ่ายไฟ", en: "Charge attempted, no power delivered" },
+    cause: {
+      th: "รถขอพารามิเตอร์การชาร์จ (ChargeParameterDiscovery) และ session ปิดอย่างเรียบร้อย แต่ไม่เคยเข้าสู่ CurrentDemand จึงไม่มีพลังงานถูกจ่าย ส่วนใหญ่ PreCharge ดันแรงดันไม่เข้าใกล้ค่าที่รถขอก่อน session ถูกปิด ส่วนน้อย PreCharge ถึงแรงดันแล้วแต่รถยังสั่งหยุด หรือ session ปิดก่อนเริ่ม PreCharge (หลักฐานเป็น stopped after ChargeParameterDiscovery หรือ CableCheck) หลักฐานระบุขั้นสุดท้ายที่ไปถึง",
+      en: "The EV requested charge parameters (ChargeParameterDiscovery) and the session closed gracefully, but CurrentDemand was never reached, so no energy was delivered. Most often PreCharge never brought the voltage near the EV's target before the close; less often PreCharge converged and the EV stopped anyway, or the session closed before PreCharge started (evidence: stopped after ChargeParameterDiscovery or CableCheck). The evidence names the last phase reached.",
+    },
+    standard: {
+      th: "DIN SPEC 70121 / ISO 15118-2 — ลำดับ CableCheck → PreCharge → PowerDelivery → CurrentDemand; เป็นผลที่อนุมานจากลำดับข้อความ ไม่ใช่ error code ของโปรโตคอล (ResponseCode อาจเป็น OK ทั้งหมด)",
+      en: "DIN SPEC 70121 / ISO 15118-2 — the CableCheck → PreCharge → PowerDelivery → CurrentDemand sequence; an outcome derived from the message sequence, not a protocol error code (every ResponseCode can be OK)",
+    },
+    stopParty: "unknown",
+    stopPartyLabel: { th: "ปิดเรียบร้อย; ดูขั้นสุดท้ายและแรงดัน PreCharge", en: "Closed cleanly; check the last phase and PreCharge voltage" },
+    attribution: {
+      th: "ถ้าแรงดัน PreCharge ไม่เข้าใกล้ค่าที่รถขอ หลักฐานชี้ไปที่ภาคกำลังของตู้ ถ้าแรงดันถึงแล้วแต่รถยังสั่งหยุด หรือปิดก่อนถึง PreCharge จึงไม่มีแรงดันให้ตัดสิน packet อย่างเดียวยังแยกไม่ได้ว่าเป็นรถหรือตู้",
+      en: "If the PreCharge voltage never approached the EV's target, the evidence points to the charger's power stage; if it converged and the EV still stopped, or the session closed before PreCharge so there is no voltage to judge, the packets alone cannot tell EV from charger.",
+    },
+  },
 };
 
 const UNKNOWN_DEFINITION: FaultDefinition = {
@@ -176,6 +193,8 @@ const REASON_FAMILY_HINTS: Array<[RegExp, string]> = [
   [/no sessionsetupres|v2g2-448|tcp rst|re-slac mid-session/i, "SESSION_ABORT"],
   [/link_establishment_failing|slac attempts|slac_failure/i, "SLAC_FAILURE"],
   [/v2g2-443|v2g2-711|dialog_freezing|communication freeze|cablecheck.*stuck/i, "COMM_FREEZE"],
+  // the labeller's detail ("never reached CurrentDemand") and the online rule's reason ("no CurrentDemand")
+  [/(?:never reached|no) currentdemand/i, "NO_POWER_DELIVERED"],
 ];
 
 export function resolveFaultFamily(

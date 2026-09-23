@@ -93,7 +93,15 @@ IMPS_FAULT_DATA_ROOT
 IMPS_WIRESHARK_SOURCE
 IMPS_VC_RUNTIME_SOURCE
 IMPS_GOLDEN_PCAP
+IMPS_FAULT_TRAIN_RECORDS
 ```
+
+`IMPS_FAULT_TRAIN_RECORDS` points at the records of the in-sample baseline replay over the
+`split.json` training stations (`records_train_AgenticAI.json`, with its
+`leaderboard_train_AgenticAI.json` next to it). The current line sets it so `summary.json`
+carries `analysis.byStationTrain` (167 rows, `split: "train"`), which the Stations tab shows
+behind a held-out / training switch with an in-sample warning; check `trainStations` in
+`.desktop-build\manifest.json`. Leave it unset for the Snapshot and ISO 15118 editions.
 
 To create both variants in one run, set `IMPS_ONLINE_PACKAGE_URL` and run
 `npm run desktop:build`. The URL must be the full final HTTPS URL of the x64
