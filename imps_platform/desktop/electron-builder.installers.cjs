@@ -63,7 +63,24 @@ const appId = process.env.IMPS_APP_ID?.trim() || packageMetadata.build.appId;
 const version = process.env.IMPS_APP_VERSION?.trim() || packageMetadata.version;
 const productSlug = productName.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const resourcesRoot = process.env.IMPS_RESOURCES_ROOT?.trim();
+
+// IMPS_ICON_DIR gives an edition its own artwork (desktop/icons/<edition>):
+// icon.ico becomes win.icon, which electron-builder applies to the exe before
+// signing (no post-build rcedit) and NSIS reuses for both installers, the
+// uninstaller, Apps & Features and the shortcuts; icon.png is the BrowserWindow
+// icon (resources/icon.png), which
+// is what the taskbar and alt-tab show. The browser-tab favicon lives inside
+// the Next app that all editions share, so it is swapped in the staged
+// resources instead (desktop/scripts/stage-edition-resources.ps1).
+const iconDir = process.env.IMPS_ICON_DIR?.trim();
+const iconIco = iconDir ? path.resolve(__dirname, "..", iconDir, "icon.ico") : null;
+const iconPng = iconDir ? path.resolve(__dirname, "..", iconDir, "icon.png") : null;
+for (const iconFile of [iconIco, iconPng]) {
+  if (iconFile && !fs.existsSync(iconFile)) throw new Error(`IMPS_ICON_DIR is missing ${iconFile}`);
+}
+
 const remapResource = (entry) => {
+  if (iconPng && entry.from === "public/img/AI-icon.png") return { ...entry, from: iconPng };
   if (!resourcesRoot) return entry;
   const map = {
     ".next-desktop/standalone": "app",
@@ -112,6 +129,7 @@ module.exports = {
   },
   win: {
     ...baseWindowsOptions,
+    ...(iconIco ? { icon: iconIco } : {}),
     target: targets,
     ...(signtoolOptions ? { signtoolOptions, signExts } : {}),
   },

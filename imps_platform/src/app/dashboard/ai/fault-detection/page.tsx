@@ -36,6 +36,7 @@ import FaultExplanationPanel, {
   FaultExplanationInline,
   ObservedStopAttribution,
 } from "./fault-explanation";
+import { useEditionTabTitle } from "./edition-identity";
 import FaultGlossaryDialog from "./fault-glossary-dialog";
 import ResearchDashboard from "./research-dashboard";
 import StationDetailDialog from "./station-detail-dialog";
@@ -362,6 +363,7 @@ export default function FaultDetectionPage() {
   const [stationSnapshot, setStationSnapshot] = useState<string | null>(null);
   const [bundled, setBundled] = useState<BundledBenchmark | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<DesktopRuntimeStatus | null>(null);
+  useEditionTabTitle(runtimeStatus);
   // Known from the launch query string / remembered loopback port, so it is
   // stable for the life of the tab; the server snapshot is false (no window).
   const desktopMode = useSyncExternalStore(
