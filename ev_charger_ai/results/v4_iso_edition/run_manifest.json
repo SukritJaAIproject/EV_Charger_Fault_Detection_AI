@@ -1,0 +1,30 @@
+﻿{
+    "artifactVersion":  "53b6f14244c2e633",
+    "finished":  "2026-09-24T03:41:18.5142103+07:00",
+    "codeBase":  "F:\\pcap_downloads\\ev_charger_ai frozen 2026-09-23 (see CODE_MANIFEST.json); EV_AI_NPD_RULE off",
+    "purpose":  "held-out benchmark of the ISO 15118 edition",
+    "detectors":  [
+                      "TraditionalAI",
+                      "RL",
+                      "AIAgent",
+                      "AgenticAI",
+                      "MultiAgent"
+                  ],
+    "started":  "2026-09-23T22:32:00.4133037+07:00",
+    "split":  "test",
+    "sessions":  "G:\\ev_charger_ai_data_v4\\sessions",
+    "artifacts":  "D:\\ev_ai_stage\\v4\\artifacts",
+    "code":  "D:\\ev_ai_stage\\code\\iso_arm",
+    "detectionPolicy":  {
+                            "env":  {
+                                        "EV_AI_ISO_VEC":  "0",
+                                        "EV_AI_SLAC_RULE_MODE":  "normative",
+                                        "EV_AI_ISO":  "1",
+                                        "EV_AI_SLAC":  "1"
+                                    },
+                            "schemaVersion":  1,
+                            "slacRuleMode":  "normative",
+                            "id":  "iso15118-standard",
+                            "iso2Rules":  true
+                        }
+}

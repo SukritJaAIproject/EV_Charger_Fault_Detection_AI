@@ -2,12 +2,13 @@
 
 Fault detection for DC EV chargers from raw PLC/V2G packet captures (DIN 70121 / ISO 15118-2), built on the EGAT charging fleet: **212 stations, 40,542 charging sessions, 44,198 captures**. Five detector architectures are trained and scored on the same held-out split; a Windows desktop application ships the winning detectors with a bundled Wireshark/TShark so a technician can analyse a `.pcap` offline.
 
-**Installers (Windows x64):** see [Releases](../../releases) — two editions that install side by side, each as an Offline installer (self-contained, ~231 MB) and an Online installer (700 KB bootstrapper + payload):
+**Installers (Windows x64):** see [Releases](../../releases) — three editions that install side by side, each as an Offline installer (self-contained, ~231 MB) and an Online installer (700 KB bootstrapper + payload):
 
 | Edition | Release | App ID | Contents |
 |---|---|---|---|
 | `iMPS Fault Detection` 1.3.0 (current line, blue icon) | `imps-fault-detection-v1.3.0` | `th.co.imps.faultdetection` | benchmark v4 weights, artifact `53b6f14244c2e633`; 45 held-out stations + in-sample results for the 167 training stations |
 | `iMPS Fault Detection Snapshot 2026-09-12` 1.1.3 (amber icon) | `imps-fault-detection-v1.1.3` | `th.co.imps.faultdetection.snapshot20260912` | frozen 12 Sep 2026 snapshot, artifact `41ded2cdd5c2ba3f` |
+| `iMPS Fault Detection ISO 15118` 1.3.0 (green icon) | `imps-fault-detection-iso15118-v1.3.0` | `th.co.imps.faultdetection.iso15118` | v4 weights run under detection policy `iso15118-standard` (ISO 15118-2 rule layer + ISO 15118-3 SLAC timers, normative). The 8,820-session held-out benchmark was replayed under that policy: Agentic AI 66.9 → 70.9 (recall 85.1% → 92.1%) and Traditional AI 69.6 → 77.3 |
 
 Since 1.2.1 / 1.1.1 the dashboard names the running edition (product, version, model artifact, snapshot date) in its header and opens the Overview with the benchmark bundled in that build. Since 1.2.2 / 1.1.2 each edition also has its own icon (exe, installer, taskbar, browser tab) and a browser-tab title naming the edition. Since 1.3.0 the Stations tab of the current line covers all 212 stations. The 167 training stations are badged *in-sample* and kept out of every benchmark number, and the Overview's numbers and research grid come from the model set the edition ships. Earlier releases stay available.
 

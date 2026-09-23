@@ -1,0 +1,60 @@
+{
+ "n_faulty": 4660,
+ "n_clean": 27185,
+ "detectors": {
+  "AgenticAI": {
+   "recall": 0.8377682403433476,
+   "far": 0.328747471031819,
+   "earliness": 0.19239655043903217,
+   "score": 65.87391889499347,
+   "tp": 3904,
+   "late": 152,
+   "miss": 604,
+   "fp": 8937,
+   "median_lead_s": 9.008000016212463,
+   "mean_lead_s": 127.53199667111039,
+   "wins": 3904.0,
+   "by_family": {
+    "EV_ERROR": {
+     "recall": 1.0,
+     "tp": 344,
+     "n": 344
+    },
+    "SESSION_ABORT": {
+     "recall": 0.7150192554557124,
+     "tp": 557,
+     "n": 779
+    },
+    "PROTOCOL_FAILED": {
+     "recall": 1.0,
+     "tp": 1091,
+     "n": 1091
+    },
+    "NO_POWER_DELIVERED": {
+     "recall": 0.6716754320060105,
+     "tp": 894,
+     "n": 1331
+    },
+    "SLAC_FAILURE": {
+     "recall": 0.8971861471861472,
+     "tp": 829,
+     "n": 924
+    },
+    "EVSE_FAULT": {
+     "recall": 1.0,
+     "tp": 177,
+     "n": 177
+    },
+    "COMM_FREEZE": {
+     "recall": 0.8571428571428571,
+     "tp": 12,
+     "n": 14
+    }
+   }
+  }
+ },
+ "wall_seconds": {
+  "AgenticAI": 378080.3
+ },
+ "split": "train"
+}
