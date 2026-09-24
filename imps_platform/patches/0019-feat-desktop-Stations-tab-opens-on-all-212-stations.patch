@@ -1,0 +1,518 @@
+From e53d5fba950d30a12edaaa31a0619902377a4663 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Thu, 24 Sep 2026 08:04:35 +0700
+Subject: [PATCH 19/20] feat(desktop): Stations tab opens on all 212 stations
+
+A user opened 1.3.0 looking for per-station results for the whole fleet
+and found 45. The Stations tab opened on the held-out split and the
+Overview only shows held-out stations, so the 167 training stations sat
+behind a switch that was easy to miss.
+
+- The Stations tab opens on "All". Name and fault-rate sorts run across
+  both splits. Recall and false-alarm sorts keep held-out rows first,
+  because in-sample model scores are optimistic (sortStationRows in
+  data.ts).
+- The count tiles follow the selected split, and a line under them says
+  what they include. The subtitle and the sessions label also follow the
+  split. Model evaluation (leaderboard, Overview) stays held-out only.
+- Overview: the bundled-benchmark tile reads "Held-out stations", and
+  both station cards say they are held-out only. "View all N stations"
+  opens the Stations tab on every station with the search cleared. The
+  research panel's "Station results" button keeps the chosen split.
+- Builds without training rows (snapshot, ISO, web) render as before.
+
+Fixed before commit, from review findings:
+- "View all" kept a leftover search.
+- The research CTA reset the chosen split.
+- The fault-rate sort put held-out stations first.
+- The Overview showed an unqualified 45.
+- The Training-view subtitle claimed all 212 stations.
+- One English plural was wrong.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../app/dashboard/ai/fault-detection/data.ts  | 48 +++++++---
+ .../app/dashboard/ai/fault-detection/page.tsx | 88 +++++++++++++------
+ .../research-dashboard.test.ts                | 21 +++++
+ .../ai/fault-detection/research-dashboard.tsx | 37 +++++++-
+ .../ai/fault-detection/station-split.test.ts  | 28 +++++-
+ 5 files changed, 181 insertions(+), 41 deletions(-)
+
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts
+index 4d6e707a..eaa7eb1a 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/data.ts
+@@ -150,19 +150,45 @@ export function allStationRows(analysis: Pick<FaultDetectionAnalysis, "byStation
+   ];
+ }
+ 
++/** Counts over whatever rows the caller passes; the caller decides which split they cover. */
++export function stationRowTotals(rows: StationAnalysis[]) {
++  return rows.reduce(
++    (totals, row) => ({
++      stations: totals.stations + 1,
++      sessions: totals.sessions + row.sessions,
++      faultySessions: totals.faultySessions + row.faultySessions,
++      alertedSessions: totals.alertedSessions + row.alertedSessions,
++    }),
++    { stations: 0, sessions: 0, faultySessions: 0, alertedSessions: 0 },
++  );
++}
++
++export type StationSortKey = "station" | "fault_rate" | "recall" | "far";
++
++/**
++ * Order station rows for the Stations tab. Name and fault-rate sorts run across every
++ * row: fault rate comes from the labels, not the model, so a training station ranks
++ * honestly next to a held-out one. The recall and false-alarm sorts rank model scores,
++ * which are optimistic on training stations, so held-out rows stay in their own block first.
++ */
++export function sortStationRows(rows: StationAnalysis[], sort: StationSortKey): StationAnalysis[] {
++  const byName = (left: StationAnalysis, right: StationAnalysis) =>
++    left.station.localeCompare(right.station, undefined, { numeric: true });
++  return [...rows].sort((left, right) => {
++    if (sort === "recall" || sort === "far") {
++      const bySplit = (stationSplitOf(left) === "train" ? 1 : 0) - (stationSplitOf(right) === "train" ? 1 : 0);
++      if (bySplit) return bySplit;
++    }
++    if (sort === "fault_rate") return right.faultRate - left.faultRate || byName(left, right);
++    if (sort === "recall") return left.recall - right.recall || byName(left, right);
++    if (sort === "far") return right.falseAlarmRate - left.falseAlarmRate || byName(left, right);
++    return byName(left, right);
++  });
++}
++
+ /** Totals over held-out rows only, so in-sample stations never reach a headline number. */
+ export function heldOutStationTotals(rows: StationAnalysis[]) {
+-  return rows
+-    .filter((row) => stationSplitOf(row) === "test")
+-    .reduce(
+-      (totals, row) => ({
+-        stations: totals.stations + 1,
+-        sessions: totals.sessions + row.sessions,
+-        faultySessions: totals.faultySessions + row.faultySessions,
+-        alertedSessions: totals.alertedSessions + row.alertedSessions,
+-      }),
+-      { stations: 0, sessions: 0, faultySessions: 0, alertedSessions: 0 },
+-    );
++  return stationRowTotals(rows.filter((row) => stationSplitOf(row) === "test"));
+ }
+ 
+ export type FaultDetectionSummary = {
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+index fdda3fa9..cfe5f5fd 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/page.tsx
+@@ -37,7 +37,10 @@ import {
+   type StationAnalysis,
+   allStationRows,
+   heldOutStationTotals,
++  sortStationRows,
++  stationRowTotals,
+   stationSplitOf,
++  type StationSortKey,
+   type StationSplit,
+ } from "./data";
+ import { supportedFaultFamilies } from "./fault-catalog";
+@@ -152,6 +155,16 @@ const COPY = {
+       "สถานีชุดฝึก: โมเดลเรียนรู้จาก session เหล่านี้มาแล้ว คะแนนและ Recall จึงสูงเกินจริงและไม่ใช่ผลประเมิน ใช้ดูสัดส่วน Fault ของสถานีเท่านั้น",
+     excludesTrain: (stations: number, sessions: string) =>
+       `ตัวเลขด้านบนนับเฉพาะสถานี held-out · ไม่รวม ${stations} สถานีชุดฝึก (${sessions} sessions, in-sample)`,
++    stationSubAll: (total: number, heldOut: number, heldOutSessions: string, train: number) =>
++      `ผล Agentic AI รายสถานีครบ ${total} สถานี: ${heldOut} สถานี held-out (${heldOutSessions} sessions, เกณฑ์เดียวกับ benchmark) และ ${train} สถานีชุดฝึก (in-sample)`,
++    stationSubTrain: (train: number, sessions: string) =>
++      `ผล Agentic AI ของ ${train} สถานีชุดฝึก (${sessions} sessions, in-sample) · ไม่ใช่ผลประเมินโมเดล`,
++    allSessions: "Sessions ทั้งหมด",
++    trainSessions: "Sessions ชุดฝึก",
++    includesTrain: (heldOut: number, heldOutSessions: string, train: number, trainSessions: string) =>
++      `ตัวเลขด้านบนรวม ${heldOut} สถานี held-out (${heldOutSessions} sessions) และ ${train} สถานีชุดฝึก (${trainSessions} sessions, in-sample) · ผลประเมินโมเดลและ leaderboard นับเฉพาะ held-out`,
++    trainOnly: (stations: number, sessions: string) =>
++      `ตัวเลขด้านบนนับเฉพาะ ${stations} สถานีชุดฝึก (${sessions} sessions, in-sample) · ไม่ใช่ผลประเมินโมเดล`,
+     editionLabel: "รุ่นโปรแกรม",
+     modelLabel: "โมเดล",
+     dataAsOfLabel: "ข้อมูล benchmark ณ",
+@@ -255,7 +268,17 @@ const COPY = {
+     trainBanner:
+       "Training stations: the models learned from these sessions, so score and recall are optimistic and are not an evaluation. Use them for the station's fault mix only.",
+     excludesTrain: (stations: number, sessions: string) =>
+-      `The figures above count held-out stations only · ${stations} training stations (${sessions} sessions, in-sample) are excluded`,
++      `The figures above count held-out stations only · ${stations} training station${stations === 1 ? "" : "s"} (${sessions} sessions, in-sample) ${stations === 1 ? "is" : "are"} excluded`,
++    stationSubAll: (total: number, heldOut: number, heldOutSessions: string, train: number) =>
++      `Agentic AI results for all ${total} stations: ${heldOut} held-out station${heldOut === 1 ? "" : "s"} (${heldOutSessions} sessions, the benchmark's scoring rules) and ${train} training station${train === 1 ? "" : "s"} (in-sample).`,
++    stationSubTrain: (train: number, sessions: string) =>
++      `Agentic AI results for the ${train} training station${train === 1 ? "" : "s"} (${sessions} sessions, in-sample) · not a model evaluation.`,
++    allSessions: "All sessions",
++    trainSessions: "Training sessions",
++    includesTrain: (heldOut: number, heldOutSessions: string, train: number, trainSessions: string) =>
++      `The figures above include ${heldOut} held-out station${heldOut === 1 ? "" : "s"} (${heldOutSessions} sessions) and ${train} training station${train === 1 ? "" : "s"} (${trainSessions} sessions, in-sample) · model evaluation and the leaderboard count held-out stations only`,
++    trainOnly: (stations: number, sessions: string) =>
++      `The figures above count the ${stations} training station${stations === 1 ? "" : "s"} only (${sessions} sessions, in-sample) · not a model evaluation`,
+     editionLabel: "Edition",
+     modelLabel: "Model",
+     dataAsOfLabel: "Benchmark data as of",
+@@ -265,7 +288,7 @@ const COPY = {
+   },
+ } as const;
+ 
+-type StationSort = "station" | "fault_rate" | "recall" | "far";
++type StationSort = StationSortKey;
+ type StationSplitFilter = StationSplit | "all";
+ 
+ /** Held-out / in-sample marker next to a station name. */
+@@ -435,8 +458,10 @@ export default function FaultDetectionPage() {
+   );
+   const [stationQuery, setStationQuery] = useState("");
+   const [stationSort, setStationSort] = useState<StationSort>("station");
+-  // default to the held-out evaluation, so the first view is the same as before 1.3.0
+-  const [stationSplitFilter, setStationSplitFilter] = useState<StationSplitFilter>("test");
++  // open on every station the build carries (212 in the 1.3.x current line): the tab is
++  // where users look for per-station results; held-out-only views are one click away and
++  // every training row keeps its in-sample badge and banner
++  const [stationSplitFilter, setStationSplitFilter] = useState<StationSplitFilter>("all");
+   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
+   const [faultGlossaryOpen, setFaultGlossaryOpen] = useState(false);
+   const fileInputRef = useRef<HTMLInputElement>(null);
+@@ -580,17 +605,8 @@ export default function FaultDetectionPage() {
+     const query = stationQuery.trim().toLowerCase();
+     const rows = query
+       ? splitStations.filter((row) => row.station.toLowerCase().includes(query))
+-      : [...splitStations];
+-    rows.sort((left, right) => {
+-      // in "all", held-out stations come first
+-      const bySplit = (stationSplitOf(left) === "train" ? 1 : 0) - (stationSplitOf(right) === "train" ? 1 : 0);
+-      if (bySplit) return bySplit;
+-      if (stationSort === "fault_rate") return right.faultRate - left.faultRate || left.station.localeCompare(right.station);
+-      if (stationSort === "recall") return left.recall - right.recall || left.station.localeCompare(right.station);
+-      if (stationSort === "far") return right.falseAlarmRate - left.falseAlarmRate || left.station.localeCompare(right.station);
+-      return left.station.localeCompare(right.station, undefined, { numeric: true });
+-    });
+-    return rows;
++      : splitStations;
++    return sortStationRows(rows, stationSort);
+   }, [stationQuery, stationSort, splitStations]);
+   // the search is scoped to the selected split; say so when the other split has matches
+   const otherSplitMatches = useMemo(() => {
+@@ -598,14 +614,20 @@ export default function FaultDetectionPage() {
+     if (!query || !hasTrainStations || stationSplitFilter === "all") return 0;
+     return stations.filter((row) => stationSplitOf(row) !== stationSplitFilter && row.station.toLowerCase().includes(query)).length;
+   }, [hasTrainStations, stationQuery, stationSplitFilter, stations]);
+-  // headline numbers are held-out only; training stations are in-sample
+-  const stationTotals = useMemo(() => heldOutStationTotals(stations), [stations]);
++  // the tab's count tiles follow the selected split and say what they include; model
++  // evaluation (leaderboard, Overview) stays held-out only
++  const stationTotals = useMemo(() => stationRowTotals(splitStations), [splitStations]);
++  const heldOutTotals = useMemo(() => heldOutStationTotals(stations), [stations]);
+   const trainTotals = useMemo(
+-    () => stations
+-      .filter((row) => stationSplitOf(row) === "train")
+-      .reduce((totals, row) => ({ stations: totals.stations + 1, sessions: totals.sessions + row.sessions }), { stations: 0, sessions: 0 }),
++    () => stationRowTotals(stations.filter((row) => stationSplitOf(row) === "train")),
+     [stations],
+   );
++  const showsTrainRows = hasTrainStations && stationSplitFilter !== "test";
++  const stationSessionsLabel = !hasTrainStations || stationSplitFilter === "test"
++    ? c.testSessions
++    : stationSplitFilter === "train"
++      ? c.trainSessions
++      : c.allSessions;
+   const stationSnapshotLabel = stationSnapshot
+     ? new Intl.DateTimeFormat(snapshotDateLocale(lang), {
+         dateStyle: "medium",
+@@ -751,6 +773,12 @@ export default function FaultDetectionPage() {
+               onRetryStations={() => void loadStations()}
+               onSelectStation={setSelectedStationId}
+               onOpenStations={() => setActiveView("stations")}
++              onOpenAllStations={() => {
++                // "View all N stations" means all of them: no leftover search, whatever split was chosen last
++                setStationQuery("");
++                setStationSplitFilter("all");
++                setActiveView("stations");
++              }}
+               onOpenPcap={PCAP_ANALYSIS_ENABLED ? () => setActiveView("pcap") : undefined}
+             />
+           </section>
+@@ -1149,8 +1177,12 @@ export default function FaultDetectionPage() {
+                 tone="blue"
+                 icon={<MapPin className="tw-h-5 tw-w-5 sm:tw-h-6 sm:tw-w-6" />}
+                 title={c.stationTitle}
+-                description={c.stationSub(heldOutSessionsLabel)}
+-                note={hasTrainStations && stationSplitFilter !== "test" ? c.stationNoteSplit : c.stationNote}
++                description={!showsTrainRows
++                  ? c.stationSub(heldOutSessionsLabel)
++                  : stationSplitFilter === "train"
++                    ? c.stationSubTrain(trainTotals.stations, formatInt(trainTotals.sessions))
++                    : c.stationSubAll(heldOutTotals.stations + trainTotals.stations, heldOutTotals.stations, formatInt(heldOutTotals.sessions), trainTotals.stations)}
++                note={showsTrainRows ? c.stationNoteSplit : c.stationNote}
+                 actions={(
+                   <>
+                   {stationSnapshotLabel && (
+@@ -1207,13 +1239,17 @@ export default function FaultDetectionPage() {
+                 <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-border-b tw-border-gray-100 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
+                   {[
+                     { label: c.stationsAnalyzed, value: formatInt(stationTotals.stations), icon: <MapPin className="tw-h-4 tw-w-4" />, tone: "blue" as const },
+-                    { label: c.testSessions, value: formatInt(stationTotals.sessions), icon: <Database className="tw-h-4 tw-w-4" />, tone: "slate" as const },
++                    { label: stationSessionsLabel, value: formatInt(stationTotals.sessions), icon: <Database className="tw-h-4 tw-w-4" />, tone: "slate" as const },
+                     { label: c.knownFaults, value: formatInt(stationTotals.faultySessions), icon: <AlertTriangle className="tw-h-4 tw-w-4" />, tone: "red" as const },
+                     { label: c.aiAlerts, value: formatInt(stationTotals.alertedSessions), icon: <Sparkles className="tw-h-4 tw-w-4" />, tone: "purple" as const },
+                   ].map((metric) => <SummaryMetric key={metric.label} {...metric} />)}
+                   {hasTrainStations && (
+-                    <p className="tw-col-span-2 tw-text-[11px] tw-font-semibold tw-text-slate-500 sm:tw-col-span-4" data-testid="fd-excludes-train">
+-                      {c.excludesTrain(trainTotals.stations, formatInt(trainTotals.sessions))}
++                    <p className="tw-col-span-2 tw-text-[11px] tw-font-semibold tw-text-slate-500 sm:tw-col-span-4" data-testid="fd-station-totals-scope" data-split={stationSplitFilter}>
++                      {stationSplitFilter === "test"
++                        ? c.excludesTrain(trainTotals.stations, formatInt(trainTotals.sessions))
++                        : stationSplitFilter === "train"
++                          ? c.trainOnly(trainTotals.stations, formatInt(trainTotals.sessions))
++                          : c.includesTrain(heldOutTotals.stations, formatInt(heldOutTotals.sessions), trainTotals.stations, formatInt(trainTotals.sessions))}
+                     </p>
+                   )}
+                 </div>
+@@ -1272,7 +1308,7 @@ export default function FaultDetectionPage() {
+                   </div>
+                 )}
+ 
+-                {hasTrainStations && stationSplitFilter !== "test" && (
++                {showsTrainRows && (
+                   <div role="note" className="tw-flex tw-items-start tw-gap-2.5 tw-border-b tw-border-amber-200 tw-bg-amber-50 tw-px-5 tw-py-3 tw-text-[12px] tw-font-semibold tw-leading-5 tw-text-amber-900" data-testid="fd-train-banner">
+                     <AlertTriangle className="tw-mt-0.5 tw-h-4 tw-w-4 tw-flex-shrink-0" />
+                     <span>{c.trainBanner}</span>
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+index 95969c30..be572364 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+@@ -230,5 +230,26 @@ describe("Overview wording follows where the numbers came from", () => {
+     expect(t).not.toContain("Train Only");
+     // the Faults-by-station tiles: 2 stations, 40 fault sessions
+     expect(t).toMatch(/\b2 Stations 40 Fault sessions\b/);
++    // ...and the card says where the training station went, with a way to all of them
++    expect(t).toContain(
++      "This card shows the 2 held-out stations only · results for the other 1 training station (in-sample) are in the Stations tab",
++    );
++    expect(t).toContain("View all 3 stations");
++    expect(text(render(CURRENT_EDITION, { stations, lang: "th" }))).toContain(
++      "การ์ดนี้แสดงเฉพาะ 2 สถานี held-out · ผลของอีก 1 สถานีชุดฝึก (in-sample) อยู่ในแท็บผลรายสถานี",
++    );
++    // the station fault-mix picker next to it is held-out only too, and says so
++    expect(render(CURRENT_EDITION, { stations })).toContain('data-testid="fd-pie-held-out-only-note"');
++    // the benchmark tile's 45 is labelled held-out, so it is not read as every station
++    expect(t).toContain("Held-out stations");
++    expect(text(render(CURRENT_EDITION, { stations, lang: "th" }))).toContain("สถานี held-out");
++  });
++
++  it("says nothing about training stations when the build has none", () => {
++    const html = render(CURRENT_EDITION, { stations: [fixtureStation("001_Alpha", 200, 30)] });
++    expect(html).not.toContain('data-testid="fd-held-out-only-note"');
++    expect(html).not.toContain('data-testid="fd-pie-held-out-only-note"');
++    expect(text(html)).toContain("View all stations");
++    expect(text(html)).not.toContain("Held-out stations");
+   });
+ });
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+index 4d509345..326da209 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+@@ -145,6 +145,9 @@ const COPY = {
+     noStationData: "ยังไม่มีข้อมูล Fault รายสถานี",
+     retryLoad: "ลองอีกครั้ง",
+     viewAllStations: "ดูครบทุกสถานี",
++    viewAllStationsCount: (total: number) => `ดูผลครบ ${total} สถานี`,
++    heldOutOnlyNote: (heldOut: number, train: number) =>
++      `การ์ดนี้แสดงเฉพาะ ${heldOut} สถานี held-out · ผลของอีก ${train} สถานีชุดฝึก (in-sample) อยู่ในแท็บผลรายสถานี`,
+     viewStation: "ดูรายละเอียดสถานี",
+     evidenceTitle: "ความน่าเชื่อถือของหลักฐาน",
+     corroborated: "ข้อค้นพบที่ยืนยันข้ามแหล่ง",
+@@ -163,6 +166,7 @@ const COPY = {
+     bundledFaulty: "Fault sessions",
+     bundledNormal: "Sessions ปกติ",
+     bundledStations: "สถานี",
++    bundledStationsHeldOut: "สถานี held-out",
+     bundledEmpty: "ยังไม่มีผล benchmark สำหรับโมเดลนี้",
+     bundledTagWeb: "BENCHMARK จากเซิร์ฟเวอร์",
+     bundledTitleWeb: "ผล benchmark จากบริการตรวจจับ fault",
+@@ -285,6 +289,9 @@ const COPY = {
+     noStationData: "No station fault data is available yet.",
+     retryLoad: "Try again",
+     viewAllStations: "View all stations",
++    viewAllStationsCount: (total: number) => `View all ${total} stations`,
++    heldOutOnlyNote: (heldOut: number, train: number) =>
++      `This card shows the ${heldOut} held-out station${heldOut === 1 ? "" : "s"} only · results for the other ${train} training station${train === 1 ? "" : "s"} (in-sample) are in the Stations tab`,
+     viewStation: "View station details",
+     evidenceTitle: "Evidence confidence",
+     corroborated: "Cross-source corroborated",
+@@ -303,6 +310,7 @@ const COPY = {
+     bundledFaulty: "Fault sessions",
+     bundledNormal: "Normal sessions",
+     bundledStations: "Stations",
++    bundledStationsHeldOut: "Held-out stations",
+     bundledEmpty: "No benchmark result for this model yet",
+     bundledTagWeb: "BENCHMARK FROM THE SERVICE",
+     bundledTitleWeb: "Benchmark from the fault-detection service",
+@@ -507,6 +515,7 @@ function StationFaultDistributionChart({
+   error,
+   onChangeStation,
+   onOpenDetails,
++  trainStationCount = 0,
+ }: {
+   lang: Lang;
+   stations: StationAnalysis[];
+@@ -515,6 +524,8 @@ function StationFaultDistributionChart({
+   error: string | null;
+   onChangeStation: (stationId: string) => void;
+   onOpenDetails: (stationId: string) => void;
++  /** training stations left out of this held-out picker (1.3.x current line) */
++  trainStationCount?: number;
+ }) {
+   const c = COPY[lang];
+   const stationOptions = useMemo(
+@@ -541,6 +552,11 @@ function StationFaultDistributionChart({
+             <div className="tw-text-[9px] tw-font-extrabold tw-uppercase tw-tracking-[0.14em] tw-text-blue-600">{c.stationPieEyebrow}</div>
+             <h3 className="tw-mt-1 tw-text-base tw-font-black tw-text-slate-950">{c.stationPieTitle}</h3>
+             <p className="tw-mt-1 tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{c.stationPieSub}</p>
++            {trainStationCount > 0 && (
++              <p className="tw-mt-1.5 tw-text-[11px] tw-font-semibold tw-leading-5 tw-text-amber-800" data-testid="fd-pie-held-out-only-note">
++                {c.heldOutOnlyNote(stations.length, trainStationCount)}
++              </p>
++            )}
+           </div>
+         </div>
+         {stations.length > 0 && (
+@@ -638,11 +654,14 @@ function StationFaultSummary({
+   onOpenStations,
+   selectedStationId,
+   onPreviewStation,
++  trainStationCount = 0,
+ }: {
+   lang: Lang;
+   stations: StationAnalysis[];
+   /** dataset.sessions of the bundled benchmark, not a sum over stations */
+   heldOutSessions: number | null;
++  /** training stations the Stations tab lists besides these held-out ones (1.3.x current line) */
++  trainStationCount?: number;
+   loading: boolean;
+   error: string | null;
+   onRetry: () => void;
+@@ -672,6 +691,11 @@ function StationFaultSummary({
+             <div className="tw-text-[9px] tw-font-extrabold tw-uppercase tw-tracking-[0.14em] tw-text-blue-600">{c.stationBenchmark}</div>
+             <h3 className="tw-mt-1 tw-text-base tw-font-black tw-text-slate-950">{c.stationFaultTitle}</h3>
+             <p className="tw-mt-1 tw-max-w-2xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{c.stationFaultSub(heldOutSessions === null ? null : formatInt(heldOutSessions))}</p>
++            {trainStationCount > 0 && (
++              <p className="tw-mt-1.5 tw-max-w-2xl tw-text-[11px] tw-font-semibold tw-leading-5 tw-text-amber-800" data-testid="fd-held-out-only-note">
++                {c.heldOutOnlyNote(stations.length, trainStationCount)}
++              </p>
++            )}
+           </div>
+         </div>
+         <button
+@@ -679,7 +703,7 @@ function StationFaultSummary({
+           onClick={onOpenStations}
+           className="tw-inline-flex tw-min-h-10 tw-flex-shrink-0 tw-items-center tw-justify-center tw-gap-2 tw-rounded-xl tw-border tw-border-slate-200 tw-bg-white tw-px-3.5 tw-text-[11px] tw-font-bold tw-text-slate-700 tw-shadow-sm tw-transition hover:tw-border-blue-300 hover:tw-text-blue-700 focus:tw-outline-none focus:tw-ring-4 focus:tw-ring-blue-100"
+         >
+-          {c.viewAllStations} <ArrowRight className="tw-h-3.5 tw-w-3.5" />
++          {trainStationCount > 0 ? c.viewAllStationsCount(stations.length + trainStationCount) : c.viewAllStations} <ArrowRight className="tw-h-3.5 tw-w-3.5" />
+         </button>
+       </div>
+ 
+@@ -811,6 +835,7 @@ export default function ResearchDashboard({
+   onRetryStations,
+   onSelectStation,
+   onOpenStations,
++  onOpenAllStations,
+   onOpenPcap,
+ }: {
+   lang: Lang;
+@@ -825,6 +850,8 @@ export default function ResearchDashboard({
+   onRetryStations: () => void;
+   onSelectStation: (stationId: string) => void;
+   onOpenStations: () => void;
++  /** the "View all N stations" button: opens the Stations tab on every station, no search */
++  onOpenAllStations?: () => void;
+   onOpenPcap?: () => void;
+ }) {
+   const c = COPY[lang];
+@@ -839,6 +866,8 @@ export default function ResearchDashboard({
+   // Everything on this tab is captioned held-out; in-sample training stations
+   // (1.3.0 summaries) are kept off it even if the page passes them in.
+   const heldOut = useMemo(() => heldOutStations(stations), [stations]);
++  // ...but the held-out cards say so and point to the rest when the build has them
++  const trainStationCount = stations.length - heldOut.length;
+   // The research grid of the models this benchmark was scored with, if there
+   // is one (41ded2cd = the 2026-09-12 set, 53b6f142 = v4); else the first grid.
+   const { grid: researchGrid, relation: modelRelation }: { grid: ResearchGrid; relation: ResearchModelRelation } =
+@@ -934,7 +963,7 @@ export default function ResearchDashboard({
+             <DashboardStat icon={<FileCheck2 className="tw-h-4 tw-w-4" />} label={c.bundledSessions} value={formatNullableInt(bundled.dataset.sessions)} detail={bundled.source === "full_fleet" ? c.sourceFullFleet : c.sourcePreview} tone="blue" />
+             <DashboardStat icon={<AlertTriangle className="tw-h-4 tw-w-4" />} label={c.bundledFaulty} value={formatNullableInt(bundled.dataset.faultySessions)} detail={formatShare(bundled.dataset.faultySessions, bundled.dataset.sessions)} tone="red" />
+             <DashboardStat icon={<ShieldCheck className="tw-h-4 tw-w-4" />} label={c.bundledNormal} value={formatNullableInt(bundled.dataset.normalSessions)} detail={formatShare(bundled.dataset.normalSessions, bundled.dataset.sessions)} tone="emerald" />
+-            <DashboardStat icon={<MapPin className="tw-h-4 tw-w-4" />} label={c.bundledStations} value={formatNullableInt(bundled.dataset.stations)} detail={familiesDetail} tone="amber" />
++            <DashboardStat icon={<MapPin className="tw-h-4 tw-w-4" />} label={trainStationCount > 0 ? c.bundledStationsHeldOut : c.bundledStations} value={formatNullableInt(bundled.dataset.stations)} detail={familiesDetail} tone="amber" />
+           </div>
+         )}
+         <div className="tw-space-y-1 tw-p-3 sm:tw-p-5">
+@@ -1081,6 +1110,7 @@ export default function ResearchDashboard({
+             error={stationError}
+             onChangeStation={setSelectedSummaryStationId}
+             onOpenDetails={onSelectStation}
++            trainStationCount={trainStationCount}
+           />
+           <StationFaultSummary
+             lang={lang}
+@@ -1089,9 +1119,10 @@ export default function ResearchDashboard({
+             loading={stationLoading}
+             error={stationError}
+             onRetry={onRetryStations}
+-            onOpenStations={onOpenStations}
++            onOpenStations={onOpenAllStations ?? onOpenStations}
+             selectedStationId={selectedSummaryStation?.station ?? null}
+             onPreviewStation={setSelectedSummaryStationId}
++            trainStationCount={trainStationCount}
+           />
+         </div>
+       </section>
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/station-split.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/station-split.test.ts
+index 8135a96c..b718fd30 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/station-split.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/station-split.test.ts
+@@ -1,7 +1,7 @@
+ import { describe, expect, it } from "vitest";
+ 
+ import { parseDesktopRuntimeStatus, parseFaultDetectionSummary } from "./api";
+-import { allStationRows, faultDetectionPreview, heldOutStationTotals, stationSplitOf, type StationAnalysis } from "./data";
++import { allStationRows, faultDetectionPreview, heldOutStationTotals, sortStationRows, stationRowTotals, stationSplitOf, type StationAnalysis } from "./data";
+ 
+ function station(name: string, sessions: number, faulty: number, split?: "test" | "train"): StationAnalysis {
+   const normal = sessions - faulty;
+@@ -86,6 +86,32 @@ describe("training-station rows (byStationTrain)", () => {
+     const rows = [station("held-a", 2, 1, "test"), station("train-b", 5, 2, "train"), station("held-c", 3, 0)];
+     expect(heldOutStationTotals(rows)).toEqual({ stations: 2, sessions: 5, faultySessions: 1, alertedSessions: 1 });
+   });
++
++  it("counts every row it is given when the Stations tab shows all splits", () => {
++    const rows = [station("held-a", 2, 1, "test"), station("train-b", 5, 2, "train"), station("held-c", 3, 0)];
++    expect(stationRowTotals(rows)).toEqual({ stations: 3, sessions: 10, faultySessions: 3, alertedSessions: 3 });
++    expect(stationRowTotals(rows.filter((row) => stationSplitOf(row) === "train"))).toEqual({ stations: 1, sessions: 5, faultySessions: 2, alertedSessions: 2 });
++    expect(stationRowTotals([])).toEqual({ stations: 0, sessions: 0, faultySessions: 0, alertedSessions: 0 });
++  });
++
++  it("sorts names and fault rates across both splits, model scores held-out first", () => {
++    const withScores = (row: StationAnalysis, recall: number, far: number) => ({ ...row, recall, falseAlarmRate: far });
++    const rows = [
++      withScores(station("010_Held", 100, 5, "test"), 60, 40),
++      withScores(station("002_Train", 100, 40, "train"), 50, 45),
++      withScores(station("001_Held", 100, 20, "test"), 90, 10),
++      withScores(station("003_Train", 100, 1, "train"), 99, 5),
++    ];
++    const names = (sorted: StationAnalysis[]) => sorted.map((row) => row.station);
++    // a training station with the fleet's worst fault rate is not buried under the held-out block
++    expect(names(sortStationRows(rows, "fault_rate"))).toEqual(["002_Train", "001_Held", "010_Held", "003_Train"]);
++    expect(names(sortStationRows(rows, "station"))).toEqual(["001_Held", "002_Train", "003_Train", "010_Held"]);
++    // in-sample recall and false-alarm rates are optimistic: held-out rows keep their own ranking first
++    expect(names(sortStationRows(rows, "recall"))).toEqual(["010_Held", "001_Held", "002_Train", "003_Train"]);
++    expect(names(sortStationRows(rows, "far"))).toEqual(["010_Held", "001_Held", "002_Train", "003_Train"]);
++    // the input is left alone
++    expect(names(rows)).toEqual(["010_Held", "002_Train", "001_Held", "003_Train"]);
++  });
+ });
+ 
+ describe("detection policy", () => {
+-- 
+2.45.1.windows.1
+

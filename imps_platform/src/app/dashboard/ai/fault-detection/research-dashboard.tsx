@@ -145,6 +145,9 @@ const COPY = {
     noStationData: "ยังไม่มีข้อมูล Fault รายสถานี",
     retryLoad: "ลองอีกครั้ง",
     viewAllStations: "ดูครบทุกสถานี",
+    viewAllStationsCount: (total: number) => `ดูผลครบ ${total} สถานี`,
+    heldOutOnlyNote: (heldOut: number, train: number) =>
+      `การ์ดนี้แสดงเฉพาะ ${heldOut} สถานี held-out · ผลของอีก ${train} สถานีชุดฝึก (in-sample) อยู่ในแท็บผลรายสถานี`,
     viewStation: "ดูรายละเอียดสถานี",
     evidenceTitle: "ความน่าเชื่อถือของหลักฐาน",
     corroborated: "ข้อค้นพบที่ยืนยันข้ามแหล่ง",
@@ -163,6 +166,7 @@ const COPY = {
     bundledFaulty: "Fault sessions",
     bundledNormal: "Sessions ปกติ",
     bundledStations: "สถานี",
+    bundledStationsHeldOut: "สถานี held-out",
     bundledEmpty: "ยังไม่มีผล benchmark สำหรับโมเดลนี้",
     bundledTagWeb: "BENCHMARK จากเซิร์ฟเวอร์",
     bundledTitleWeb: "ผล benchmark จากบริการตรวจจับ fault",
@@ -285,6 +289,9 @@ const COPY = {
     noStationData: "No station fault data is available yet.",
     retryLoad: "Try again",
     viewAllStations: "View all stations",
+    viewAllStationsCount: (total: number) => `View all ${total} stations`,
+    heldOutOnlyNote: (heldOut: number, train: number) =>
+      `This card shows the ${heldOut} held-out station${heldOut === 1 ? "" : "s"} only · results for the other ${train} training station${train === 1 ? "" : "s"} (in-sample) are in the Stations tab`,
     viewStation: "View station details",
     evidenceTitle: "Evidence confidence",
     corroborated: "Cross-source corroborated",
@@ -303,6 +310,7 @@ const COPY = {
     bundledFaulty: "Fault sessions",
     bundledNormal: "Normal sessions",
     bundledStations: "Stations",
+    bundledStationsHeldOut: "Held-out stations",
     bundledEmpty: "No benchmark result for this model yet",
     bundledTagWeb: "BENCHMARK FROM THE SERVICE",
     bundledTitleWeb: "Benchmark from the fault-detection service",
@@ -507,6 +515,7 @@ function StationFaultDistributionChart({
   error,
   onChangeStation,
   onOpenDetails,
+  trainStationCount = 0,
 }: {
   lang: Lang;
   stations: StationAnalysis[];
@@ -515,6 +524,8 @@ function StationFaultDistributionChart({
   error: string | null;
   onChangeStation: (stationId: string) => void;
   onOpenDetails: (stationId: string) => void;
+  /** training stations left out of this held-out picker (1.3.x current line) */
+  trainStationCount?: number;
 }) {
   const c = COPY[lang];
   const stationOptions = useMemo(
@@ -541,6 +552,11 @@ function StationFaultDistributionChart({
             <div className="tw-text-[9px] tw-font-extrabold tw-uppercase tw-tracking-[0.14em] tw-text-blue-600">{c.stationPieEyebrow}</div>
             <h3 className="tw-mt-1 tw-text-base tw-font-black tw-text-slate-950">{c.stationPieTitle}</h3>
             <p className="tw-mt-1 tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{c.stationPieSub}</p>
+            {trainStationCount > 0 && (
+              <p className="tw-mt-1.5 tw-text-[11px] tw-font-semibold tw-leading-5 tw-text-amber-800" data-testid="fd-pie-held-out-only-note">
+                {c.heldOutOnlyNote(stations.length, trainStationCount)}
+              </p>
+            )}
           </div>
         </div>
         {stations.length > 0 && (
@@ -638,11 +654,14 @@ function StationFaultSummary({
   onOpenStations,
   selectedStationId,
   onPreviewStation,
+  trainStationCount = 0,
 }: {
   lang: Lang;
   stations: StationAnalysis[];
   /** dataset.sessions of the bundled benchmark, not a sum over stations */
   heldOutSessions: number | null;
+  /** training stations the Stations tab lists besides these held-out ones (1.3.x current line) */
+  trainStationCount?: number;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -672,6 +691,11 @@ function StationFaultSummary({
             <div className="tw-text-[9px] tw-font-extrabold tw-uppercase tw-tracking-[0.14em] tw-text-blue-600">{c.stationBenchmark}</div>
             <h3 className="tw-mt-1 tw-text-base tw-font-black tw-text-slate-950">{c.stationFaultTitle}</h3>
             <p className="tw-mt-1 tw-max-w-2xl tw-text-[11px] tw-font-medium tw-leading-5 tw-text-slate-500">{c.stationFaultSub(heldOutSessions === null ? null : formatInt(heldOutSessions))}</p>
+            {trainStationCount > 0 && (
+              <p className="tw-mt-1.5 tw-max-w-2xl tw-text-[11px] tw-font-semibold tw-leading-5 tw-text-amber-800" data-testid="fd-held-out-only-note">
+                {c.heldOutOnlyNote(stations.length, trainStationCount)}
+              </p>
+            )}
           </div>
         </div>
         <button
@@ -679,7 +703,7 @@ function StationFaultSummary({
           onClick={onOpenStations}
           className="tw-inline-flex tw-min-h-10 tw-flex-shrink-0 tw-items-center tw-justify-center tw-gap-2 tw-rounded-xl tw-border tw-border-slate-200 tw-bg-white tw-px-3.5 tw-text-[11px] tw-font-bold tw-text-slate-700 tw-shadow-sm tw-transition hover:tw-border-blue-300 hover:tw-text-blue-700 focus:tw-outline-none focus:tw-ring-4 focus:tw-ring-blue-100"
         >
-          {c.viewAllStations} <ArrowRight className="tw-h-3.5 tw-w-3.5" />
+          {trainStationCount > 0 ? c.viewAllStationsCount(stations.length + trainStationCount) : c.viewAllStations} <ArrowRight className="tw-h-3.5 tw-w-3.5" />
         </button>
       </div>
 
@@ -811,6 +835,7 @@ export default function ResearchDashboard({
   onRetryStations,
   onSelectStation,
   onOpenStations,
+  onOpenAllStations,
   onOpenPcap,
 }: {
   lang: Lang;
@@ -825,6 +850,8 @@ export default function ResearchDashboard({
   onRetryStations: () => void;
   onSelectStation: (stationId: string) => void;
   onOpenStations: () => void;
+  /** the "View all N stations" button: opens the Stations tab on every station, no search */
+  onOpenAllStations?: () => void;
   onOpenPcap?: () => void;
 }) {
   const c = COPY[lang];
@@ -839,6 +866,8 @@ export default function ResearchDashboard({
   // Everything on this tab is captioned held-out; in-sample training stations
   // (1.3.0 summaries) are kept off it even if the page passes them in.
   const heldOut = useMemo(() => heldOutStations(stations), [stations]);
+  // ...but the held-out cards say so and point to the rest when the build has them
+  const trainStationCount = stations.length - heldOut.length;
   // The research grid of the models this benchmark was scored with, if there
   // is one (41ded2cd = the 2026-09-12 set, 53b6f142 = v4); else the first grid.
   const { grid: researchGrid, relation: modelRelation }: { grid: ResearchGrid; relation: ResearchModelRelation } =
@@ -934,7 +963,7 @@ export default function ResearchDashboard({
             <DashboardStat icon={<FileCheck2 className="tw-h-4 tw-w-4" />} label={c.bundledSessions} value={formatNullableInt(bundled.dataset.sessions)} detail={bundled.source === "full_fleet" ? c.sourceFullFleet : c.sourcePreview} tone="blue" />
             <DashboardStat icon={<AlertTriangle className="tw-h-4 tw-w-4" />} label={c.bundledFaulty} value={formatNullableInt(bundled.dataset.faultySessions)} detail={formatShare(bundled.dataset.faultySessions, bundled.dataset.sessions)} tone="red" />
             <DashboardStat icon={<ShieldCheck className="tw-h-4 tw-w-4" />} label={c.bundledNormal} value={formatNullableInt(bundled.dataset.normalSessions)} detail={formatShare(bundled.dataset.normalSessions, bundled.dataset.sessions)} tone="emerald" />
-            <DashboardStat icon={<MapPin className="tw-h-4 tw-w-4" />} label={c.bundledStations} value={formatNullableInt(bundled.dataset.stations)} detail={familiesDetail} tone="amber" />
+            <DashboardStat icon={<MapPin className="tw-h-4 tw-w-4" />} label={trainStationCount > 0 ? c.bundledStationsHeldOut : c.bundledStations} value={formatNullableInt(bundled.dataset.stations)} detail={familiesDetail} tone="amber" />
           </div>
         )}
         <div className="tw-space-y-1 tw-p-3 sm:tw-p-5">
@@ -1081,6 +1110,7 @@ export default function ResearchDashboard({
             error={stationError}
             onChangeStation={setSelectedSummaryStationId}
             onOpenDetails={onSelectStation}
+            trainStationCount={trainStationCount}
           />
           <StationFaultSummary
             lang={lang}
@@ -1089,9 +1119,10 @@ export default function ResearchDashboard({
             loading={stationLoading}
             error={stationError}
             onRetry={onRetryStations}
-            onOpenStations={onOpenStations}
+            onOpenStations={onOpenAllStations ?? onOpenStations}
             selectedStationId={selectedSummaryStation?.station ?? null}
             onPreviewStation={setSelectedSummaryStationId}
+            trainStationCount={trainStationCount}
           />
         </div>
       </section>

@@ -230,5 +230,26 @@ describe("Overview wording follows where the numbers came from", () => {
     expect(t).not.toContain("Train Only");
     // the Faults-by-station tiles: 2 stations, 40 fault sessions
     expect(t).toMatch(/\b2 Stations 40 Fault sessions\b/);
+    // ...and the card says where the training station went, with a way to all of them
+    expect(t).toContain(
+      "This card shows the 2 held-out stations only · results for the other 1 training station (in-sample) are in the Stations tab",
+    );
+    expect(t).toContain("View all 3 stations");
+    expect(text(render(CURRENT_EDITION, { stations, lang: "th" }))).toContain(
+      "การ์ดนี้แสดงเฉพาะ 2 สถานี held-out · ผลของอีก 1 สถานีชุดฝึก (in-sample) อยู่ในแท็บผลรายสถานี",
+    );
+    // the station fault-mix picker next to it is held-out only too, and says so
+    expect(render(CURRENT_EDITION, { stations })).toContain('data-testid="fd-pie-held-out-only-note"');
+    // the benchmark tile's 45 is labelled held-out, so it is not read as every station
+    expect(t).toContain("Held-out stations");
+    expect(text(render(CURRENT_EDITION, { stations, lang: "th" }))).toContain("สถานี held-out");
+  });
+
+  it("says nothing about training stations when the build has none", () => {
+    const html = render(CURRENT_EDITION, { stations: [fixtureStation("001_Alpha", 200, 30)] });
+    expect(html).not.toContain('data-testid="fd-held-out-only-note"');
+    expect(html).not.toContain('data-testid="fd-pie-held-out-only-note"');
+    expect(text(html)).toContain("View all stations");
+    expect(text(html)).not.toContain("Held-out stations");
   });
 });

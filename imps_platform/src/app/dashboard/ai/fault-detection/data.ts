@@ -150,19 +150,45 @@ export function allStationRows(analysis: Pick<FaultDetectionAnalysis, "byStation
   ];
 }
 
+/** Counts over whatever rows the caller passes; the caller decides which split they cover. */
+export function stationRowTotals(rows: StationAnalysis[]) {
+  return rows.reduce(
+    (totals, row) => ({
+      stations: totals.stations + 1,
+      sessions: totals.sessions + row.sessions,
+      faultySessions: totals.faultySessions + row.faultySessions,
+      alertedSessions: totals.alertedSessions + row.alertedSessions,
+    }),
+    { stations: 0, sessions: 0, faultySessions: 0, alertedSessions: 0 },
+  );
+}
+
+export type StationSortKey = "station" | "fault_rate" | "recall" | "far";
+
+/**
+ * Order station rows for the Stations tab. Name and fault-rate sorts run across every
+ * row: fault rate comes from the labels, not the model, so a training station ranks
+ * honestly next to a held-out one. The recall and false-alarm sorts rank model scores,
+ * which are optimistic on training stations, so held-out rows stay in their own block first.
+ */
+export function sortStationRows(rows: StationAnalysis[], sort: StationSortKey): StationAnalysis[] {
+  const byName = (left: StationAnalysis, right: StationAnalysis) =>
+    left.station.localeCompare(right.station, undefined, { numeric: true });
+  return [...rows].sort((left, right) => {
+    if (sort === "recall" || sort === "far") {
+      const bySplit = (stationSplitOf(left) === "train" ? 1 : 0) - (stationSplitOf(right) === "train" ? 1 : 0);
+      if (bySplit) return bySplit;
+    }
+    if (sort === "fault_rate") return right.faultRate - left.faultRate || byName(left, right);
+    if (sort === "recall") return left.recall - right.recall || byName(left, right);
+    if (sort === "far") return right.falseAlarmRate - left.falseAlarmRate || byName(left, right);
+    return byName(left, right);
+  });
+}
+
 /** Totals over held-out rows only, so in-sample stations never reach a headline number. */
 export function heldOutStationTotals(rows: StationAnalysis[]) {
-  return rows
-    .filter((row) => stationSplitOf(row) === "test")
-    .reduce(
-      (totals, row) => ({
-        stations: totals.stations + 1,
-        sessions: totals.sessions + row.sessions,
-        faultySessions: totals.faultySessions + row.faultySessions,
-        alertedSessions: totals.alertedSessions + row.alertedSessions,
-      }),
-      { stations: 0, sessions: 0, faultySessions: 0, alertedSessions: 0 },
-    );
+  return stationRowTotals(rows.filter((row) => stationSplitOf(row) === "test"));
 }
 
 export type FaultDetectionSummary = {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseDesktopRuntimeStatus, parseFaultDetectionSummary } from "./api";
-import { allStationRows, faultDetectionPreview, heldOutStationTotals, stationSplitOf, type StationAnalysis } from "./data";
+import { allStationRows, faultDetectionPreview, heldOutStationTotals, sortStationRows, stationRowTotals, stationSplitOf, type StationAnalysis } from "./data";
 
 function station(name: string, sessions: number, faulty: number, split?: "test" | "train"): StationAnalysis {
   const normal = sessions - faulty;
@@ -85,6 +85,32 @@ describe("training-station rows (byStationTrain)", () => {
   it("counts only held-out rows in the totals", () => {
     const rows = [station("held-a", 2, 1, "test"), station("train-b", 5, 2, "train"), station("held-c", 3, 0)];
     expect(heldOutStationTotals(rows)).toEqual({ stations: 2, sessions: 5, faultySessions: 1, alertedSessions: 1 });
+  });
+
+  it("counts every row it is given when the Stations tab shows all splits", () => {
+    const rows = [station("held-a", 2, 1, "test"), station("train-b", 5, 2, "train"), station("held-c", 3, 0)];
+    expect(stationRowTotals(rows)).toEqual({ stations: 3, sessions: 10, faultySessions: 3, alertedSessions: 3 });
+    expect(stationRowTotals(rows.filter((row) => stationSplitOf(row) === "train"))).toEqual({ stations: 1, sessions: 5, faultySessions: 2, alertedSessions: 2 });
+    expect(stationRowTotals([])).toEqual({ stations: 0, sessions: 0, faultySessions: 0, alertedSessions: 0 });
+  });
+
+  it("sorts names and fault rates across both splits, model scores held-out first", () => {
+    const withScores = (row: StationAnalysis, recall: number, far: number) => ({ ...row, recall, falseAlarmRate: far });
+    const rows = [
+      withScores(station("010_Held", 100, 5, "test"), 60, 40),
+      withScores(station("002_Train", 100, 40, "train"), 50, 45),
+      withScores(station("001_Held", 100, 20, "test"), 90, 10),
+      withScores(station("003_Train", 100, 1, "train"), 99, 5),
+    ];
+    const names = (sorted: StationAnalysis[]) => sorted.map((row) => row.station);
+    // a training station with the fleet's worst fault rate is not buried under the held-out block
+    expect(names(sortStationRows(rows, "fault_rate"))).toEqual(["002_Train", "001_Held", "010_Held", "003_Train"]);
+    expect(names(sortStationRows(rows, "station"))).toEqual(["001_Held", "002_Train", "003_Train", "010_Held"]);
+    // in-sample recall and false-alarm rates are optimistic: held-out rows keep their own ranking first
+    expect(names(sortStationRows(rows, "recall"))).toEqual(["010_Held", "001_Held", "002_Train", "003_Train"]);
+    expect(names(sortStationRows(rows, "far"))).toEqual(["010_Held", "001_Held", "002_Train", "003_Train"]);
+    // the input is left alone
+    expect(names(rows)).toEqual(["010_Held", "002_Train", "001_Held", "003_Train"]);
   });
 });
 

@@ -37,7 +37,10 @@ import {
   type StationAnalysis,
   allStationRows,
   heldOutStationTotals,
+  sortStationRows,
+  stationRowTotals,
   stationSplitOf,
+  type StationSortKey,
   type StationSplit,
 } from "./data";
 import { supportedFaultFamilies } from "./fault-catalog";
@@ -152,6 +155,16 @@ const COPY = {
       "สถานีชุดฝึก: โมเดลเรียนรู้จาก session เหล่านี้มาแล้ว คะแนนและ Recall จึงสูงเกินจริงและไม่ใช่ผลประเมิน ใช้ดูสัดส่วน Fault ของสถานีเท่านั้น",
     excludesTrain: (stations: number, sessions: string) =>
       `ตัวเลขด้านบนนับเฉพาะสถานี held-out · ไม่รวม ${stations} สถานีชุดฝึก (${sessions} sessions, in-sample)`,
+    stationSubAll: (total: number, heldOut: number, heldOutSessions: string, train: number) =>
+      `ผล Agentic AI รายสถานีครบ ${total} สถานี: ${heldOut} สถานี held-out (${heldOutSessions} sessions, เกณฑ์เดียวกับ benchmark) และ ${train} สถานีชุดฝึก (in-sample)`,
+    stationSubTrain: (train: number, sessions: string) =>
+      `ผล Agentic AI ของ ${train} สถานีชุดฝึก (${sessions} sessions, in-sample) · ไม่ใช่ผลประเมินโมเดล`,
+    allSessions: "Sessions ทั้งหมด",
+    trainSessions: "Sessions ชุดฝึก",
+    includesTrain: (heldOut: number, heldOutSessions: string, train: number, trainSessions: string) =>
+      `ตัวเลขด้านบนรวม ${heldOut} สถานี held-out (${heldOutSessions} sessions) และ ${train} สถานีชุดฝึก (${trainSessions} sessions, in-sample) · ผลประเมินโมเดลและ leaderboard นับเฉพาะ held-out`,
+    trainOnly: (stations: number, sessions: string) =>
+      `ตัวเลขด้านบนนับเฉพาะ ${stations} สถานีชุดฝึก (${sessions} sessions, in-sample) · ไม่ใช่ผลประเมินโมเดล`,
     editionLabel: "รุ่นโปรแกรม",
     modelLabel: "โมเดล",
     dataAsOfLabel: "ข้อมูล benchmark ณ",
@@ -255,7 +268,17 @@ const COPY = {
     trainBanner:
       "Training stations: the models learned from these sessions, so score and recall are optimistic and are not an evaluation. Use them for the station's fault mix only.",
     excludesTrain: (stations: number, sessions: string) =>
-      `The figures above count held-out stations only · ${stations} training stations (${sessions} sessions, in-sample) are excluded`,
+      `The figures above count held-out stations only · ${stations} training station${stations === 1 ? "" : "s"} (${sessions} sessions, in-sample) ${stations === 1 ? "is" : "are"} excluded`,
+    stationSubAll: (total: number, heldOut: number, heldOutSessions: string, train: number) =>
+      `Agentic AI results for all ${total} stations: ${heldOut} held-out station${heldOut === 1 ? "" : "s"} (${heldOutSessions} sessions, the benchmark's scoring rules) and ${train} training station${train === 1 ? "" : "s"} (in-sample).`,
+    stationSubTrain: (train: number, sessions: string) =>
+      `Agentic AI results for the ${train} training station${train === 1 ? "" : "s"} (${sessions} sessions, in-sample) · not a model evaluation.`,
+    allSessions: "All sessions",
+    trainSessions: "Training sessions",
+    includesTrain: (heldOut: number, heldOutSessions: string, train: number, trainSessions: string) =>
+      `The figures above include ${heldOut} held-out station${heldOut === 1 ? "" : "s"} (${heldOutSessions} sessions) and ${train} training station${train === 1 ? "" : "s"} (${trainSessions} sessions, in-sample) · model evaluation and the leaderboard count held-out stations only`,
+    trainOnly: (stations: number, sessions: string) =>
+      `The figures above count the ${stations} training station${stations === 1 ? "" : "s"} only (${sessions} sessions, in-sample) · not a model evaluation`,
     editionLabel: "Edition",
     modelLabel: "Model",
     dataAsOfLabel: "Benchmark data as of",
@@ -265,7 +288,7 @@ const COPY = {
   },
 } as const;
 
-type StationSort = "station" | "fault_rate" | "recall" | "far";
+type StationSort = StationSortKey;
 type StationSplitFilter = StationSplit | "all";
 
 /** Held-out / in-sample marker next to a station name. */
@@ -435,8 +458,10 @@ export default function FaultDetectionPage() {
   );
   const [stationQuery, setStationQuery] = useState("");
   const [stationSort, setStationSort] = useState<StationSort>("station");
-  // default to the held-out evaluation, so the first view is the same as before 1.3.0
-  const [stationSplitFilter, setStationSplitFilter] = useState<StationSplitFilter>("test");
+  // open on every station the build carries (212 in the 1.3.x current line): the tab is
+  // where users look for per-station results; held-out-only views are one click away and
+  // every training row keeps its in-sample badge and banner
+  const [stationSplitFilter, setStationSplitFilter] = useState<StationSplitFilter>("all");
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [faultGlossaryOpen, setFaultGlossaryOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -580,17 +605,8 @@ export default function FaultDetectionPage() {
     const query = stationQuery.trim().toLowerCase();
     const rows = query
       ? splitStations.filter((row) => row.station.toLowerCase().includes(query))
-      : [...splitStations];
-    rows.sort((left, right) => {
-      // in "all", held-out stations come first
-      const bySplit = (stationSplitOf(left) === "train" ? 1 : 0) - (stationSplitOf(right) === "train" ? 1 : 0);
-      if (bySplit) return bySplit;
-      if (stationSort === "fault_rate") return right.faultRate - left.faultRate || left.station.localeCompare(right.station);
-      if (stationSort === "recall") return left.recall - right.recall || left.station.localeCompare(right.station);
-      if (stationSort === "far") return right.falseAlarmRate - left.falseAlarmRate || left.station.localeCompare(right.station);
-      return left.station.localeCompare(right.station, undefined, { numeric: true });
-    });
-    return rows;
+      : splitStations;
+    return sortStationRows(rows, stationSort);
   }, [stationQuery, stationSort, splitStations]);
   // the search is scoped to the selected split; say so when the other split has matches
   const otherSplitMatches = useMemo(() => {
@@ -598,14 +614,20 @@ export default function FaultDetectionPage() {
     if (!query || !hasTrainStations || stationSplitFilter === "all") return 0;
     return stations.filter((row) => stationSplitOf(row) !== stationSplitFilter && row.station.toLowerCase().includes(query)).length;
   }, [hasTrainStations, stationQuery, stationSplitFilter, stations]);
-  // headline numbers are held-out only; training stations are in-sample
-  const stationTotals = useMemo(() => heldOutStationTotals(stations), [stations]);
+  // the tab's count tiles follow the selected split and say what they include; model
+  // evaluation (leaderboard, Overview) stays held-out only
+  const stationTotals = useMemo(() => stationRowTotals(splitStations), [splitStations]);
+  const heldOutTotals = useMemo(() => heldOutStationTotals(stations), [stations]);
   const trainTotals = useMemo(
-    () => stations
-      .filter((row) => stationSplitOf(row) === "train")
-      .reduce((totals, row) => ({ stations: totals.stations + 1, sessions: totals.sessions + row.sessions }), { stations: 0, sessions: 0 }),
+    () => stationRowTotals(stations.filter((row) => stationSplitOf(row) === "train")),
     [stations],
   );
+  const showsTrainRows = hasTrainStations && stationSplitFilter !== "test";
+  const stationSessionsLabel = !hasTrainStations || stationSplitFilter === "test"
+    ? c.testSessions
+    : stationSplitFilter === "train"
+      ? c.trainSessions
+      : c.allSessions;
   const stationSnapshotLabel = stationSnapshot
     ? new Intl.DateTimeFormat(snapshotDateLocale(lang), {
         dateStyle: "medium",
@@ -751,6 +773,12 @@ export default function FaultDetectionPage() {
               onRetryStations={() => void loadStations()}
               onSelectStation={setSelectedStationId}
               onOpenStations={() => setActiveView("stations")}
+              onOpenAllStations={() => {
+                // "View all N stations" means all of them: no leftover search, whatever split was chosen last
+                setStationQuery("");
+                setStationSplitFilter("all");
+                setActiveView("stations");
+              }}
               onOpenPcap={PCAP_ANALYSIS_ENABLED ? () => setActiveView("pcap") : undefined}
             />
           </section>
@@ -1149,8 +1177,12 @@ export default function FaultDetectionPage() {
                 tone="blue"
                 icon={<MapPin className="tw-h-5 tw-w-5 sm:tw-h-6 sm:tw-w-6" />}
                 title={c.stationTitle}
-                description={c.stationSub(heldOutSessionsLabel)}
-                note={hasTrainStations && stationSplitFilter !== "test" ? c.stationNoteSplit : c.stationNote}
+                description={!showsTrainRows
+                  ? c.stationSub(heldOutSessionsLabel)
+                  : stationSplitFilter === "train"
+                    ? c.stationSubTrain(trainTotals.stations, formatInt(trainTotals.sessions))
+                    : c.stationSubAll(heldOutTotals.stations + trainTotals.stations, heldOutTotals.stations, formatInt(heldOutTotals.sessions), trainTotals.stations)}
+                note={showsTrainRows ? c.stationNoteSplit : c.stationNote}
                 actions={(
                   <>
                   {stationSnapshotLabel && (
@@ -1207,13 +1239,17 @@ export default function FaultDetectionPage() {
                 <div className="tw-grid tw-grid-cols-2 tw-gap-2.5 tw-border-b tw-border-gray-100 tw-p-4 sm:tw-grid-cols-4 sm:tw-gap-3 sm:tw-p-6">
                   {[
                     { label: c.stationsAnalyzed, value: formatInt(stationTotals.stations), icon: <MapPin className="tw-h-4 tw-w-4" />, tone: "blue" as const },
-                    { label: c.testSessions, value: formatInt(stationTotals.sessions), icon: <Database className="tw-h-4 tw-w-4" />, tone: "slate" as const },
+                    { label: stationSessionsLabel, value: formatInt(stationTotals.sessions), icon: <Database className="tw-h-4 tw-w-4" />, tone: "slate" as const },
                     { label: c.knownFaults, value: formatInt(stationTotals.faultySessions), icon: <AlertTriangle className="tw-h-4 tw-w-4" />, tone: "red" as const },
                     { label: c.aiAlerts, value: formatInt(stationTotals.alertedSessions), icon: <Sparkles className="tw-h-4 tw-w-4" />, tone: "purple" as const },
                   ].map((metric) => <SummaryMetric key={metric.label} {...metric} />)}
                   {hasTrainStations && (
-                    <p className="tw-col-span-2 tw-text-[11px] tw-font-semibold tw-text-slate-500 sm:tw-col-span-4" data-testid="fd-excludes-train">
-                      {c.excludesTrain(trainTotals.stations, formatInt(trainTotals.sessions))}
+                    <p className="tw-col-span-2 tw-text-[11px] tw-font-semibold tw-text-slate-500 sm:tw-col-span-4" data-testid="fd-station-totals-scope" data-split={stationSplitFilter}>
+                      {stationSplitFilter === "test"
+                        ? c.excludesTrain(trainTotals.stations, formatInt(trainTotals.sessions))
+                        : stationSplitFilter === "train"
+                          ? c.trainOnly(trainTotals.stations, formatInt(trainTotals.sessions))
+                          : c.includesTrain(heldOutTotals.stations, formatInt(heldOutTotals.sessions), trainTotals.stations, formatInt(trainTotals.sessions))}
                     </p>
                   )}
                 </div>
@@ -1272,7 +1308,7 @@ export default function FaultDetectionPage() {
                   </div>
                 )}
 
-                {hasTrainStations && stationSplitFilter !== "test" && (
+                {showsTrainRows && (
                   <div role="note" className="tw-flex tw-items-start tw-gap-2.5 tw-border-b tw-border-amber-200 tw-bg-amber-50 tw-px-5 tw-py-3 tw-text-[12px] tw-font-semibold tw-leading-5 tw-text-amber-900" data-testid="fd-train-banner">
                     <AlertTriangle className="tw-mt-0.5 tw-h-4 tw-w-4 tw-flex-shrink-0" />
                     <span>{c.trainBanner}</span>
