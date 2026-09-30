@@ -1,0 +1,351 @@
+From 52108d05f4faff459b635a18b3c335a01307ccbf Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 30 Sep 2026 21:40:19 +0700
+Subject: [PATCH 26/27] fix(desktop): find PCAP jobs by name when Windows
+ virtualizes AppData
+
+Every PCAP upload answered 404 "Analysis job not found." when the app
+was started from an MSIX-packaged app (the Claude desktop app, for one).
+Windows then shows %APPDATA% through
+...\Packages\<pkg>\LocalCache\Roaming, so a new job folder resolved
+there while jobs_root resolved to the real Roaming path. The service
+compared the two and rejected every job. The upload itself had
+succeeded: input.pcap and state.json were written.
+
+Job folders are now addressed by name. The id must match
+^[0-9a-f]{32}$, which keeps the name inside jobs_root. _is_link_like()
+refuses a folder that is a symlink, junction or other reparse point;
+measured virtualized folders are none of these.
+
+Startup recovery and expiry cleanup share one _job_dirs() enumerator
+with the same rules. Recovery used to walk */state.json and could follow
+a planted junction and rewrite a state.json outside jobs_root, a gap
+that predates this change.
+
+Tests (desktop/runtime/tests, stdlib unittest; 6/6 on Python 3.11 and
+3.13):
+- virtualization simulated by patching Path.resolve
+- ids that are not 32 hex characters
+- junctions under a job id and under any other name
+- cleanup observed at rmtree itself
+- four mutants of the fix are all caught
+
+Against the ISO edition's real, virtualized jobs folder, lookups went
+from 1/5 found to 5/5.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ iMPS_platform/desktop/runtime/job_service.py  |  63 ++++--
+ .../runtime/tests/test_job_service_paths.py   | 187 ++++++++++++++++++
+ 2 files changed, 234 insertions(+), 16 deletions(-)
+ create mode 100644 iMPS_platform/desktop/runtime/tests/test_job_service_paths.py
+
+diff --git a/iMPS_platform/desktop/runtime/job_service.py b/iMPS_platform/desktop/runtime/job_service.py
+index 3952a8d5..80b73dc5 100644
+--- a/iMPS_platform/desktop/runtime/job_service.py
++++ b/iMPS_platform/desktop/runtime/job_service.py
+@@ -12,6 +12,7 @@ import json
+ import os
+ import re
+ import shutil
++import stat
+ import subprocess
+ import sys
+ import threading
+@@ -53,6 +54,27 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+     os.replace(temporary, path)
+ 
+ 
++def _is_link_like(path: Path) -> bool:
++    """True for a symlink, a Windows junction or any other reparse point.
++
++    Job directories are addressed by name, never by their resolved path.
++    Windows can report two final paths for one folder: an app started from an
++    MSIX-packaged app sees %APPDATA% through ...\\Packages\\<pkg>\\LocalCache,
++    so resolve() put new job folders there while jobs_root resolved to the real
++    Roaming path, and every job looked like it had escaped. The 32-hex id
++    already keeps the name inside jobs_root; a link planted under that name
++    could still point elsewhere, so it is refused.
++    """
++    try:
++        info = os.lstat(path)
++    except FileNotFoundError:
++        return False
++    if stat.S_ISLNK(info.st_mode):
++        return True
++    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
++    return bool(getattr(info, "st_file_attributes", 0) & reparse)
++
++
+ def _load_json(path: Path) -> dict[str, Any]:
+     with path.open(encoding="utf-8") as handle:
+         payload = json.load(handle)
+@@ -229,9 +251,25 @@ class PcapJobService:
+             errors.append(f"tshark validation: {exc}")
+         return errors
+ 
++    def _job_dirs(self):
++        """Job folders under jobs_root: a 32-hex name, a real directory, never a link."""
++        for job_dir in self.jobs_root.iterdir():
++            try:
++                if (
++                    JOB_ID_RE.fullmatch(job_dir.name)
++                    and not _is_link_like(job_dir)
++                    and job_dir.is_dir()
++                ):
++                    yield job_dir
++            except OSError:
++                continue
++
+     def _recover_interrupted_jobs(self) -> None:
+         """Mark work left in-flight by a previous process as safely failed."""
+-        for state_path in self.jobs_root.glob("*/state.json"):
++        for job_dir in self._job_dirs():
++            state_path = job_dir / "state.json"
++            if not state_path.is_file():
++                continue
+             try:
+                 state = _load_json(state_path)
+                 if state.get("status") not in {"queued", "processing"}:
+@@ -250,18 +288,11 @@ class PcapJobService:
+ 
+     def _cleanup_expired_jobs(self) -> None:
+         cutoff = time.time() - self.retention_days * 24 * 60 * 60
+-        for job_dir in self.jobs_root.iterdir():
++        for job_dir in self._job_dirs():
+             try:
+-                resolved = job_dir.resolve()
+-                if (
+-                    not job_dir.is_dir()
+-                    or resolved.parent != self.jobs_root
+-                    or not JOB_ID_RE.fullmatch(job_dir.name)
+-                ):
+-                    continue
+-                state_path = resolved / "state.json"
++                state_path = job_dir / "state.json"
+                 if state_path.stat().st_mtime < cutoff:
+-                    shutil.rmtree(resolved)
++                    shutil.rmtree(job_dir)
+             except OSError:
+                 continue
+ 
+@@ -317,9 +348,8 @@ class PcapJobService:
+             if self._active_count() >= self.max_queued_jobs:
+                 raise JobServiceError("The PCAP analysis queue is full. Please try again later.", 429)
+             job_id = uuid.uuid4().hex
+-            job_dir = (self.jobs_root / job_id).resolve()
+-            if job_dir.parent != self.jobs_root:
+-                raise JobServiceError("Unable to allocate a safe job directory.", 500)
++            job_dir = self.jobs_root / job_id
++            # a fresh id; mkdir(exist_ok=False) also fails on a link planted under it
+             job_dir.mkdir(parents=False, exist_ok=False)
+             temporary_path = job_dir / f"input{extension}.upload"
+             final_path = job_dir / f"input{extension}"
+@@ -429,8 +459,9 @@ class PcapJobService:
+     def _job_dir(self, job_id: str) -> Path:
+         if not JOB_ID_RE.fullmatch(job_id):
+             raise JobServiceError("Analysis job not found.", 404)
+-        job_dir = (self.jobs_root / job_id).resolve()
+-        if job_dir.parent != self.jobs_root:
++        # by name: see _is_link_like for why resolve() is not used here
++        job_dir = self.jobs_root / job_id
++        if _is_link_like(job_dir):
+             raise JobServiceError("Analysis job not found.", 404)
+         return job_dir
+ 
+diff --git a/iMPS_platform/desktop/runtime/tests/test_job_service_paths.py b/iMPS_platform/desktop/runtime/tests/test_job_service_paths.py
+new file mode 100644
+index 00000000..376845f1
+--- /dev/null
++++ b/iMPS_platform/desktop/runtime/tests/test_job_service_paths.py
+@@ -0,0 +1,187 @@
++"""Job directories are found by name, whatever path Windows reports for them.
++
++Run with:  python -m unittest discover -s desktop/runtime/tests
++
++An app started from an MSIX-packaged app (the Claude desktop app, for one) sees
++%APPDATA% through ...\\Packages\\<pkg>\\LocalCache: a job folder it creates
++resolves there, while the jobs root resolves to the real Roaming path. The job
++service used to compare the two and answered 404 for every job. These tests
++simulate that by making resolve() map job folders to a different root.
++"""
++from __future__ import annotations
++
++import os
++import shutil
++import sys
++import tempfile
++import time
++import unittest
++from pathlib import Path
++from unittest import mock
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++
++import job_service  # noqa: E402
++from job_service import JobServiceError, PcapJobService  # noqa: E402
++
++PCAP = b"\xd4\xc3\xb2\xa1" + b"\x00" * 20  # a valid 24-byte classic pcap header
++
++
++def make_service(root: Path) -> PcapJobService:
++    service = PcapJobService(
++        jobs_root=root,
++        model_dir=root.parent / "no-models",
++        tshark=root.parent / "no-tshark.exe",
++        runtime_command=[sys.executable],
++    )
++    # models and tshark are absent here; the tests exercise the job files only
++    service._dependency_errors = []
++    service._run_job = lambda job_id: None  # never spawn a worker
++    return service
++
++
++def make_link(link: Path, target: Path) -> bool:
++    """A directory junction on Windows, a symlink elsewhere. False if not possible."""
++    try:
++        if os.name == "nt":
++            import _winapi
++
++            _winapi.CreateJunction(str(target), str(link))
++        else:
++            os.symlink(target, link, target_is_directory=True)
++        return True
++    except (OSError, AttributeError):
++        return False
++
++
++class VirtualizedPaths:
++    """resolve() maps anything below `root` to the same place below `elsewhere`."""
++
++    def __init__(self, root: Path, elsewhere: Path):
++        self.root = root.resolve()
++        self.elsewhere = elsewhere
++        self.real = Path.resolve
++
++    def __call__(self, path: Path, strict: bool = False) -> Path:
++        resolved = self.real(path, strict=strict)
++        try:
++            relative = resolved.relative_to(self.root)
++        except ValueError:
++            return resolved
++        return self.elsewhere.joinpath(relative) if relative.parts else resolved
++
++    def active(self):
++        outer = self
++
++        def fake(path, strict=False):
++            return outer(path, strict)
++
++        return mock.patch.object(Path, "resolve", fake)
++
++
++class JobPathTests(unittest.TestCase):
++    def setUp(self) -> None:
++        self.tmp = Path(tempfile.mkdtemp(prefix="imps-jobs-test-"))
++        self.root = self.tmp / "pcap-jobs"
++        self.services: list[PcapJobService] = []
++
++    def tearDown(self) -> None:
++        for service in self.services:
++            service.shutdown()
++        shutil.rmtree(self.tmp, ignore_errors=True)
++
++    def service(self) -> PcapJobService:
++        service = make_service(self.root)
++        self.services.append(service)
++        return service
++
++    def upload(self, service: PcapJobService) -> dict:
++        upload = service.begin_upload("capture.pcap", content_length=len(PCAP))
++        service.write_upload(upload, PCAP)
++        return service.finish_upload(upload)
++
++    def test_upload_and_lookup_when_job_folders_resolve_elsewhere(self) -> None:
++        service = self.service()
++        virtual = VirtualizedPaths(self.root, self.tmp / "LocalCache" / "pcap-jobs")
++        with virtual.active():
++            job = self.upload(service)
++            self.assertEqual(job["status"], "queued")
++            again = service.get_job(job["jobId"])
++            self.assertEqual(again["jobId"], job["jobId"])
++            self.assertTrue((self.root / job["jobId"] / "state.json").is_file())
++
++    def test_ids_that_are_not_32_hex_characters_are_not_found(self) -> None:
++        service = self.service()
++        job = self.upload(service)
++        for bad in ("..", "../pcap-jobs", job["jobId"].upper(), job["jobId"][:-1], job["jobId"] + "0",
++                    "g" * 32, "", job["jobId"] + "/", "..\\" + job["jobId"]):
++            with self.subTest(job_id=bad):
++                with self.assertRaises(JobServiceError) as caught:
++                    service.get_job(bad)
++                self.assertEqual(caught.exception.status, 404)
++
++    def test_a_link_planted_under_a_job_id_is_refused(self) -> None:
++        service = self.service()
++        outside = self.tmp / "outside"
++        outside.mkdir()
++        job_service._write_json_atomic(outside / "state.json", {"jobId": "x", "status": "complete"})
++        link = self.root / ("a" * 32)
++        if not make_link(link, outside):
++            self.skipTest("cannot create a junction or symlink here")
++        with self.assertRaises(JobServiceError) as caught:
++            service.get_job("a" * 32)
++        self.assertEqual(caught.exception.status, 404)
++
++    def test_cleanup_removes_expired_jobs_even_when_they_resolve_elsewhere(self) -> None:
++        service = self.service()
++        virtual = VirtualizedPaths(self.root, self.tmp / "LocalCache" / "pcap-jobs")
++        old = self.upload(service)["jobId"]
++        fresh = self.upload(service)["jobId"]
++        stale = time.time() - 40 * 24 * 60 * 60
++        os.utime(self.root / old / "state.json", (stale, stale))
++        with virtual.active():
++            service._cleanup_expired_jobs()
++        self.assertFalse((self.root / old).exists())
++        self.assertTrue((self.root / fresh).exists())
++
++    def test_cleanup_never_follows_a_link_out_of_the_jobs_root(self) -> None:
++        service = self.service()
++        stale = time.time() - 40 * 24 * 60 * 60
++        expired = self.upload(service)["jobId"]
++        os.utime(self.root / expired / "state.json", (stale, stale))
++        outside = self.tmp / "outside"
++        outside.mkdir()
++        job_service._write_json_atomic(outside / "state.json", {"jobId": "x"})
++        os.utime(outside / "state.json", (stale, stale))
++        link = self.root / ("b" * 32)
++        if not make_link(link, outside):
++            self.skipTest("cannot create a junction or symlink here")
++        # watch the decision itself: shutil.rmtree refuses a top-level link on its
++        # own, which would hide a missing check in the job service
++        with mock.patch.object(job_service.shutil, "rmtree", wraps=shutil.rmtree) as rmtree:
++            service._cleanup_expired_jobs()
++        self.assertEqual([Path(call.args[0]) for call in rmtree.call_args_list], [self.root / expired])
++        self.assertFalse((self.root / expired).exists())
++        self.assertTrue((outside / "state.json").is_file())
++        self.assertTrue(os.path.lexists(link))
++
++    def test_recovery_only_touches_real_job_folders(self) -> None:
++        service = self.service()
++        interrupted = self.upload(service)["jobId"]  # left "queued", as after a crash
++        queued = {"jobId": "x", "status": "queued"}
++        outside_named = self.tmp / "outside-named"
++        outside_other = self.tmp / "outside-other"
++        for target in (outside_named, outside_other):
++            target.mkdir()
++            job_service._write_json_atomic(target / "state.json", dict(queued))
++        if not (make_link(self.root / ("c" * 32), outside_named) and make_link(self.root / "not-a-job", outside_other)):
++            self.skipTest("cannot create a junction or symlink here")
++        service._recover_interrupted_jobs()
++        self.assertEqual(job_service._load_json(self.root / interrupted / "state.json")["status"], "failed")
++        for target in (outside_named, outside_other):
++            with self.subTest(target=target.name):
++                self.assertEqual(job_service._load_json(target / "state.json"), queued)
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.45.1.windows.1
+

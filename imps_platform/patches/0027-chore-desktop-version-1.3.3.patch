@@ -1,0 +1,49 @@
+From 1e0418247e99a39c0ed4e2c47da9f61c12f5951c Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 30 Sep 2026 21:40:38 +0700
+Subject: [PATCH 27/27] chore(desktop): version 1.3.3
+
+1.3.3 / Snapshot 1.1.5 / ISO 15118 1.3.3 ship 52108d05: PCAP jobs are
+found by name when Windows virtualizes %APPDATA%. Models and bundled data
+are unchanged from 1.3.2 / 1.1.4.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ iMPS_platform/package-lock.json | 4 ++--
+ iMPS_platform/package.json      | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/iMPS_platform/package-lock.json b/iMPS_platform/package-lock.json
+index e692dc63..a05e9f64 100644
+--- a/iMPS_platform/package-lock.json
++++ b/iMPS_platform/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "material-tailwind-dashboard-nextjs-pro",
+-  "version": "1.3.2",
++  "version": "1.3.3",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "material-tailwind-dashboard-nextjs-pro",
+-      "version": "1.3.2",
++      "version": "1.3.3",
+       "dependencies": {
+         "@fortawesome/fontawesome-free": "^7.0.1",
+         "@fullcalendar/core": "6.1.10",
+diff --git a/iMPS_platform/package.json b/iMPS_platform/package.json
+index 8fc62eff..cac8b357 100644
+--- a/iMPS_platform/package.json
++++ b/iMPS_platform/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "material-tailwind-dashboard-nextjs-pro",
+-  "version": "1.3.2",
++  "version": "1.3.3",
+   "description": "Offline Windows desktop application for EV charger fault detection and PCAP analysis.",
+   "author": "iMPS Project",
+   "private": true,
+-- 
+2.45.1.windows.1
+

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -51,6 +52,27 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
+
+
+def _is_link_like(path: Path) -> bool:
+    """True for a symlink, a Windows junction or any other reparse point.
+
+    Job directories are addressed by name, never by their resolved path.
+    Windows can report two final paths for one folder: an app started from an
+    MSIX-packaged app sees %APPDATA% through ...\\Packages\\<pkg>\\LocalCache,
+    so resolve() put new job folders there while jobs_root resolved to the real
+    Roaming path, and every job looked like it had escaped. The 32-hex id
+    already keeps the name inside jobs_root; a link planted under that name
+    could still point elsewhere, so it is refused.
+    """
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return bool(getattr(info, "st_file_attributes", 0) & reparse)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -229,9 +251,25 @@ class PcapJobService:
             errors.append(f"tshark validation: {exc}")
         return errors
 
+    def _job_dirs(self):
+        """Job folders under jobs_root: a 32-hex name, a real directory, never a link."""
+        for job_dir in self.jobs_root.iterdir():
+            try:
+                if (
+                    JOB_ID_RE.fullmatch(job_dir.name)
+                    and not _is_link_like(job_dir)
+                    and job_dir.is_dir()
+                ):
+                    yield job_dir
+            except OSError:
+                continue
+
     def _recover_interrupted_jobs(self) -> None:
         """Mark work left in-flight by a previous process as safely failed."""
-        for state_path in self.jobs_root.glob("*/state.json"):
+        for job_dir in self._job_dirs():
+            state_path = job_dir / "state.json"
+            if not state_path.is_file():
+                continue
             try:
                 state = _load_json(state_path)
                 if state.get("status") not in {"queued", "processing"}:
@@ -250,18 +288,11 @@ class PcapJobService:
 
     def _cleanup_expired_jobs(self) -> None:
         cutoff = time.time() - self.retention_days * 24 * 60 * 60
-        for job_dir in self.jobs_root.iterdir():
+        for job_dir in self._job_dirs():
             try:
-                resolved = job_dir.resolve()
-                if (
-                    not job_dir.is_dir()
-                    or resolved.parent != self.jobs_root
-                    or not JOB_ID_RE.fullmatch(job_dir.name)
-                ):
-                    continue
-                state_path = resolved / "state.json"
+                state_path = job_dir / "state.json"
                 if state_path.stat().st_mtime < cutoff:
-                    shutil.rmtree(resolved)
+                    shutil.rmtree(job_dir)
             except OSError:
                 continue
 
@@ -317,9 +348,8 @@ class PcapJobService:
             if self._active_count() >= self.max_queued_jobs:
                 raise JobServiceError("The PCAP analysis queue is full. Please try again later.", 429)
             job_id = uuid.uuid4().hex
-            job_dir = (self.jobs_root / job_id).resolve()
-            if job_dir.parent != self.jobs_root:
-                raise JobServiceError("Unable to allocate a safe job directory.", 500)
+            job_dir = self.jobs_root / job_id
+            # a fresh id; mkdir(exist_ok=False) also fails on a link planted under it
             job_dir.mkdir(parents=False, exist_ok=False)
             temporary_path = job_dir / f"input{extension}.upload"
             final_path = job_dir / f"input{extension}"
@@ -429,8 +459,9 @@ class PcapJobService:
     def _job_dir(self, job_id: str) -> Path:
         if not JOB_ID_RE.fullmatch(job_id):
             raise JobServiceError("Analysis job not found.", 404)
-        job_dir = (self.jobs_root / job_id).resolve()
-        if job_dir.parent != self.jobs_root:
+        # by name: see _is_link_like for why resolve() is not used here
+        job_dir = self.jobs_root / job_id
+        if _is_link_like(job_dir):
             raise JobServiceError("Analysis job not found.", 404)
         return job_dir
 
