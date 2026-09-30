@@ -1,0 +1,331 @@
+From 5a2b5e40855329b5d1ebbfc5a375b7857d990e89 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 30 Sep 2026 11:40:05 +0700
+Subject: [PATCH 22/25] feat(desktop): v4 research grid gains the replayed
+ ISO-2 + SLAC arm
+
+The v4 research grid had no ISO 15118-2 arm. The ISO 15118 edition's own
+held-out replay (v4 weights, ISO-2 rules + SLAC 600 ms together,
+D:/ev_ai_stage/v4_iso, 2026-09-24) now fills a new arm, "iso2normative",
+rescored under all three label profiles by
+ev_charger_ai/benchmark/research_grid_from_cache.py replay-arm v4-iso into
+results/research_grid_v4_iso.json and generated into research-data.ts.
+
+- It is a replay, so every model is exact - AI Agent included - and it
+  carries no projection footnote. strict.iso2normative equals the ISO
+  edition's bundled leaderboard to 1e-9; RL is unchanged in every profile.
+- The ISO 15118 edition opens the research panel on this arm, so its first
+  view is its own leaderboard (strict: TraditionalAI 77.3, MultiAgent 72.5,
+  AgenticAI 70.9, AI Agent 68.9). Baseline editions still open on + SLAC
+  600 ms.
+- ISO-2 alone stays unmeasured for v4; the 2026-09-12 set never ran ISO-2
+  and SLAC together, so that tab is disabled for it with the visible reason.
+  The subtitle says which ISO-2 results a grid has (alone / combined / none).
+
+Tests: 16 files / 299 pass; tsc adds no error.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../research-dashboard.test.ts                | 24 +++++++++-
+ .../ai/fault-detection/research-dashboard.tsx | 45 +++++++++++++------
+ .../ai/fault-detection/research-data.test.ts  | 22 +++++++--
+ .../ai/fault-detection/research-data.ts       | 38 ++++++++++++++--
+ 4 files changed, 106 insertions(+), 23 deletions(-)
+
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+index be572364..ae1331f2 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+@@ -127,20 +127,40 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(text(v4)).toContain("+ ISO 15118-2: Not measured for this model set (needs a replay)");
+     expect(armTab(v4, "iso2")).toContain('aria-describedby="fd-arms-not-measured"');
+     // nothing on the page claims ISO-2 results or a replay check for the v4 set
+-    expect(text(v4)).toContain("(ISO 15118-2 rules not yet measured for this model set)");
++    expect(text(v4)).toContain(
++      "ISO 15118-2 rules combined with it (ISO 15118-2 alone not yet measured for this model set)",
++    );
++    // the replayed ISO-2 + SLAC arm is measured for v4 and is not a projection
++    expect(armTab(v4, "iso2normative")).not.toContain('disabled=""');
+     expect(text(v4)).toContain("— Not replayed for this model set");
+     expect(text(v4)).not.toContain("Projection–replay agreement");
+ 
+     // the 2026-09-12 set was replayed under ISO-2; only its normative arm is a projection
+     const old = render(SNAPSHOT_EDITION);
+     expect(armTab(old, "iso2")).not.toContain('disabled=""');
+-    expect(text(old)).not.toContain("Not measured for this model set");
++    // ...but it never ran ISO-2 and SLAC together
++    expect(armTab(old, "iso2normative")).toContain('disabled=""');
++    expect(text(old)).toContain("+ ISO-2 + SLAC 600 ms: Not measured for this model set (needs a replay)");
++    expect(text(old)).not.toContain("+ ISO 15118-2: Not measured");
+     expect(text(old)).toContain("including ISO 15118-2 rules and ISO 15118-3 SLAC timing.");
+     expect(text(old)).toContain("100% Projection–replay agreement");
+     expect(text(old)).toContain("This policy is projected from recorded alerts, not replayed");
+     expect(text(old)).not.toContain("lower bounds");
+   });
+ 
++  it("opens the ISO 15118 edition on its own policy, so the panel's first view is its bundled leaderboard", () => {
++    const iso = render(ISO_EDITION, { modelArtifact: "53b6f14244c2e633" });
++    expect(iso).toMatch(/aria-selected="true"[^>]*data-testid="fd-arm-iso2normative"/);
++    const t = text(iso);
++    // strict x ISO-2 + SLAC 600 ms = the ISO edition's leaderboard: TraditionalAI 77.3 / 95.9% / 25.0% / 22.6 s
++    expect(t).toContain("77.3 Traditional AI · Highest score in this view");
++    expect(t).toContain("Recall 95.9% False alarm 25.0% Median lead 22.6s");
++    // a replay, not a projection: no provenance footnote, no lower-bound note
++    expect(iso).not.toContain('data-testid="fd-arm-provenance"');
++    // the baseline editions still open on + SLAC 600 ms
++    expect(render(CURRENT_EDITION)).toMatch(/aria-selected="true"[^>]*data-testid="fd-arm-normative"/);
++  });
++
+   it("warns that the old labels count the v4 models' NO_POWER_DELIVERED alerts as false alarms", () => {
+     // v4 weights benchmarked on the 2026-09-12 labels: opens on the published profile of the v4 grid
+     const v4OnOldLabels = fixtureBundle(957, SNAPSHOT_FAMILIES, [
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+index 326da209..e69be407 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+@@ -55,10 +55,12 @@ const COPY = {
+   th: {
+     verified: "VERIFIED RESEARCH SNAPSHOT",
+     title: "ภาพรวมประสิทธิภาพการตรวจจับ Fault",
+-    subtitle: (hasIso2: boolean) =>
+-      hasIso2
++    subtitle: (iso2: "alone" | "combined" | "none") =>
++      iso2 === "alone"
+         ? "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ ISO 15118-2 และ SLAC จาก ISO 15118-3"
+-        : "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ SLAC จาก ISO 15118-3 (กฎ ISO 15118-2 ยังไม่ได้วัดกับโมเดลชุดนี้)",
++        : iso2 === "combined"
++          ? "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ SLAC จาก ISO 15118-3 และกฎ ISO 15118-2 ที่ใช้ร่วมกับ SLAC (ISO 15118-2 อย่างเดียวยังไม่ได้วัดกับโมเดลชุดนี้)"
++          : "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ SLAC จาก ISO 15118-3 (กฎ ISO 15118-2 ยังไม่ได้วัดกับโมเดลชุดนี้)",
+     fullFleet: "Fleet ทั้งหมด",
+     scoringSessions: "ใช้ประเมินผล",
+     faultLabels: "Fault labels",
+@@ -83,6 +85,7 @@ const COPY = {
+     iso2: "+ ISO 15118-2",
+     empirical: "+ SLAC 10 s",
+     normative: "+ SLAC 600 ms",
++    iso2normative: "+ ISO-2 + SLAC 600 ms",
+     score: "Score",
+     recall: "Recall",
+     far: "False alarm",
+@@ -199,10 +202,12 @@ const COPY = {
+   en: {
+     verified: "VERIFIED RESEARCH SNAPSHOT",
+     title: "Fault-detection performance overview",
+-    subtitle: (hasIso2: boolean) =>
+-      hasIso2
++    subtitle: (iso2: "alone" | "combined" | "none") =>
++      iso2 === "alone"
+         ? "Compare five model architectures under the same label policy, including ISO 15118-2 rules and ISO 15118-3 SLAC timing."
+-        : "Compare five model architectures under the same label policy, including ISO 15118-3 SLAC timing (ISO 15118-2 rules not yet measured for this model set).",
++        : iso2 === "combined"
++          ? "Compare five model architectures under the same label policy, including ISO 15118-3 SLAC timing and ISO 15118-2 rules combined with it (ISO 15118-2 alone not yet measured for this model set)."
++          : "Compare five model architectures under the same label policy, including ISO 15118-3 SLAC timing (ISO 15118-2 rules not yet measured for this model set).",
+     fullFleet: "Full fleet",
+     scoringSessions: "Scoring cohort",
+     faultLabels: "Fault labels",
+@@ -227,6 +232,7 @@ const COPY = {
+     iso2: "+ ISO 15118-2",
+     empirical: "+ SLAC 10 s",
+     normative: "+ SLAC 600 ms",
++    iso2normative: "+ ISO-2 + SLAC 600 ms",
+     score: "Score",
+     recall: "Recall",
+     far: "False alarm",
+@@ -861,7 +867,7 @@ export default function ResearchDashboard({
+   const editionProfileId = researchProfileForBundled(bundled);
+   const [chosenProfileId, setProfileId] = useState<ResearchProfileId | null>(null);
+   const profileId = chosenProfileId ?? editionProfileId ?? "published";
+-  const [chosenArmId, setArmId] = useState<ResearchArmId>("normative");
++  const [chosenArmId, setArmId] = useState<ResearchArmId | null>(null);
+   const [selectedSummaryStationId, setSelectedSummaryStationId] = useState<string | null>(null);
+   // Everything on this tab is captioned held-out; in-sample training stations
+   // (1.3.0 summaries) are kept off it even if the page passes them in.
+@@ -892,11 +898,21 @@ export default function ResearchDashboard({
+   // replay) cannot be selected; a stale choice falls back to the first
+   // measured arm rather than rendering empty rows.
+   const armMeasured = (id: ResearchArmId) => profile.arms[id] !== undefined;
+-  const armId: ResearchArmId = armMeasured(chosenArmId)
+-    ? chosenArmId
+-    : (["normative", "empirical", "baseline", "iso2"] as const).find(armMeasured) ?? "baseline";
+-  const gridHasIso2 = Object.values(researchGrid.profiles).some((candidate) => candidate.arms.iso2 !== undefined);
+-  const unmeasuredArms = (["baseline", "iso2", "empirical", "normative"] as const).filter((id) => !armMeasured(id));
++  // Open on the arm that IS this benchmark's own policy when the grid has it
++  // (the ISO 15118 edition: ISO-2 rules + SLAC 600 ms), so the panel's first
++  // view equals the bundled leaderboard; otherwise the SLAC 600 ms arm as before.
++  const policyIsIso2Normative =
++    policy?.iso2Rules === true && policy.slacRuleMode?.trim().toLowerCase() === "normative";
++  const wantedArmId: ResearchArmId = chosenArmId ?? (policyIsIso2Normative ? "iso2normative" : "normative");
++  const armId: ResearchArmId = armMeasured(wantedArmId)
++    ? wantedArmId
++    : (["normative", "empirical", "baseline", "iso2", "iso2normative"] as const).find(armMeasured) ?? "baseline";
++  const gridIso2: "alone" | "combined" | "none" = Object.values(researchGrid.profiles).some((candidate) => candidate.arms.iso2 !== undefined)
++    ? "alone"
++    : Object.values(researchGrid.profiles).some((candidate) => candidate.arms.iso2normative !== undefined)
++      ? "combined"
++      : "none";
++  const unmeasuredArms = (["baseline", "iso2", "empirical", "normative", "iso2normative"] as const).filter((id) => !armMeasured(id));
+   const armIsProjected = researchGrid.projectedArms.includes(armId);
+   const aiAgentIsLowerBound = researchGrid.aiAgentLowerBoundArms.includes(armId);
+   const profileNote = researchGrid.profileNotes?.[profileId]?.[lang] ?? null;
+@@ -925,6 +941,7 @@ export default function ResearchDashboard({
+     iso2: c.iso2,
+     empirical: c.empirical,
+     normative: c.normative,
++    iso2normative: c.iso2normative,
+   };
+   const verifiedDate = new Intl.DateTimeFormat(snapshotDateLocale(lang), {
+     dateStyle: "medium",
+@@ -1034,7 +1051,7 @@ export default function ResearchDashboard({
+               </span>
+             </div>
+             <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{c.title}</h2>
+-            <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle(gridHasIso2)}</p>
++            <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle(gridIso2)}</p>
+           </div>
+           <div className={`tw-grid tw-w-full tw-gap-2 lg:tw-flex lg:tw-w-auto lg:tw-flex-wrap ${onOpenPcap ? "tw-grid-cols-2" : "tw-grid-cols-1"}`}>
+             <button type="button" onClick={onOpenStations} className="tw-inline-flex tw-min-h-11 tw-items-center tw-justify-center tw-gap-2 tw-rounded-xl tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-py-2.5 tw-text-[11px] tw-font-bold tw-text-slate-700 tw-shadow-sm tw-transition hover:tw-border-blue-300 hover:tw-text-blue-700 focus:tw-outline-none focus:tw-ring-4 focus:tw-ring-blue-100 sm:tw-px-4 sm:tw-text-[12px]">
+@@ -1173,7 +1190,7 @@ export default function ResearchDashboard({
+               </fieldset>
+               <fieldset>
+                 <legend className="tw-mb-2 tw-text-[10px] tw-font-extrabold tw-uppercase tw-tracking-wider tw-text-slate-400">{c.arm}</legend>
+-                <div className="tw-grid tw-grid-cols-2 tw-gap-1 tw-rounded-xl tw-bg-slate-100 tw-p-1 sm:tw-grid-cols-4" role="tablist" aria-label={c.arm}>
++                <div className="tw-grid tw-grid-cols-2 tw-gap-1 tw-rounded-xl tw-bg-slate-100 tw-p-1 sm:tw-grid-cols-3" role="tablist" aria-label={c.arm}>
+                   {(Object.keys(armLabels) as ResearchArmId[]).map((id) => {
+                     const measured = armMeasured(id);
+                     return (
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
+index 694a14fa..b2971057 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
+@@ -10,9 +10,10 @@ import {
+   RESEARCH_V4_ARTIFACT,
+   SLAC_RESEARCH,
+   type ResearchArmId,
++  type ResearchLegacyArmId,
+ } from "./research-data";
+ 
+-const arms: ResearchArmId[] = ["baseline", "iso2", "empirical", "normative"];
++const arms: ResearchLegacyArmId[] = ["baseline", "iso2", "empirical", "normative"];
+ 
+ describe("fault-detection research snapshot", () => {
+   it("keeps every model and metric complete for each profile and arm", () => {
+@@ -63,9 +64,9 @@ describe("fault-detection research snapshot", () => {
+     );
+   });
+ 
+-  it("gives the v4 models baseline and both SLAC arms under every label profile, and no ISO-2 arm", () => {
++  it("gives the v4 models baseline, both SLAC arms and the replayed ISO-2 + SLAC arm, but no ISO-2-only arm", () => {
+     for (const profile of Object.values(RESEARCH_PROFILES_V4)) {
+-      expect(Object.keys(profile.arms).sort()).toEqual(["baseline", "empirical", "normative"]);
++      expect(Object.keys(profile.arms).sort()).toEqual(["baseline", "empirical", "iso2normative", "normative"]);
+       for (const arm of Object.values(profile.arms)) {
+         expect(Object.keys(arm ?? {}).sort()).toEqual([...MODEL_ORDER].sort());
+       }
+@@ -83,8 +84,21 @@ describe("fault-detection research snapshot", () => {
+     expect(baseline.RL.score).toBe(39.2);
+   });
+ 
++  it("pins v4 strict.iso2normative to the ISO 15118 edition's shipped leaderboard", () => {
++    // D:/ev_ai_stage/v4_iso/results/leaderboard_test.json, rounded to 1 dp
++    const iso = RESEARCH_PROFILES_V4.strict.arms.iso2normative!;
++    expect(iso.TraditionalAI.score).toBe(77.3);
++    expect(iso.MultiAgent.score).toBe(72.5);
++    expect(iso.AgenticAI.score).toBe(70.9);
++    expect(iso.AIAgent.score).toBe(68.9);
++    // RL has no rule layer: the replay leaves it exactly where baseline has it
++    for (const profile of Object.values(RESEARCH_PROFILES_V4)) {
++      expect(profile.arms.iso2normative!.RL).toEqual(profile.arms.baseline!.RL);
++    }
++  });
++
+   it("holds the invariants that make the v4 grid comparable with the 41ded2cd one", () => {
+-    const measured: ResearchArmId[] = ["baseline", "empirical", "normative"];
++    const measured: ResearchLegacyArmId[] = ["baseline", "empirical", "normative"];
+     for (const [profileId, profile] of Object.entries(RESEARCH_PROFILES_V4)) {
+       const old = RESEARCH_PROFILES[profileId as keyof typeof RESEARCH_PROFILES];
+       expect([profile.sessions, profile.faulty, profile.clean]).toEqual([old.sessions, old.faulty, old.clean]);
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+index bde7d543..12cc18d2 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+@@ -1,5 +1,12 @@
+ export type ResearchProfileId = "published" | "strict" | "reviewed";
+-export type ResearchArmId = "baseline" | "iso2" | "empirical" | "normative";
++/**
++ * Detection-policy arms. "iso2normative" is ISO 15118-2 rules and the SLAC
++ * 600 ms rule together - the ISO 15118 edition's own policy - measured by a
++ * replay of the v4 models only; the 2026-09-12 set never ran it.
++ */
++export type ResearchArmId = "baseline" | "iso2" | "empirical" | "normative" | "iso2normative";
++/** The four arms every 2026-09-12 profile carries. */
++export type ResearchLegacyArmId = Exclude<ResearchArmId, "iso2normative">;
+ export type ResearchModelId =
+   | "TraditionalAI"
+   | "RL"
+@@ -19,7 +26,7 @@ export type ResearchProfile = {
+   faulty: number;
+   clean: number;
+   censored: number;
+-  arms: Record<ResearchArmId, Record<ResearchModelId, ResearchMetric>>;
++  arms: Record<ResearchLegacyArmId, Record<ResearchModelId, ResearchMetric>>;
+ };
+ 
+ /** A profile in a grid where some arms may not have been measured. */
+@@ -207,7 +214,11 @@ export const RESEARCH_PROFILES: Record<ResearchProfileId, ResearchProfile> = {
+  * strict.baseline equals the v4 benchmark's leaderboard to full precision.
+  * AIAgent's SLAC cells are lower bounds (its evidence board is not replayed;
+  * on 41ded2cd the same shortcut was 0.0-0.2 points low). The ISO 15118-2 arm
+- * needs a replay and is absent.
++ * needs a replay and is absent. iso2normative (ISO 15118-2 rules + SLAC 600 ms
++ * together) is different: it is the ISO 15118 edition's own held-out REPLAY
++ * (D:/ev_ai_stage/v4_iso, 2026-09-24) rescored per label profile into
++ * results/research_grid_v4_iso.json - exact for every model, AIAgent included;
++ * strict.iso2normative equals that edition's bundled leaderboard.
+  */
+ export const RESEARCH_V4_ARTIFACT = "53b6f14244c2e633";
+ export const RESEARCH_V4_SNAPSHOT = "2026-09-23T13:31:35+07:00";
+@@ -240,6 +251,13 @@ export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile
+         AgenticAI: metric(71.7, 92.2, 33.1, 13.7),
+         MultiAgent: metric(66.4, 79.6, 28.7, 1.1),
+       },
++      iso2normative: {
++        TraditionalAI: metric(78.0, 95.4, 28.5, 58.4),
++        RL: metric(41.3, 21.6, 5.8, 50.4),
++        AIAgent: metric(68.9, 90.3, 41.1, 5.7),
++        AgenticAI: metric(71.7, 92.7, 34.0, 13.8),
++        MultiAgent: metric(72.5, 91.1, 29.6, 12.7),
++      },
+     },
+   },
+   strict: {
+@@ -269,6 +287,13 @@ export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile
+         AgenticAI: metric(68.0, 86.2, 31.1, 4.4),
+         MultiAgent: metric(67.6, 82.8, 25.4, 1.2),
+       },
++      iso2normative: {
++        TraditionalAI: metric(77.3, 95.9, 25.0, 22.6),
++        RL: metric(39.2, 18.5, 5.6, 29.8),
++        AIAgent: metric(68.9, 91.6, 38.3, 3.6),
++        AgenticAI: metric(70.9, 92.1, 31.2, 3.3),
++        MultiAgent: metric(72.5, 92.2, 26.2, 1.8),
++      },
+     },
+   },
+   reviewed: {
+@@ -298,6 +323,13 @@ export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile
+         AgenticAI: metric(65.3, 82.2, 30.3, 3.7),
+         MultiAgent: metric(67.4, 83.6, 25.2, 1.2),
+       },
++      iso2normative: {
++        TraditionalAI: metric(75.1, 92.6, 24.0, 17.1),
++        RL: metric(38.4, 17.0, 5.7, 31.4),
++        AIAgent: metric(67.9, 90.4, 37.8, 3.6),
++        AgenticAI: metric(68.4, 88.5, 30.3, 2.9),
++        MultiAgent: metric(71.3, 90.5, 25.3, 1.4),
++      },
+     },
+   },
+ };
+-- 
+2.45.1.windows.1
+

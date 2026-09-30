@@ -49,6 +49,18 @@ describe("fault catalog", () => {
     expect(resolveFaultFamily(null, "CurrentDemand stalled for 7s")).not.toBe("NO_POWER_DELIVERED");
   });
 
+  it("splits NO_POWER_DELIVERED attribution by what PreCharge reached", () => {
+    // 2026-09-30 held-out review: 3 sessions whose charger overshot the target
+    // (499 V against 318-396 V) are charger faults; 10 that converged within
+    // ~5% and were then stopped by the EV show no charger fault in the packets.
+    const en = getFaultExplanation("NO_POWER_DELIVERED", "en").attribution;
+    expect(en).toMatch(/past the target/);
+    expect(en).toMatch(/failed charge, not a charger fault/);
+    const th = getFaultExplanation("NO_POWER_DELIVERED", "th").attribution;
+    expect(th).toMatch(/เกินแรงดันสูงสุดของรถ/);
+    expect(th).toMatch(/ไม่ใช่ fault ของตู้/);
+  });
+
   it("does not pretend an unknown model anomaly identifies the stopping party", () => {
     const detail = getFaultExplanation(null, "en", "pattern anomaly confirmed");
     expect(detail.knownFamily).toBe(false);

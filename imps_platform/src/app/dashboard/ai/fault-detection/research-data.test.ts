@@ -10,9 +10,10 @@ import {
   RESEARCH_V4_ARTIFACT,
   SLAC_RESEARCH,
   type ResearchArmId,
+  type ResearchLegacyArmId,
 } from "./research-data";
 
-const arms: ResearchArmId[] = ["baseline", "iso2", "empirical", "normative"];
+const arms: ResearchLegacyArmId[] = ["baseline", "iso2", "empirical", "normative"];
 
 describe("fault-detection research snapshot", () => {
   it("keeps every model and metric complete for each profile and arm", () => {
@@ -63,9 +64,9 @@ describe("fault-detection research snapshot", () => {
     );
   });
 
-  it("gives the v4 models baseline and both SLAC arms under every label profile, and no ISO-2 arm", () => {
+  it("gives the v4 models baseline, both SLAC arms and the replayed ISO-2 + SLAC arm, but no ISO-2-only arm", () => {
     for (const profile of Object.values(RESEARCH_PROFILES_V4)) {
-      expect(Object.keys(profile.arms).sort()).toEqual(["baseline", "empirical", "normative"]);
+      expect(Object.keys(profile.arms).sort()).toEqual(["baseline", "empirical", "iso2normative", "normative"]);
       for (const arm of Object.values(profile.arms)) {
         expect(Object.keys(arm ?? {}).sort()).toEqual([...MODEL_ORDER].sort());
       }
@@ -83,8 +84,21 @@ describe("fault-detection research snapshot", () => {
     expect(baseline.RL.score).toBe(39.2);
   });
 
+  it("pins v4 strict.iso2normative to the ISO 15118 edition's shipped leaderboard", () => {
+    // D:/ev_ai_stage/v4_iso/results/leaderboard_test.json, rounded to 1 dp
+    const iso = RESEARCH_PROFILES_V4.strict.arms.iso2normative!;
+    expect(iso.TraditionalAI.score).toBe(77.3);
+    expect(iso.MultiAgent.score).toBe(72.5);
+    expect(iso.AgenticAI.score).toBe(70.9);
+    expect(iso.AIAgent.score).toBe(68.9);
+    // RL has no rule layer: the replay leaves it exactly where baseline has it
+    for (const profile of Object.values(RESEARCH_PROFILES_V4)) {
+      expect(profile.arms.iso2normative!.RL).toEqual(profile.arms.baseline!.RL);
+    }
+  });
+
   it("holds the invariants that make the v4 grid comparable with the 41ded2cd one", () => {
-    const measured: ResearchArmId[] = ["baseline", "empirical", "normative"];
+    const measured: ResearchLegacyArmId[] = ["baseline", "empirical", "normative"];
     for (const [profileId, profile] of Object.entries(RESEARCH_PROFILES_V4)) {
       const old = RESEARCH_PROFILES[profileId as keyof typeof RESEARCH_PROFILES];
       expect([profile.sessions, profile.faulty, profile.clean]).toEqual([old.sessions, old.faulty, old.clean]);

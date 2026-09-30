@@ -1,0 +1,298 @@
+From fad40d24b5e72210a5babd27c363aceaa38a1b2f Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 30 Sep 2026 11:52:12 +0700
+Subject: [PATCH 23/25] fix(desktop): ISO arm is found by policy, dated and
+ captioned correctly
+
+Review findings on the replayed ISO-2 + SLAC research arm:
+
+- The leaderboard fingerprint skipped every rule-armed benchmark, so without
+  a sidecar artifact id (web build, older sidecar, before /health answers)
+  the ISO edition fell back to the 2026-09-12 grid under a "not measured"
+  caption for the very policy its benchmark used. policyArm() maps a
+  detection policy to its research arm (none -> baseline, SLAC -> empirical /
+  normative, ISO-2 -> iso2, both -> iso2normative), and the fingerprint now
+  compares against that arm.
+- The evidence tile said the v4 set was "Not replayed" next to a replayed
+  arm; it now says what is actually missing: the SLAC projection was not
+  checked against a replay.
+- Grids can date an arm separately (armScoredAt); the ISO arm shows its own
+  2026-09-30 rescoring date instead of the rest of the v4 grid's.
+- An unavailable arm choice falls back to the edition's policy arm first.
+- The ISO_EDITION test fixture carries the edition's real leaderboard.
+
+Tests: 16 files / 301 pass; tsc adds no error.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../fault-detection/edition-benchmark.test.ts | 27 +++++++++++++--
+ .../ai/fault-detection/edition-benchmark.ts   | 34 ++++++++++++++-----
+ .../ai/fault-detection/edition-fixtures.ts    | 14 ++++++--
+ .../research-dashboard.test.ts                | 18 ++++++++--
+ .../ai/fault-detection/research-dashboard.tsx | 15 ++++----
+ .../ai/fault-detection/research-data.ts       |  4 +++
+ 6 files changed, 90 insertions(+), 22 deletions(-)
+
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+index b5ab5f9e..e85afcbe 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+@@ -5,6 +5,7 @@ import {
+   heldOutFaultDistribution,
+   heldOutStations,
+   percentOf,
++  policyArm,
+   researchModelRelation,
+   researchProfileForBundled,
+   selectResearchGrid,
+@@ -142,10 +143,30 @@ describe("research model relation", () => {
+     expect(researchModelRelation(SNAPSHOT_EDITION, "53b6f14244c2e633")).toBe("unknown");
+   });
+ 
+-  it("does not fingerprint a rule-armed benchmark against the baseline arm", () => {
+-    expect(researchModelRelation(ISO_EDITION)).toBe("unknown");
++  it("fingerprints a rule-armed benchmark against the arm of its own policy, not baseline", () => {
++    // the ISO edition's leaderboard is v4 strict x ISO-2 + SLAC 600 ms
++    expect(researchModelRelation(ISO_EDITION)).toBe("same");
++    expect(selectResearchGrid(ISO_EDITION).grid.artifact).toBe(RESEARCH_V4_ARTIFACT);
++    // baseline numbers labelled with the ISO policy match no grid's ISO arm
+     const snapshotUnderRules = { ...SNAPSHOT_EDITION, detectionPolicy: ISO_EDITION.detectionPolicy };
+-    expect(researchModelRelation(snapshotUnderRules)).toBe("unknown");
++    expect(researchModelRelation(snapshotUnderRules)).toBe("different");
++    // a policy no grid has an arm for cannot be checked
++    const isoWithEmpiricalSlac = {
++      ...ISO_EDITION,
++      detectionPolicy: { id: "x", iso2Rules: true, slacRuleMode: "empirical" },
++    };
++    expect(researchModelRelation(isoWithEmpiricalSlac)).toBe("unknown");
++  });
++
++  it("maps every detection policy to the research arm it corresponds to", () => {
++    expect(policyArm(null)).toBe("baseline");
++    expect(policyArm({ id: "b", iso2Rules: false, slacRuleMode: "off" })).toBe("baseline");
++    expect(policyArm({ id: "s", iso2Rules: false, slacRuleMode: "empirical" })).toBe("empirical");
++    expect(policyArm({ id: "s", iso2Rules: false, slacRuleMode: " Normative " })).toBe("normative");
++    expect(policyArm({ id: "i", iso2Rules: true, slacRuleMode: "off" })).toBe("iso2");
++    expect(policyArm(ISO_EDITION.detectionPolicy)).toBe("iso2normative");
++    expect(policyArm({ id: "i", iso2Rules: true, slacRuleMode: "empirical" })).toBeNull();
++    expect(policyArm({ id: "?", iso2Rules: false, slacRuleMode: "strict" })).toBeNull();
+   });
+ 
+   it("recognises the research model set from the bundled leaderboard alone", () => {
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
+index 09f48307..83b401f4 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.ts
+@@ -9,6 +9,7 @@ import {
+   LABEL_LINEAGE,
+   MODEL_ORDER,
+   RESEARCH_GRIDS,
++  type ResearchArmId,
+   type ResearchGrid,
+   type ResearchModelId,
+   type ResearchProfileId,
+@@ -87,17 +88,34 @@ export type ResearchModelRelation = "same" | "different" | "unknown";
+ 
+ const oneDecimal = (value: number) => Number(value.toFixed(1));
+ 
++/**
++ * The research arm a benchmark's detection policy corresponds to: none =
++ * baseline, SLAC alone = empirical/normative, ISO-2 alone = iso2, ISO-2 with
++ * the normative SLAC rule = iso2normative (the ISO 15118 edition). null for a
++ * combination no grid has an arm for.
++ */
++export function policyArm(policy: DetectionPolicy | null | undefined): ResearchArmId | null {
++  if (!policy) return "baseline";
++  const slac = policy.slacRuleMode?.trim().toLowerCase() ?? "";
++  // null = no SLAC rule, undefined = a mode no grid knows
++  const slacArm: "normative" | "empirical" | null | undefined =
++    slac === "" || slac === "off" ? null : slac === "normative" ? "normative" : slac === "empirical" ? "empirical" : undefined;
++  if (slacArm === undefined) return null;
++  if (policy.iso2Rules) return slacArm === null ? "iso2" : slacArm === "normative" ? "iso2normative" : null;
++  return slacArm ?? "baseline";
++}
++
+ /**
+  * The bundled leaderboard's own verdict on which research grid it belongs to:
+- * under the same labels and the baseline policy, a grid's baseline arm must
+- * reproduce all five models' score, recall and false-alarm rate to the
++ * under the same labels, a grid's arm for the benchmark's own detection policy
++ * must reproduce all five models' score, recall and false-alarm rate to the
+  * research data's one decimal. `checkable` is false when the leaderboard
+  * cannot speak - nothing bundled, labels that match no profile, a partial
+- * leaderboard, or a rule-armed benchmark (ISO 15118 edition), which matches
+- * no single research arm.
++ * leaderboard, or a policy no grid has an arm for.
+  */
+ function gridFromLeaderboard(bundled: BundledBenchmark | null): { checkable: boolean; grid: ResearchGrid | null } {
+-  if (!bundled || detectionPolicyKind(bundled.detectionPolicy) !== "baseline") return { checkable: false, grid: null };
++  const arm = bundled ? policyArm(bundled.detectionPolicy) : null;
++  if (!bundled || !arm) return { checkable: false, grid: null };
+   const profileId = researchProfileForBundled(bundled);
+   if (!profileId) return { checkable: false, grid: null };
+   const scored = bundled.leaderboard.filter(
+@@ -105,11 +123,11 @@ function gridFromLeaderboard(bundled: BundledBenchmark | null): { checkable: boo
+   );
+   if (scored.length !== MODEL_ORDER.length) return { checkable: false, grid: null };
+   const grid = RESEARCH_GRIDS.find((candidate) => {
+-    const baseline = candidate.profiles[profileId].arms.baseline;
++    const cells = candidate.profiles[profileId].arms[arm];
+     return (
+-      baseline !== undefined &&
++      cells !== undefined &&
+       scored.every((row) => {
+-        const research = baseline[RESEARCH_ID_BY_MODEL_ID[row.id]];
++        const research = cells[RESEARCH_ID_BY_MODEL_ID[row.id]];
+         return (
+           oneDecimal(row.score as number) === research.score &&
+           oneDecimal(row.recall as number) === research.recall &&
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
+index d435edb1..978b6f5a 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
+@@ -90,9 +90,19 @@ export const CURRENT_EDITION = fixtureBundle(1_326, V4_FAMILIES, [
+   ["rl", 39.2242, 18.4766, 5.5911],
+ ]);
+ 
+-/** The 1.3.0 ISO 15118 edition: v4 labels and weights, scored under the standard's rule layers. */
++/**
++ * The 1.3.0 ISO 15118 edition: v4 labels and weights, scored under the
++ * standard's rule layers - its real leaderboard (D:/ev_ai_stage/v4_iso,
++ * = research_grid_v4_iso.json strict.iso2normative raw values).
++ */
+ export const ISO_EDITION: BundledBenchmark = {
+-  ...CURRENT_EDITION,
++  ...fixtureBundle(1_326, V4_FAMILIES, [
++    ["traditional", 77.276, 95.8522, 25.02],
++    ["agentic-ai", 70.9392, 92.0814, 31.1983],
++    ["multi-agent", 72.5453, 92.1569, 26.2076],
++    ["ai-agent", 68.8551, 91.5535, 38.3373],
++    ["rl", 39.2242, 18.4766, 5.5911],
++  ]),
+   detectionPolicy: { schemaVersion: 1, id: "iso15118-standard", iso2Rules: true, slacRuleMode: "normative" },
+ };
+ 
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+index ae1331f2..3f5ff84b 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+@@ -126,13 +126,15 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     // the reason is visible text, not only a tooltip on a tab that cannot take focus
+     expect(text(v4)).toContain("+ ISO 15118-2: Not measured for this model set (needs a replay)");
+     expect(armTab(v4, "iso2")).toContain('aria-describedby="fd-arms-not-measured"');
+-    // nothing on the page claims ISO-2 results or a replay check for the v4 set
++    // nothing on the page claims ISO-2-alone results or a SLAC replay check for the v4 set
+     expect(text(v4)).toContain(
+       "ISO 15118-2 rules combined with it (ISO 15118-2 alone not yet measured for this model set)",
+     );
+     // the replayed ISO-2 + SLAC arm is measured for v4 and is not a projection
+     expect(armTab(v4, "iso2normative")).not.toContain('disabled=""');
+-    expect(text(v4)).toContain("— Not replayed for this model set");
++    // ...without claiming the set was never replayed: its ISO-2 + SLAC arm is a replay
++    expect(text(v4)).toContain("— SLAC projection not checked against a replay for this model set");
++    expect(text(v4)).not.toContain("Not replayed for this model set");
+     expect(text(v4)).not.toContain("Projection–replay agreement");
+ 
+     // the 2026-09-12 set was replayed under ISO-2; only its normative arm is a projection
+@@ -157,8 +159,20 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(t).toContain("Recall 95.9% False alarm 25.0% Median lead 22.6s");
+     // a replay, not a projection: no provenance footnote, no lower-bound note
+     expect(iso).not.toContain('data-testid="fd-arm-provenance"');
++    // dated when that arm was scored, not when the rest of the v4 grid was
++    expect(t).toContain("Verified: 30 Sept 2026");
+     // the baseline editions still open on + SLAC 600 ms
+     expect(render(CURRENT_EDITION)).toMatch(/aria-selected="true"[^>]*data-testid="fd-arm-normative"/);
++    expect(text(render(CURRENT_EDITION))).toContain("Verified: 23 Sept 2026");
++  });
++
++  it("finds the ISO edition's own arm from its leaderboard when the sidecar gives no artifact id", () => {
++    // web build, older sidecar, or the moment before /health answers
++    const iso = render(ISO_EDITION);
++    expect(iso).toContain('data-relation="same"');
++    expect(iso).toMatch(/aria-selected="true"[^>]*data-testid="fd-arm-iso2normative"/);
++    expect(text(iso)).toContain("77.3 Traditional AI · Highest score in this view");
++    expect(text(iso)).not.toContain("+ ISO-2 + SLAC 600 ms: Not measured");
+   });
+ 
+   it("warns that the old labels count the v4 models' NO_POWER_DELIVERED alerts as false alarms", () => {
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+index e69be407..e72bc7f5 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+@@ -36,6 +36,7 @@ import { snapshotDateLocale, type BundledBenchmark, type StationAnalysis } from
+ import {
+   RESEARCH_ID_BY_MODEL_ID,
+   detectionPolicyKind,
++  policyArm,
+   heldOutFaultDistribution,
+   heldOutStations,
+   percentOf,
+@@ -66,7 +67,7 @@ const COPY = {
+     faultLabels: "Fault labels",
+     censored: "ตัดออกอย่างมีเหตุผล",
+     replay: "Replay ตรงกับ projection",
+-    replayNotRun: "ยังไม่ได้ replay กับโมเดลชุดนี้",
++    replayNotRun: "ยังไม่ได้ตรวจ projection ของ SLAC กับการ replay ของโมเดลชุดนี้",
+     profile: "Label snapshot",
+     arm: "Detection policy",
+     published: "Published",
+@@ -213,7 +214,7 @@ const COPY = {
+     faultLabels: "Fault labels",
+     censored: "Evidence-based exclusions",
+     replay: "Projection–replay agreement",
+-    replayNotRun: "Not replayed for this model set",
++    replayNotRun: "SLAC projection not checked against a replay for this model set",
+     profile: "Label snapshot",
+     arm: "Detection policy",
+     published: "Published",
+@@ -901,12 +902,12 @@ export default function ResearchDashboard({
+   // Open on the arm that IS this benchmark's own policy when the grid has it
+   // (the ISO 15118 edition: ISO-2 rules + SLAC 600 ms), so the panel's first
+   // view equals the bundled leaderboard; otherwise the SLAC 600 ms arm as before.
+-  const policyIsIso2Normative =
+-    policy?.iso2Rules === true && policy.slacRuleMode?.trim().toLowerCase() === "normative";
+-  const wantedArmId: ResearchArmId = chosenArmId ?? (policyIsIso2Normative ? "iso2normative" : "normative");
++  const policyDefaultArm: ResearchArmId = policyArm(policy) === "iso2normative" ? "iso2normative" : "normative";
++  const wantedArmId: ResearchArmId = chosenArmId ?? policyDefaultArm;
++  // a choice this grid lacks falls back to the edition's own policy arm first
+   const armId: ResearchArmId = armMeasured(wantedArmId)
+     ? wantedArmId
+-    : (["normative", "empirical", "baseline", "iso2", "iso2normative"] as const).find(armMeasured) ?? "baseline";
++    : ([policyDefaultArm, "normative", "empirical", "baseline", "iso2", "iso2normative"] as const).find(armMeasured) ?? "baseline";
+   const gridIso2: "alone" | "combined" | "none" = Object.values(researchGrid.profiles).some((candidate) => candidate.arms.iso2 !== undefined)
+     ? "alone"
+     : Object.values(researchGrid.profiles).some((candidate) => candidate.arms.iso2normative !== undefined)
+@@ -945,7 +946,7 @@ export default function ResearchDashboard({
+   };
+   const verifiedDate = new Intl.DateTimeFormat(snapshotDateLocale(lang), {
+     dateStyle: "medium",
+-  }).format(new Date(researchGrid.scoredAt));
++  }).format(new Date(researchGrid.armScoredAt?.[armId] ?? researchGrid.scoredAt));
+   // The benchmark bundled with this build, ranked by score (unscored models last).
+   const bundledRows = useMemo(
+     () => (bundled ? [...bundled.leaderboard].sort((left, right) => (right.score ?? -1) - (left.score ?? -1)) : []),
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+index 12cc18d2..62d1f1db 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+@@ -50,6 +50,8 @@ export type ResearchGrid = {
+   profileNotes?: Partial<Record<ResearchProfileId, LocalizedNote>>;
+   /** % of first-alert times a projection reproduced in a full replay, if one was run. */
+   replayAgreement?: number;
++  /** When an arm was scored later than the rest of the grid. */
++  armScoredAt?: Partial<Record<ResearchArmId, string>>;
+ };
+ 
+ const metric = (
+@@ -360,6 +362,8 @@ export const RESEARCH_GRIDS: readonly ResearchGrid[] = [
+     profiles: RESEARCH_PROFILES_V4,
+     projectedArms: ["empirical", "normative"],
+     aiAgentLowerBoundArms: ["empirical", "normative"],
++    // the ISO edition's replay finished 2026-09-24; rescored per profile here
++    armScoredAt: { iso2normative: "2026-09-30T11:26:18+07:00" },
+     profileNotes: {
+       // Measured: excluding these 369 sessions makes every model's published
+       // false-alarm rate equal its strict one, alert for alert.
+-- 
+2.45.1.windows.1
+

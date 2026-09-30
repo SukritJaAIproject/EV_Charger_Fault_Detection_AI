@@ -90,9 +90,19 @@ export const CURRENT_EDITION = fixtureBundle(1_326, V4_FAMILIES, [
   ["rl", 39.2242, 18.4766, 5.5911],
 ]);
 
-/** The 1.3.0 ISO 15118 edition: v4 labels and weights, scored under the standard's rule layers. */
+/**
+ * The 1.3.0 ISO 15118 edition: v4 labels and weights, scored under the
+ * standard's rule layers - its real leaderboard (D:/ev_ai_stage/v4_iso,
+ * = research_grid_v4_iso.json strict.iso2normative raw values).
+ */
 export const ISO_EDITION: BundledBenchmark = {
-  ...CURRENT_EDITION,
+  ...fixtureBundle(1_326, V4_FAMILIES, [
+    ["traditional", 77.276, 95.8522, 25.02],
+    ["agentic-ai", 70.9392, 92.0814, 31.1983],
+    ["multi-agent", 72.5453, 92.1569, 26.2076],
+    ["ai-agent", 68.8551, 91.5535, 38.3373],
+    ["rl", 39.2242, 18.4766, 5.5911],
+  ]),
   detectionPolicy: { schemaVersion: 1, id: "iso15118-standard", iso2Rules: true, slacRuleMode: "normative" },
 };
 

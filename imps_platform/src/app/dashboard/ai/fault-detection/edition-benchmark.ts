@@ -9,6 +9,7 @@ import {
   LABEL_LINEAGE,
   MODEL_ORDER,
   RESEARCH_GRIDS,
+  type ResearchArmId,
   type ResearchGrid,
   type ResearchModelId,
   type ResearchProfileId,
@@ -88,16 +89,33 @@ export type ResearchModelRelation = "same" | "different" | "unknown";
 const oneDecimal = (value: number) => Number(value.toFixed(1));
 
 /**
+ * The research arm a benchmark's detection policy corresponds to: none =
+ * baseline, SLAC alone = empirical/normative, ISO-2 alone = iso2, ISO-2 with
+ * the normative SLAC rule = iso2normative (the ISO 15118 edition). null for a
+ * combination no grid has an arm for.
+ */
+export function policyArm(policy: DetectionPolicy | null | undefined): ResearchArmId | null {
+  if (!policy) return "baseline";
+  const slac = policy.slacRuleMode?.trim().toLowerCase() ?? "";
+  // null = no SLAC rule, undefined = a mode no grid knows
+  const slacArm: "normative" | "empirical" | null | undefined =
+    slac === "" || slac === "off" ? null : slac === "normative" ? "normative" : slac === "empirical" ? "empirical" : undefined;
+  if (slacArm === undefined) return null;
+  if (policy.iso2Rules) return slacArm === null ? "iso2" : slacArm === "normative" ? "iso2normative" : null;
+  return slacArm ?? "baseline";
+}
+
+/**
  * The bundled leaderboard's own verdict on which research grid it belongs to:
- * under the same labels and the baseline policy, a grid's baseline arm must
- * reproduce all five models' score, recall and false-alarm rate to the
+ * under the same labels, a grid's arm for the benchmark's own detection policy
+ * must reproduce all five models' score, recall and false-alarm rate to the
  * research data's one decimal. `checkable` is false when the leaderboard
  * cannot speak - nothing bundled, labels that match no profile, a partial
- * leaderboard, or a rule-armed benchmark (ISO 15118 edition), which matches
- * no single research arm.
+ * leaderboard, or a policy no grid has an arm for.
  */
 function gridFromLeaderboard(bundled: BundledBenchmark | null): { checkable: boolean; grid: ResearchGrid | null } {
-  if (!bundled || detectionPolicyKind(bundled.detectionPolicy) !== "baseline") return { checkable: false, grid: null };
+  const arm = bundled ? policyArm(bundled.detectionPolicy) : null;
+  if (!bundled || !arm) return { checkable: false, grid: null };
   const profileId = researchProfileForBundled(bundled);
   if (!profileId) return { checkable: false, grid: null };
   const scored = bundled.leaderboard.filter(
@@ -105,11 +123,11 @@ function gridFromLeaderboard(bundled: BundledBenchmark | null): { checkable: boo
   );
   if (scored.length !== MODEL_ORDER.length) return { checkable: false, grid: null };
   const grid = RESEARCH_GRIDS.find((candidate) => {
-    const baseline = candidate.profiles[profileId].arms.baseline;
+    const cells = candidate.profiles[profileId].arms[arm];
     return (
-      baseline !== undefined &&
+      cells !== undefined &&
       scored.every((row) => {
-        const research = baseline[RESEARCH_ID_BY_MODEL_ID[row.id]];
+        const research = cells[RESEARCH_ID_BY_MODEL_ID[row.id]];
         return (
           oneDecimal(row.score as number) === research.score &&
           oneDecimal(row.recall as number) === research.recall &&

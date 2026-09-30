@@ -126,19 +126,53 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
     // the reason is visible text, not only a tooltip on a tab that cannot take focus
     expect(text(v4)).toContain("+ ISO 15118-2: Not measured for this model set (needs a replay)");
     expect(armTab(v4, "iso2")).toContain('aria-describedby="fd-arms-not-measured"');
-    // nothing on the page claims ISO-2 results or a replay check for the v4 set
-    expect(text(v4)).toContain("(ISO 15118-2 rules not yet measured for this model set)");
-    expect(text(v4)).toContain("— Not replayed for this model set");
+    // nothing on the page claims ISO-2-alone results or a SLAC replay check for the v4 set
+    expect(text(v4)).toContain(
+      "ISO 15118-2 rules combined with it (ISO 15118-2 alone not yet measured for this model set)",
+    );
+    // the replayed ISO-2 + SLAC arm is measured for v4 and is not a projection
+    expect(armTab(v4, "iso2normative")).not.toContain('disabled=""');
+    // ...without claiming the set was never replayed: its ISO-2 + SLAC arm is a replay
+    expect(text(v4)).toContain("— SLAC projection not checked against a replay for this model set");
+    expect(text(v4)).not.toContain("Not replayed for this model set");
     expect(text(v4)).not.toContain("Projection–replay agreement");
 
     // the 2026-09-12 set was replayed under ISO-2; only its normative arm is a projection
     const old = render(SNAPSHOT_EDITION);
     expect(armTab(old, "iso2")).not.toContain('disabled=""');
-    expect(text(old)).not.toContain("Not measured for this model set");
+    // ...but it never ran ISO-2 and SLAC together
+    expect(armTab(old, "iso2normative")).toContain('disabled=""');
+    expect(text(old)).toContain("+ ISO-2 + SLAC 600 ms: Not measured for this model set (needs a replay)");
+    expect(text(old)).not.toContain("+ ISO 15118-2: Not measured");
     expect(text(old)).toContain("including ISO 15118-2 rules and ISO 15118-3 SLAC timing.");
     expect(text(old)).toContain("100% Projection–replay agreement");
     expect(text(old)).toContain("This policy is projected from recorded alerts, not replayed");
     expect(text(old)).not.toContain("lower bounds");
+  });
+
+  it("opens the ISO 15118 edition on its own policy, so the panel's first view is its bundled leaderboard", () => {
+    const iso = render(ISO_EDITION, { modelArtifact: "53b6f14244c2e633" });
+    expect(iso).toMatch(/aria-selected="true"[^>]*data-testid="fd-arm-iso2normative"/);
+    const t = text(iso);
+    // strict x ISO-2 + SLAC 600 ms = the ISO edition's leaderboard: TraditionalAI 77.3 / 95.9% / 25.0% / 22.6 s
+    expect(t).toContain("77.3 Traditional AI · Highest score in this view");
+    expect(t).toContain("Recall 95.9% False alarm 25.0% Median lead 22.6s");
+    // a replay, not a projection: no provenance footnote, no lower-bound note
+    expect(iso).not.toContain('data-testid="fd-arm-provenance"');
+    // dated when that arm was scored, not when the rest of the v4 grid was
+    expect(t).toContain("Verified: 30 Sept 2026");
+    // the baseline editions still open on + SLAC 600 ms
+    expect(render(CURRENT_EDITION)).toMatch(/aria-selected="true"[^>]*data-testid="fd-arm-normative"/);
+    expect(text(render(CURRENT_EDITION))).toContain("Verified: 23 Sept 2026");
+  });
+
+  it("finds the ISO edition's own arm from its leaderboard when the sidecar gives no artifact id", () => {
+    // web build, older sidecar, or the moment before /health answers
+    const iso = render(ISO_EDITION);
+    expect(iso).toContain('data-relation="same"');
+    expect(iso).toMatch(/aria-selected="true"[^>]*data-testid="fd-arm-iso2normative"/);
+    expect(text(iso)).toContain("77.3 Traditional AI · Highest score in this view");
+    expect(text(iso)).not.toContain("+ ISO-2 + SLAC 600 ms: Not measured");
   });
 
   it("warns that the old labels count the v4 models' NO_POWER_DELIVERED alerts as false alarms", () => {

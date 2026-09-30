@@ -5,6 +5,7 @@ import {
   heldOutFaultDistribution,
   heldOutStations,
   percentOf,
+  policyArm,
   researchModelRelation,
   researchProfileForBundled,
   selectResearchGrid,
@@ -142,10 +143,30 @@ describe("research model relation", () => {
     expect(researchModelRelation(SNAPSHOT_EDITION, "53b6f14244c2e633")).toBe("unknown");
   });
 
-  it("does not fingerprint a rule-armed benchmark against the baseline arm", () => {
-    expect(researchModelRelation(ISO_EDITION)).toBe("unknown");
+  it("fingerprints a rule-armed benchmark against the arm of its own policy, not baseline", () => {
+    // the ISO edition's leaderboard is v4 strict x ISO-2 + SLAC 600 ms
+    expect(researchModelRelation(ISO_EDITION)).toBe("same");
+    expect(selectResearchGrid(ISO_EDITION).grid.artifact).toBe(RESEARCH_V4_ARTIFACT);
+    // baseline numbers labelled with the ISO policy match no grid's ISO arm
     const snapshotUnderRules = { ...SNAPSHOT_EDITION, detectionPolicy: ISO_EDITION.detectionPolicy };
-    expect(researchModelRelation(snapshotUnderRules)).toBe("unknown");
+    expect(researchModelRelation(snapshotUnderRules)).toBe("different");
+    // a policy no grid has an arm for cannot be checked
+    const isoWithEmpiricalSlac = {
+      ...ISO_EDITION,
+      detectionPolicy: { id: "x", iso2Rules: true, slacRuleMode: "empirical" },
+    };
+    expect(researchModelRelation(isoWithEmpiricalSlac)).toBe("unknown");
+  });
+
+  it("maps every detection policy to the research arm it corresponds to", () => {
+    expect(policyArm(null)).toBe("baseline");
+    expect(policyArm({ id: "b", iso2Rules: false, slacRuleMode: "off" })).toBe("baseline");
+    expect(policyArm({ id: "s", iso2Rules: false, slacRuleMode: "empirical" })).toBe("empirical");
+    expect(policyArm({ id: "s", iso2Rules: false, slacRuleMode: " Normative " })).toBe("normative");
+    expect(policyArm({ id: "i", iso2Rules: true, slacRuleMode: "off" })).toBe("iso2");
+    expect(policyArm(ISO_EDITION.detectionPolicy)).toBe("iso2normative");
+    expect(policyArm({ id: "i", iso2Rules: true, slacRuleMode: "empirical" })).toBeNull();
+    expect(policyArm({ id: "?", iso2Rules: false, slacRuleMode: "strict" })).toBeNull();
   });
 
   it("recognises the research model set from the bundled leaderboard alone", () => {

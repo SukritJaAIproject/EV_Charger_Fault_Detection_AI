@@ -36,6 +36,7 @@ import { snapshotDateLocale, type BundledBenchmark, type StationAnalysis } from 
 import {
   RESEARCH_ID_BY_MODEL_ID,
   detectionPolicyKind,
+  policyArm,
   heldOutFaultDistribution,
   heldOutStations,
   percentOf,
@@ -55,16 +56,18 @@ const COPY = {
   th: {
     verified: "VERIFIED RESEARCH SNAPSHOT",
     title: "ภาพรวมประสิทธิภาพการตรวจจับ Fault",
-    subtitle: (hasIso2: boolean) =>
-      hasIso2
+    subtitle: (iso2: "alone" | "combined" | "none") =>
+      iso2 === "alone"
         ? "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ ISO 15118-2 และ SLAC จาก ISO 15118-3"
-        : "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ SLAC จาก ISO 15118-3 (กฎ ISO 15118-2 ยังไม่ได้วัดกับโมเดลชุดนี้)",
+        : iso2 === "combined"
+          ? "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ SLAC จาก ISO 15118-3 และกฎ ISO 15118-2 ที่ใช้ร่วมกับ SLAC (ISO 15118-2 อย่างเดียวยังไม่ได้วัดกับโมเดลชุดนี้)"
+          : "เปรียบเทียบโมเดล 5 สถาปัตยกรรมบน label policy เดียวกัน พร้อมผลของกฎ SLAC จาก ISO 15118-3 (กฎ ISO 15118-2 ยังไม่ได้วัดกับโมเดลชุดนี้)",
     fullFleet: "Fleet ทั้งหมด",
     scoringSessions: "ใช้ประเมินผล",
     faultLabels: "Fault labels",
     censored: "ตัดออกอย่างมีเหตุผล",
     replay: "Replay ตรงกับ projection",
-    replayNotRun: "ยังไม่ได้ replay กับโมเดลชุดนี้",
+    replayNotRun: "ยังไม่ได้ตรวจ projection ของ SLAC กับการ replay ของโมเดลชุดนี้",
     profile: "Label snapshot",
     arm: "Detection policy",
     published: "Published",
@@ -83,6 +86,7 @@ const COPY = {
     iso2: "+ ISO 15118-2",
     empirical: "+ SLAC 10 s",
     normative: "+ SLAC 600 ms",
+    iso2normative: "+ ISO-2 + SLAC 600 ms",
     score: "Score",
     recall: "Recall",
     far: "False alarm",
@@ -199,16 +203,18 @@ const COPY = {
   en: {
     verified: "VERIFIED RESEARCH SNAPSHOT",
     title: "Fault-detection performance overview",
-    subtitle: (hasIso2: boolean) =>
-      hasIso2
+    subtitle: (iso2: "alone" | "combined" | "none") =>
+      iso2 === "alone"
         ? "Compare five model architectures under the same label policy, including ISO 15118-2 rules and ISO 15118-3 SLAC timing."
-        : "Compare five model architectures under the same label policy, including ISO 15118-3 SLAC timing (ISO 15118-2 rules not yet measured for this model set).",
+        : iso2 === "combined"
+          ? "Compare five model architectures under the same label policy, including ISO 15118-3 SLAC timing and ISO 15118-2 rules combined with it (ISO 15118-2 alone not yet measured for this model set)."
+          : "Compare five model architectures under the same label policy, including ISO 15118-3 SLAC timing (ISO 15118-2 rules not yet measured for this model set).",
     fullFleet: "Full fleet",
     scoringSessions: "Scoring cohort",
     faultLabels: "Fault labels",
     censored: "Evidence-based exclusions",
     replay: "Projection–replay agreement",
-    replayNotRun: "Not replayed for this model set",
+    replayNotRun: "SLAC projection not checked against a replay for this model set",
     profile: "Label snapshot",
     arm: "Detection policy",
     published: "Published",
@@ -227,6 +233,7 @@ const COPY = {
     iso2: "+ ISO 15118-2",
     empirical: "+ SLAC 10 s",
     normative: "+ SLAC 600 ms",
+    iso2normative: "+ ISO-2 + SLAC 600 ms",
     score: "Score",
     recall: "Recall",
     far: "False alarm",
@@ -861,7 +868,7 @@ export default function ResearchDashboard({
   const editionProfileId = researchProfileForBundled(bundled);
   const [chosenProfileId, setProfileId] = useState<ResearchProfileId | null>(null);
   const profileId = chosenProfileId ?? editionProfileId ?? "published";
-  const [chosenArmId, setArmId] = useState<ResearchArmId>("normative");
+  const [chosenArmId, setArmId] = useState<ResearchArmId | null>(null);
   const [selectedSummaryStationId, setSelectedSummaryStationId] = useState<string | null>(null);
   // Everything on this tab is captioned held-out; in-sample training stations
   // (1.3.0 summaries) are kept off it even if the page passes them in.
@@ -892,11 +899,21 @@ export default function ResearchDashboard({
   // replay) cannot be selected; a stale choice falls back to the first
   // measured arm rather than rendering empty rows.
   const armMeasured = (id: ResearchArmId) => profile.arms[id] !== undefined;
-  const armId: ResearchArmId = armMeasured(chosenArmId)
-    ? chosenArmId
-    : (["normative", "empirical", "baseline", "iso2"] as const).find(armMeasured) ?? "baseline";
-  const gridHasIso2 = Object.values(researchGrid.profiles).some((candidate) => candidate.arms.iso2 !== undefined);
-  const unmeasuredArms = (["baseline", "iso2", "empirical", "normative"] as const).filter((id) => !armMeasured(id));
+  // Open on the arm that IS this benchmark's own policy when the grid has it
+  // (the ISO 15118 edition: ISO-2 rules + SLAC 600 ms), so the panel's first
+  // view equals the bundled leaderboard; otherwise the SLAC 600 ms arm as before.
+  const policyDefaultArm: ResearchArmId = policyArm(policy) === "iso2normative" ? "iso2normative" : "normative";
+  const wantedArmId: ResearchArmId = chosenArmId ?? policyDefaultArm;
+  // a choice this grid lacks falls back to the edition's own policy arm first
+  const armId: ResearchArmId = armMeasured(wantedArmId)
+    ? wantedArmId
+    : ([policyDefaultArm, "normative", "empirical", "baseline", "iso2", "iso2normative"] as const).find(armMeasured) ?? "baseline";
+  const gridIso2: "alone" | "combined" | "none" = Object.values(researchGrid.profiles).some((candidate) => candidate.arms.iso2 !== undefined)
+    ? "alone"
+    : Object.values(researchGrid.profiles).some((candidate) => candidate.arms.iso2normative !== undefined)
+      ? "combined"
+      : "none";
+  const unmeasuredArms = (["baseline", "iso2", "empirical", "normative", "iso2normative"] as const).filter((id) => !armMeasured(id));
   const armIsProjected = researchGrid.projectedArms.includes(armId);
   const aiAgentIsLowerBound = researchGrid.aiAgentLowerBoundArms.includes(armId);
   const profileNote = researchGrid.profileNotes?.[profileId]?.[lang] ?? null;
@@ -925,10 +942,11 @@ export default function ResearchDashboard({
     iso2: c.iso2,
     empirical: c.empirical,
     normative: c.normative,
+    iso2normative: c.iso2normative,
   };
   const verifiedDate = new Intl.DateTimeFormat(snapshotDateLocale(lang), {
     dateStyle: "medium",
-  }).format(new Date(researchGrid.scoredAt));
+  }).format(new Date(researchGrid.armScoredAt?.[armId] ?? researchGrid.scoredAt));
   // The benchmark bundled with this build, ranked by score (unscored models last).
   const bundledRows = useMemo(
     () => (bundled ? [...bundled.leaderboard].sort((left, right) => (right.score ?? -1) - (left.score ?? -1)) : []),
@@ -1034,7 +1052,7 @@ export default function ResearchDashboard({
               </span>
             </div>
             <h2 className="fd-display tw-mt-3 tw-text-xl tw-font-black tw-tracking-tight tw-text-slate-950 sm:tw-text-2xl">{c.title}</h2>
-            <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle(gridHasIso2)}</p>
+            <p className="tw-mt-2 tw-max-w-3xl tw-text-[13px] tw-font-normal tw-leading-6 tw-text-slate-500 sm:tw-text-sm">{c.subtitle(gridIso2)}</p>
           </div>
           <div className={`tw-grid tw-w-full tw-gap-2 lg:tw-flex lg:tw-w-auto lg:tw-flex-wrap ${onOpenPcap ? "tw-grid-cols-2" : "tw-grid-cols-1"}`}>
             <button type="button" onClick={onOpenStations} className="tw-inline-flex tw-min-h-11 tw-items-center tw-justify-center tw-gap-2 tw-rounded-xl tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-py-2.5 tw-text-[11px] tw-font-bold tw-text-slate-700 tw-shadow-sm tw-transition hover:tw-border-blue-300 hover:tw-text-blue-700 focus:tw-outline-none focus:tw-ring-4 focus:tw-ring-blue-100 sm:tw-px-4 sm:tw-text-[12px]">
@@ -1173,7 +1191,7 @@ export default function ResearchDashboard({
               </fieldset>
               <fieldset>
                 <legend className="tw-mb-2 tw-text-[10px] tw-font-extrabold tw-uppercase tw-tracking-wider tw-text-slate-400">{c.arm}</legend>
-                <div className="tw-grid tw-grid-cols-2 tw-gap-1 tw-rounded-xl tw-bg-slate-100 tw-p-1 sm:tw-grid-cols-4" role="tablist" aria-label={c.arm}>
+                <div className="tw-grid tw-grid-cols-2 tw-gap-1 tw-rounded-xl tw-bg-slate-100 tw-p-1 sm:tw-grid-cols-3" role="tablist" aria-label={c.arm}>
                   {(Object.keys(armLabels) as ResearchArmId[]).map((id) => {
                     const measured = armMeasured(id);
                     return (

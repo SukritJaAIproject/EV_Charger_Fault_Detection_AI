@@ -151,8 +151,8 @@ const FAULT_DEFINITIONS: Record<string, FaultDefinition> = {
   NO_POWER_DELIVERED: {
     title: { th: "เริ่มชาร์จแล้วแต่ไม่มีการจ่ายไฟ", en: "Charge attempted, no power delivered" },
     cause: {
-      th: "รถขอพารามิเตอร์การชาร์จ (ChargeParameterDiscovery) และ session ปิดอย่างเรียบร้อย แต่ไม่เคยเข้าสู่ CurrentDemand จึงไม่มีพลังงานถูกจ่าย ส่วนใหญ่ PreCharge ดันแรงดันไม่เข้าใกล้ค่าที่รถขอก่อน session ถูกปิด ส่วนน้อย PreCharge ถึงแรงดันแล้วแต่รถยังสั่งหยุด หรือ session ปิดก่อนเริ่ม PreCharge (หลักฐานเป็น stopped after ChargeParameterDiscovery หรือ CableCheck) หลักฐานระบุขั้นสุดท้ายที่ไปถึง",
-      en: "The EV requested charge parameters (ChargeParameterDiscovery) and the session closed gracefully, but CurrentDemand was never reached, so no energy was delivered. Most often PreCharge never brought the voltage near the EV's target before the close; less often PreCharge converged and the EV stopped anyway, or the session closed before PreCharge started (evidence: stopped after ChargeParameterDiscovery or CableCheck). The evidence names the last phase reached.",
+      th: "รถขอพารามิเตอร์การชาร์จ (ChargeParameterDiscovery) และ session ปิดอย่างเรียบร้อย แต่ไม่เคยเข้าสู่ CurrentDemand จึงไม่มีพลังงานถูกจ่าย ส่วนใหญ่ PreCharge ดันแรงดันไม่เข้าใกล้ค่าที่รถขอก่อน session ถูกปิด ส่วนน้อย PreCharge ถึงแรงดันแล้วแต่รถยังสั่งหยุด ตู้ดันแรงดันเกินค่าที่รถขอไปมาก หรือ session ปิดก่อนเริ่ม PreCharge (หลักฐานเป็น stopped after ChargeParameterDiscovery หรือ CableCheck) หลักฐานระบุขั้นสุดท้ายที่ไปถึง",
+      en: "The EV requested charge parameters (ChargeParameterDiscovery) and the session closed gracefully, but CurrentDemand was never reached, so no energy was delivered. Most often PreCharge never brought the voltage near the EV's target before the close; less often PreCharge converged and the EV stopped anyway, the charger drove the voltage well past the target, or the session closed before PreCharge started (evidence: stopped after ChargeParameterDiscovery or CableCheck). The evidence names the last phase reached.",
     },
     standard: {
       th: "DIN SPEC 70121 / ISO 15118-2 — ลำดับ CableCheck → PreCharge → PowerDelivery → CurrentDemand; เป็นผลที่อนุมานจากลำดับข้อความ ไม่ใช่ error code ของโปรโตคอล (ResponseCode อาจเป็น OK ทั้งหมด)",
@@ -161,8 +161,8 @@ const FAULT_DEFINITIONS: Record<string, FaultDefinition> = {
     stopParty: "unknown",
     stopPartyLabel: { th: "ปิดเรียบร้อย; ดูขั้นสุดท้ายและแรงดัน PreCharge", en: "Closed cleanly; check the last phase and PreCharge voltage" },
     attribution: {
-      th: "ถ้าแรงดัน PreCharge ไม่เข้าใกล้ค่าที่รถขอ หลักฐานชี้ไปที่ภาคกำลังของตู้ ถ้าแรงดันถึงแล้วแต่รถยังสั่งหยุด หรือปิดก่อนถึง PreCharge จึงไม่มีแรงดันให้ตัดสิน packet อย่างเดียวยังแยกไม่ได้ว่าเป็นรถหรือตู้",
-      en: "If the PreCharge voltage never approached the EV's target, the evidence points to the charger's power stage; if it converged and the EV still stopped, or the session closed before PreCharge so there is no voltage to judge, the packets alone cannot tell EV from charger.",
+      th: "ถ้าแรงดัน PreCharge ไม่เข้าใกล้ค่าที่รถขอ หลักฐานชี้ไปที่ภาคกำลังของตู้ และถ้าตู้ดันแรงดันเกินค่าที่รถขอไปมาก (เกินแรงดันสูงสุดของรถ) ก็ชี้ไปที่ตู้เช่นกัน ถ้าแรงดันถึงค่าที่รถขอแล้ว (คลาดไม่เกินราว 20 V หรือ 5%) แต่รถยังสั่งหยุด packet ไม่แสดงความผิดของตู้ ให้นับเป็นการชาร์จไม่สำเร็จ ไม่ใช่ fault ของตู้ เว้นแต่ log หน้างานบอกเป็นอย่างอื่น ถ้าปิดก่อนถึง PreCharge จะไม่มีแรงดันให้ตัดสิน packet อย่างเดียวยังแยกไม่ได้ว่าเป็นรถหรือตู้",
+      en: "If the PreCharge voltage never approached the EV's target, the evidence points to the charger's power stage, and so does a voltage driven well past the target (above the EV's maximum). If it converged within about 20 V (≈5%) and the EV still stopped, the packets show no charger fault: count it as a failed charge, not a charger fault, unless site logs say otherwise. If the session closed before PreCharge there is no voltage to judge, and the packets alone cannot tell EV from charger.",
     },
   },
 };

@@ -84,7 +84,14 @@ def _detection_policy(data_root: Path) -> dict[str, Any] | None:
     the same policy, so it is copied into the summary next to the benchmark
     it describes. No manifest (the published v4 root) means the baseline.
     """
-    manifest_path = data_root / "results" / "run_manifest.json"
+    return _policy_from_manifest(data_root / "results" / "run_manifest.json")
+
+
+def _policy_from_manifest(manifest_path: Path) -> dict[str, Any] | None:
+    """detectionPolicy of a replay's run_manifest.json, checked against the sidecar whitelist.
+
+    None when the manifest is absent or declares no policy, i.e. a baseline replay.
+    """
     if not manifest_path.is_file():
         return None
     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
@@ -115,7 +122,10 @@ def parse_args() -> argparse.Namespace:
         "--train-records",
         type=Path,
         default=None,
-        help="records of the in-sample baseline replay over the training stations (adds analysis.byStationTrain)",
+        help=(
+            "records of an in-sample replay over the training stations (adds analysis.byStationTrain); "
+            "its run_manifest.json must name the same detection policy as the data root"
+        ),
     )
     parser.add_argument(
         "--output",
@@ -153,11 +163,20 @@ def main() -> int:
         if not train_rows or any(row.get("split") != "train" for row in train_rows):
             raise SystemExit("Expected training-station rows marked split=train")
     policy = _detection_policy(data_root)
+    if args.train_records is not None:
+        # Training rows describe the edition's detector only if they were replayed
+        # under the same policy as its benchmark: baseline rows would misdescribe the
+        # ISO 15118 edition and the other way round. The training replay's own
+        # run_manifest.json names its policy (none = baseline).
+        train_policy = _policy_from_manifest(args.train_records.resolve().parent / "run_manifest.json")
+        edition_id = policy["id"] if policy else "baseline"
+        train_id = train_policy["id"] if train_policy else "baseline"
+        if train_id != edition_id:
+            raise SystemExit(
+                f"--train-records were replayed under detection policy {train_id!r}, "
+                f"but this benchmark runs {edition_id!r}; replay the training stations under {edition_id!r}"
+            )
     if policy is not None:
-        if args.train_records is not None and policy["id"] != "baseline":
-            # the training-station replay runs the baseline detector; its rows
-            # would misdescribe an edition that runs another policy
-            raise SystemExit(f"--train-records is a baseline replay; it cannot be bundled with policy {policy['id']!r}")
         summary["detectionPolicy"] = policy
 
     output = args.output.resolve()

@@ -1,0 +1,208 @@
+{
+ "overall": {
+  "n_faulty": 4660,
+  "n_clean": 27185,
+  "detectors": {
+   "AgenticAI": {
+    "recall": 0.9197424892703863,
+    "far": 0.3298510207835203,
+    "earliness": 0.2268273891367492,
+    "score": 70.62814162274869,
+    "tp": 4286,
+    "late": 125,
+    "miss": 249,
+    "fp": 8967,
+    "median_lead_s": 7.97599995136261,
+    "mean_lead_s": 121.27638707511447,
+    "wins": 4286.0,
+    "by_family": {
+     "EV_ERROR": {
+      "recall": 1.0,
+      "tp": 344,
+      "n": 344
+     },
+     "SESSION_ABORT": {
+      "recall": 0.7586649550706034,
+      "tp": 591,
+      "n": 779
+     },
+     "PROTOCOL_FAILED": {
+      "recall": 1.0,
+      "tp": 1091,
+      "n": 1091
+     },
+     "NO_POWER_DELIVERED": {
+      "recall": 0.9045830202854996,
+      "tp": 1204,
+      "n": 1331
+     },
+     "SLAC_FAILURE": {
+      "recall": 0.9383116883116883,
+      "tp": 867,
+      "n": 924
+     },
+     "EVSE_FAULT": {
+      "recall": 1.0,
+      "tp": 177,
+      "n": 177
+     },
+     "COMM_FREEZE": {
+      "recall": 0.8571428571428571,
+      "tp": 12,
+      "n": 14
+     }
+    }
+   }
+  }
+ },
+ "by_source": {
+  "main": {
+   "n_faulty": 4309,
+   "n_clean": 25451,
+   "detectors": {
+    "AgenticAI": {
+     "recall": 0.9299141332095614,
+     "far": 0.33735413146831167,
+     "earliness": 0.2221103717089937,
+     "score": 70.8172901506086,
+     "tp": 4007,
+     "late": 124,
+     "miss": 178,
+     "fp": 8586,
+     "median_lead_s": 5.756999969482422,
+     "mean_lead_s": 117.20767157524092,
+     "wins": 4007.0,
+     "by_family": {
+      "EV_ERROR": {
+       "recall": 1.0,
+       "tp": 344,
+       "n": 344
+      },
+      "SESSION_ABORT": {
+       "recall": 0.7953890489913544,
+       "tp": 552,
+       "n": 694
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 1049,
+       "n": 1049
+      },
+      "NO_POWER_DELIVERED": {
+       "recall": 0.9061224489795918,
+       "tp": 1110,
+       "n": 1225
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.9481302774427021,
+       "tp": 786,
+       "n": 829
+      },
+      "EVSE_FAULT": {
+       "recall": 1.0,
+       "tp": 154,
+       "n": 154
+      },
+      "COMM_FREEZE": {
+       "recall": 0.8571428571428571,
+       "tp": 12,
+       "n": 14
+      }
+     }
+    }
+   }
+  },
+  "v2g2024": {
+   "n_faulty": 64,
+   "n_clean": 498,
+   "detectors": {
+    "AgenticAI": {
+     "recall": 0.796875,
+     "far": 0.19678714859437751,
+     "earliness": 0.3221619791816919,
+     "score": 70.38337512580252,
+     "tp": 51,
+     "late": 0,
+     "miss": 13,
+     "fp": 98,
+     "median_lead_s": 58.651000022888184,
+     "mean_lead_s": 355.66847059305974,
+     "wins": 51.0,
+     "by_family": {
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 17,
+       "n": 17
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.8636363636363636,
+       "tp": 19,
+       "n": 22
+      },
+      "SESSION_ABORT": {
+       "recall": 0.5,
+       "tp": 9,
+       "n": 18
+      },
+      "EVSE_FAULT": {
+       "recall": 1.0,
+       "tp": 4,
+       "n": 4
+      },
+      "NO_POWER_DELIVERED": {
+       "recall": 0.6666666666666666,
+       "tp": 2,
+       "n": 3
+      }
+     }
+    }
+   }
+  },
+  "v2g2025": {
+   "n_faulty": 287,
+   "n_clean": 1236,
+   "detectors": {
+    "AgenticAI": {
+     "recall": 0.794425087108014,
+     "far": 0.22896440129449838,
+     "earliness": 0.27638911155250423,
+     "score": 68.38010454761583,
+     "tp": 228,
+     "late": 1,
+     "miss": 58,
+     "fp": 283,
+     "median_lead_s": 35.092000007629395,
+     "mean_lead_s": 140.35246930572023,
+     "wins": 228.0,
+     "by_family": {
+      "EVSE_FAULT": {
+       "recall": 1.0,
+       "tp": 19,
+       "n": 19
+      },
+      "PROTOCOL_FAILED": {
+       "recall": 1.0,
+       "tp": 25,
+       "n": 25
+      },
+      "SESSION_ABORT": {
+       "recall": 0.44776119402985076,
+       "tp": 30,
+       "n": 67
+      },
+      "SLAC_FAILURE": {
+       "recall": 0.8493150684931506,
+       "tp": 62,
+       "n": 73
+      },
+      "NO_POWER_DELIVERED": {
+       "recall": 0.8932038834951457,
+       "tp": 92,
+       "n": 103
+      }
+     }
+    }
+   }
+  }
+ }
+}

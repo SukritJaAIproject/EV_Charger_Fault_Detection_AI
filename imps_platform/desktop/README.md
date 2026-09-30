@@ -96,12 +96,20 @@ IMPS_GOLDEN_PCAP
 IMPS_FAULT_TRAIN_RECORDS
 ```
 
-`IMPS_FAULT_TRAIN_RECORDS` points at the records of the in-sample baseline replay over the
+`IMPS_FAULT_TRAIN_RECORDS` points at the records of an in-sample replay over the
 `split.json` training stations (`records_train_AgenticAI.json`, with its
 `leaderboard_train_AgenticAI.json` next to it). The current line sets it so `summary.json`
-carries `analysis.byStationTrain` (167 rows, `split: "train"`), which the Stations tab shows
-behind a held-out / training switch with an in-sample warning; check `trainStations` in
-`.desktop-build\manifest.json`. Leave it unset for the Snapshot and ISO 15118 editions.
+carries `analysis.byStationTrain` (167 rows, `split: "train"`). The Stations tab shows these
+rows with an in-sample badge and warning, and from 1.3.1 it opens on all 212 stations. Check
+`trainStations` in `.desktop-build\manifest.json`.
+
+The training replay must run under the same detection policy as the benchmark it is bundled
+with. `export_summary.py --train-records` reads the `run_manifest.json` next to the records
+(no `detectionPolicy` block means baseline) and refuses a mismatch. The current line uses the
+baseline replay (`D:\ev_ai_stage\v4\results_train`). The ISO 15118 edition uses the
+`iso15118-standard` replay (`D:\ev_ai_stage\v4_iso\results_train`), passed to
+`export_summary.py --data-root <v4_iso> --train-records <v4_iso\results_train\records_train_AgenticAI.json>`
+for its `-IsoSummary`. The Snapshot edition has no training replay.
 
 To create both variants in one run, set `IMPS_ONLINE_PACKAGE_URL` and run
 `npm run desktop:build`. The URL must be the full final HTTPS URL of the x64

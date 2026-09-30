@@ -1,0 +1,78 @@
+From 29ee49013b327096af6d80cfea8f0896ba233c51 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 30 Sep 2026 12:28:13 +0700
+Subject: [PATCH 24/25] fix(desktop): NO_POWER_DELIVERED attribution names
+ overshoot and EV-declined
+
+The held-out review of the 13 "converged" NPD sessions (2026-09-30) found
+two different things behind one sentence:
+
+- 3 (046_EDS_Wangnoi c1) are a charger that drove PreCharge to 499 V against
+  a 318-396 V target, above the EV's maximum. A signed gap had filed them as
+  converged. They are charger faults, and TraditionalAI/MultiAgent already
+  catch them 7-42 s before the label.
+- 10 converged within ~20 V (0.03-4.6 %, inside the fleet's own p99 PreCharge
+  gap of 19.7 V) with EVSE_Ready and no error codes, then the EV stopped. The
+  packets show no charger fault; count them as a failed charge.
+
+The cause and attribution text now say so in both languages. The text is
+display-only: labels, scores and every shipped leaderboard are unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../ai/fault-detection/fault-catalog.test.ts         | 12 ++++++++++++
+ .../dashboard/ai/fault-detection/fault-catalog.ts    |  8 ++++----
+ 2 files changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.test.ts
+index 263df0ef..7866a445 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.test.ts
+@@ -49,6 +49,18 @@ describe("fault catalog", () => {
+     expect(resolveFaultFamily(null, "CurrentDemand stalled for 7s")).not.toBe("NO_POWER_DELIVERED");
+   });
+ 
++  it("splits NO_POWER_DELIVERED attribution by what PreCharge reached", () => {
++    // 2026-09-30 held-out review: 3 sessions whose charger overshot the target
++    // (499 V against 318-396 V) are charger faults; 10 that converged within
++    // ~5% and were then stopped by the EV show no charger fault in the packets.
++    const en = getFaultExplanation("NO_POWER_DELIVERED", "en").attribution;
++    expect(en).toMatch(/past the target/);
++    expect(en).toMatch(/failed charge, not a charger fault/);
++    const th = getFaultExplanation("NO_POWER_DELIVERED", "th").attribution;
++    expect(th).toMatch(/เกินแรงดันสูงสุดของรถ/);
++    expect(th).toMatch(/ไม่ใช่ fault ของตู้/);
++  });
++
+   it("does not pretend an unknown model anomaly identifies the stopping party", () => {
+     const detail = getFaultExplanation(null, "en", "pattern anomaly confirmed");
+     expect(detail.knownFamily).toBe(false);
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts
+index b4a3063b..f57b30bf 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/fault-catalog.ts
+@@ -151,8 +151,8 @@ const FAULT_DEFINITIONS: Record<string, FaultDefinition> = {
+   NO_POWER_DELIVERED: {
+     title: { th: "เริ่มชาร์จแล้วแต่ไม่มีการจ่ายไฟ", en: "Charge attempted, no power delivered" },
+     cause: {
+-      th: "รถขอพารามิเตอร์การชาร์จ (ChargeParameterDiscovery) และ session ปิดอย่างเรียบร้อย แต่ไม่เคยเข้าสู่ CurrentDemand จึงไม่มีพลังงานถูกจ่าย ส่วนใหญ่ PreCharge ดันแรงดันไม่เข้าใกล้ค่าที่รถขอก่อน session ถูกปิด ส่วนน้อย PreCharge ถึงแรงดันแล้วแต่รถยังสั่งหยุด หรือ session ปิดก่อนเริ่ม PreCharge (หลักฐานเป็น stopped after ChargeParameterDiscovery หรือ CableCheck) หลักฐานระบุขั้นสุดท้ายที่ไปถึง",
+-      en: "The EV requested charge parameters (ChargeParameterDiscovery) and the session closed gracefully, but CurrentDemand was never reached, so no energy was delivered. Most often PreCharge never brought the voltage near the EV's target before the close; less often PreCharge converged and the EV stopped anyway, or the session closed before PreCharge started (evidence: stopped after ChargeParameterDiscovery or CableCheck). The evidence names the last phase reached.",
++      th: "รถขอพารามิเตอร์การชาร์จ (ChargeParameterDiscovery) และ session ปิดอย่างเรียบร้อย แต่ไม่เคยเข้าสู่ CurrentDemand จึงไม่มีพลังงานถูกจ่าย ส่วนใหญ่ PreCharge ดันแรงดันไม่เข้าใกล้ค่าที่รถขอก่อน session ถูกปิด ส่วนน้อย PreCharge ถึงแรงดันแล้วแต่รถยังสั่งหยุด ตู้ดันแรงดันเกินค่าที่รถขอไปมาก หรือ session ปิดก่อนเริ่ม PreCharge (หลักฐานเป็น stopped after ChargeParameterDiscovery หรือ CableCheck) หลักฐานระบุขั้นสุดท้ายที่ไปถึง",
++      en: "The EV requested charge parameters (ChargeParameterDiscovery) and the session closed gracefully, but CurrentDemand was never reached, so no energy was delivered. Most often PreCharge never brought the voltage near the EV's target before the close; less often PreCharge converged and the EV stopped anyway, the charger drove the voltage well past the target, or the session closed before PreCharge started (evidence: stopped after ChargeParameterDiscovery or CableCheck). The evidence names the last phase reached.",
+     },
+     standard: {
+       th: "DIN SPEC 70121 / ISO 15118-2 — ลำดับ CableCheck → PreCharge → PowerDelivery → CurrentDemand; เป็นผลที่อนุมานจากลำดับข้อความ ไม่ใช่ error code ของโปรโตคอล (ResponseCode อาจเป็น OK ทั้งหมด)",
+@@ -161,8 +161,8 @@ const FAULT_DEFINITIONS: Record<string, FaultDefinition> = {
+     stopParty: "unknown",
+     stopPartyLabel: { th: "ปิดเรียบร้อย; ดูขั้นสุดท้ายและแรงดัน PreCharge", en: "Closed cleanly; check the last phase and PreCharge voltage" },
+     attribution: {
+-      th: "ถ้าแรงดัน PreCharge ไม่เข้าใกล้ค่าที่รถขอ หลักฐานชี้ไปที่ภาคกำลังของตู้ ถ้าแรงดันถึงแล้วแต่รถยังสั่งหยุด หรือปิดก่อนถึง PreCharge จึงไม่มีแรงดันให้ตัดสิน packet อย่างเดียวยังแยกไม่ได้ว่าเป็นรถหรือตู้",
+-      en: "If the PreCharge voltage never approached the EV's target, the evidence points to the charger's power stage; if it converged and the EV still stopped, or the session closed before PreCharge so there is no voltage to judge, the packets alone cannot tell EV from charger.",
++      th: "ถ้าแรงดัน PreCharge ไม่เข้าใกล้ค่าที่รถขอ หลักฐานชี้ไปที่ภาคกำลังของตู้ และถ้าตู้ดันแรงดันเกินค่าที่รถขอไปมาก (เกินแรงดันสูงสุดของรถ) ก็ชี้ไปที่ตู้เช่นกัน ถ้าแรงดันถึงค่าที่รถขอแล้ว (คลาดไม่เกินราว 20 V หรือ 5%) แต่รถยังสั่งหยุด packet ไม่แสดงความผิดของตู้ ให้นับเป็นการชาร์จไม่สำเร็จ ไม่ใช่ fault ของตู้ เว้นแต่ log หน้างานบอกเป็นอย่างอื่น ถ้าปิดก่อนถึง PreCharge จะไม่มีแรงดันให้ตัดสิน packet อย่างเดียวยังแยกไม่ได้ว่าเป็นรถหรือตู้",
++      en: "If the PreCharge voltage never approached the EV's target, the evidence points to the charger's power stage, and so does a voltage driven well past the target (above the EV's maximum). If it converged within about 20 V (≈5%) and the EV still stopped, the packets show no charger fault: count it as a failed charge, not a charger fault, unless site logs say otherwise. If the session closed before PreCharge there is no voltage to judge, and the packets alone cannot tell EV from charger.",
+     },
+   },
+ };
+-- 
+2.45.1.windows.1
+

@@ -1,0 +1,119 @@
+From 8766999ff9350358113477a699776162b8122533 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 30 Sep 2026 11:35:43 +0700
+Subject: [PATCH 21/25] build(desktop): training rows must match the
+ benchmark's detection policy
+
+export_summary.py refused --train-records for every non-baseline policy.
+That was right while the only training replay ran the baseline detector,
+but it also blocked the ISO 15118 edition from bundling its own 167
+training stations.
+
+The exporter now reads the run_manifest.json next to the training
+records. No detectionPolicy block means baseline. It accepts the rows
+only when that policy equals the data root's, and a mismatch stops the
+build with the reason.
+
+Checked with three runs:
+- baseline root + baseline rows: builds, byte-identical ETag to 1.3.1
+- ISO root + baseline rows: refused
+- ISO root without rows: builds, 45 stations
+
+The README's IMPS_FAULT_TRAIN_RECORDS section says which replay goes
+with which edition. Build-time only; no dashboard or sidecar change.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ iMPS_platform/desktop/README.md         | 16 +++++++++----
+ iMPS_platform/desktop/export_summary.py | 31 ++++++++++++++++++++-----
+ 2 files changed, 37 insertions(+), 10 deletions(-)
+
+diff --git a/iMPS_platform/desktop/README.md b/iMPS_platform/desktop/README.md
+index e66e84a0..cdef4d0b 100644
+--- a/iMPS_platform/desktop/README.md
++++ b/iMPS_platform/desktop/README.md
+@@ -96,12 +96,20 @@ IMPS_GOLDEN_PCAP
+ IMPS_FAULT_TRAIN_RECORDS
+ ```
+ 
+-`IMPS_FAULT_TRAIN_RECORDS` points at the records of the in-sample baseline replay over the
++`IMPS_FAULT_TRAIN_RECORDS` points at the records of an in-sample replay over the
+ `split.json` training stations (`records_train_AgenticAI.json`, with its
+ `leaderboard_train_AgenticAI.json` next to it). The current line sets it so `summary.json`
+-carries `analysis.byStationTrain` (167 rows, `split: "train"`), which the Stations tab shows
+-behind a held-out / training switch with an in-sample warning; check `trainStations` in
+-`.desktop-build\manifest.json`. Leave it unset for the Snapshot and ISO 15118 editions.
++carries `analysis.byStationTrain` (167 rows, `split: "train"`). The Stations tab shows these
++rows with an in-sample badge and warning, and from 1.3.1 it opens on all 212 stations. Check
++`trainStations` in `.desktop-build\manifest.json`.
++
++The training replay must run under the same detection policy as the benchmark it is bundled
++with. `export_summary.py --train-records` reads the `run_manifest.json` next to the records
++(no `detectionPolicy` block means baseline) and refuses a mismatch. The current line uses the
++baseline replay (`D:\ev_ai_stage\v4\results_train`). The ISO 15118 edition uses the
++`iso15118-standard` replay (`D:\ev_ai_stage\v4_iso\results_train`), passed to
++`export_summary.py --data-root <v4_iso> --train-records <v4_iso\results_train\records_train_AgenticAI.json>`
++for its `-IsoSummary`. The Snapshot edition has no training replay.
+ 
+ To create both variants in one run, set `IMPS_ONLINE_PACKAGE_URL` and run
+ `npm run desktop:build`. The URL must be the full final HTTPS URL of the x64
+diff --git a/iMPS_platform/desktop/export_summary.py b/iMPS_platform/desktop/export_summary.py
+index 60acae8b..31f5e7f3 100644
+--- a/iMPS_platform/desktop/export_summary.py
++++ b/iMPS_platform/desktop/export_summary.py
+@@ -84,7 +84,14 @@ def _detection_policy(data_root: Path) -> dict[str, Any] | None:
+     the same policy, so it is copied into the summary next to the benchmark
+     it describes. No manifest (the published v4 root) means the baseline.
+     """
+-    manifest_path = data_root / "results" / "run_manifest.json"
++    return _policy_from_manifest(data_root / "results" / "run_manifest.json")
++
++
++def _policy_from_manifest(manifest_path: Path) -> dict[str, Any] | None:
++    """detectionPolicy of a replay's run_manifest.json, checked against the sidecar whitelist.
++
++    None when the manifest is absent or declares no policy, i.e. a baseline replay.
++    """
+     if not manifest_path.is_file():
+         return None
+     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+@@ -115,7 +122,10 @@ def parse_args() -> argparse.Namespace:
+         "--train-records",
+         type=Path,
+         default=None,
+-        help="records of the in-sample baseline replay over the training stations (adds analysis.byStationTrain)",
++        help=(
++            "records of an in-sample replay over the training stations (adds analysis.byStationTrain); "
++            "its run_manifest.json must name the same detection policy as the data root"
++        ),
+     )
+     parser.add_argument(
+         "--output",
+@@ -153,11 +163,20 @@ def main() -> int:
+         if not train_rows or any(row.get("split") != "train" for row in train_rows):
+             raise SystemExit("Expected training-station rows marked split=train")
+     policy = _detection_policy(data_root)
++    if args.train_records is not None:
++        # Training rows describe the edition's detector only if they were replayed
++        # under the same policy as its benchmark: baseline rows would misdescribe the
++        # ISO 15118 edition and the other way round. The training replay's own
++        # run_manifest.json names its policy (none = baseline).
++        train_policy = _policy_from_manifest(args.train_records.resolve().parent / "run_manifest.json")
++        edition_id = policy["id"] if policy else "baseline"
++        train_id = train_policy["id"] if train_policy else "baseline"
++        if train_id != edition_id:
++            raise SystemExit(
++                f"--train-records were replayed under detection policy {train_id!r}, "
++                f"but this benchmark runs {edition_id!r}; replay the training stations under {edition_id!r}"
++            )
+     if policy is not None:
+-        if args.train_records is not None and policy["id"] != "baseline":
+-            # the training-station replay runs the baseline detector; its rows
+-            # would misdescribe an edition that runs another policy
+-            raise SystemExit(f"--train-records is a baseline replay; it cannot be bundled with policy {policy['id']!r}")
+         summary["detectionPolicy"] = policy
+ 
+     output = args.output.resolve()
+-- 
+2.45.1.windows.1
+

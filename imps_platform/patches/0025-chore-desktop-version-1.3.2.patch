@@ -1,0 +1,51 @@
+From fb6c2722020645106f7202c6b3456c0cd19ba0ed Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Wed, 30 Sep 2026 18:28:08 +0700
+Subject: [PATCH 25/25] chore(desktop): version 1.3.2
+
+1.3.2 / Snapshot 1.1.4 / ISO 15118 1.3.2 share this tree:
+- the v4 research grid's replayed ISO-2 + SLAC arm (5a2b5e40, fad40d24)
+- the NO_POWER_DELIVERED attribution text (29ee4901)
+- export_summary.py accepting training rows replayed under the edition's
+  own policy (8766999f), which gives the ISO 15118 edition its 212 stations
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ iMPS_platform/package-lock.json | 4 ++--
+ iMPS_platform/package.json      | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/iMPS_platform/package-lock.json b/iMPS_platform/package-lock.json
+index 870ead3a..e692dc63 100644
+--- a/iMPS_platform/package-lock.json
++++ b/iMPS_platform/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "material-tailwind-dashboard-nextjs-pro",
+-  "version": "1.3.1",
++  "version": "1.3.2",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "material-tailwind-dashboard-nextjs-pro",
+-      "version": "1.3.1",
++      "version": "1.3.2",
+       "dependencies": {
+         "@fortawesome/fontawesome-free": "^7.0.1",
+         "@fullcalendar/core": "6.1.10",
+diff --git a/iMPS_platform/package.json b/iMPS_platform/package.json
+index ea91f378..8fc62eff 100644
+--- a/iMPS_platform/package.json
++++ b/iMPS_platform/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "material-tailwind-dashboard-nextjs-pro",
+-  "version": "1.3.1",
++  "version": "1.3.2",
+   "description": "Offline Windows desktop application for EV charger fault detection and PCAP analysis.",
+   "author": "iMPS Project",
+   "private": true,
+-- 
+2.45.1.windows.1
+
