@@ -1,0 +1,221 @@
+From 527f88cfe85fa3439180fb725d2e92c958df997f Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Thu, 1 Oct 2026 06:02:37 +0700
+Subject: [PATCH 29/30] fix(desktop): research panel opens any benchmark on its
+ own policy arm; provenance notes
+
+Follow-up to e74760ab, from an adversarial review of it:
+
+- The panel opened on the benchmark's own arm only for ISO-2 + SLAC. Now that
+  v4 has a replayed iso2 arm, an ISO-2-only v4 leaderboard matches the v4 grid
+  ("same"). It opened on the projected SLAC arm with the AIAgent lower-bound
+  note, instead of its own replayed arm. policyDefaultArm now uses any non-
+  baseline policy arm the grid has. Baseline editions still open on
+  + SLAC 600 ms. Covered by the ISO2_ONLY_BENCHMARK fixture (not an edition)
+  and a relation test.
+- Provenance: the two grids' iso2 arms were replayed on different trees. The
+  2026-09-15 tree still had MultiAgent's V2G2-706 PreCharge vote, so its iso2
+  MultiAgent cells differ on strict/reviewed. The difference is now documented
+  and pinned. "Reproduces every 41ded2cd cell" now reads "every baseline and
+  SLAC cell". For AIAgent's projected SLAC cells, only recall/FAR are lower
+  bounds; its score moved 0.03 high on the ISO-2 records.
+- The Snapshot edition's unmeasured tab keeps positive checks for its title
+  and aria-describedby caption. The rewrite had left those unasserted.
+- Stale comment "(v4 has no ISO 15118-2 replay)" fixed. desktop/README no
+  longer calls the research panel identical in every edition.
+
+304 tests pass; tsc is 130 total, 0 in fault-detection.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ iMPS_platform/desktop/README.md                  |  7 +++++--
+ .../ai/fault-detection/edition-benchmark.test.ts |  4 ++++
+ .../ai/fault-detection/edition-fixtures.ts       | 14 ++++++++++++++
+ .../fault-detection/research-dashboard.test.ts   | 15 +++++++++++++++
+ .../ai/fault-detection/research-dashboard.tsx    | 15 +++++++++------
+ .../ai/fault-detection/research-data.test.ts     |  5 +++++
+ .../ai/fault-detection/research-data.ts          | 16 +++++++++++-----
+ 7 files changed, 63 insertions(+), 13 deletions(-)
+
+diff --git a/iMPS_platform/desktop/README.md b/iMPS_platform/desktop/README.md
+index cdef4d0b..dcd14e77 100644
+--- a/iMPS_platform/desktop/README.md
++++ b/iMPS_platform/desktop/README.md
+@@ -28,8 +28,11 @@ The hero of the dashboard names the running edition (product name and version),
+ the model artifact and the benchmark snapshot date, all reported by the sidecar's
+ `/health`; the Overview tab starts with the benchmark that is bundled with that
+ build (`data\summary.json`), so two editions with different models show
+-different rankings there. The research panel below it is a fixed research
+-snapshot that is identical in every edition.
++different rankings there. The research panel below it shows the research grid
++of the model set the edition ships (41ded2cd for the Snapshot edition, v4 for
++the current and ISO 15118 editions). It opens on the edition's own label
++profile and, when the grid has it, on the edition's own detection-policy arm,
++and dates each arm by when it was scored.
+ 
+ ## What is bundled
+ 
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+index e85afcbe..6b2ebc3f 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-benchmark.test.ts
+@@ -12,6 +12,7 @@ import {
+ } from "./edition-benchmark";
+ import {
+   CURRENT_EDITION,
++  ISO2_ONLY_BENCHMARK,
+   ISO_EDITION,
+   SNAPSHOT_EDITION,
+   SNAPSHOT_FAMILIES,
+@@ -147,6 +148,9 @@ describe("research model relation", () => {
+     // the ISO edition's leaderboard is v4 strict x ISO-2 + SLAC 600 ms
+     expect(researchModelRelation(ISO_EDITION)).toBe("same");
+     expect(selectResearchGrid(ISO_EDITION).grid.artifact).toBe(RESEARCH_V4_ARTIFACT);
++    // an ISO-2-only v4 leaderboard matches the v4 grid's replayed iso2 arm
++    expect(researchModelRelation(ISO2_ONLY_BENCHMARK)).toBe("same");
++    expect(selectResearchGrid(ISO2_ONLY_BENCHMARK).grid.artifact).toBe(RESEARCH_V4_ARTIFACT);
+     // baseline numbers labelled with the ISO policy match no grid's ISO arm
+     const snapshotUnderRules = { ...SNAPSHOT_EDITION, detectionPolicy: ISO_EDITION.detectionPolicy };
+     expect(researchModelRelation(snapshotUnderRules)).toBe("different");
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
+index 978b6f5a..8bb23b51 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/edition-fixtures.ts
+@@ -106,6 +106,20 @@ export const ISO_EDITION: BundledBenchmark = {
+   detectionPolicy: { schemaVersion: 1, id: "iso15118-standard", iso2Rules: true, slacRuleMode: "normative" },
+ };
+ 
++// Not a shipped edition: a benchmark run under ISO-2 rules alone on the v4
++// models, with the numbers of that research replay
++// (ev_charger_ai/results/v4_iso2/leaderboard_test.json, 2026-10-01).
++export const ISO2_ONLY_BENCHMARK: BundledBenchmark = {
++  ...fixtureBundle(1_326, V4_FAMILIES, [
++    ["traditional", 70.2661, 84.0875, 24.7798],
++    ["agentic-ai", 69.7801, 91.0256, 31.1583],
++    ["multi-agent", 65.1002, 79.5626, 25.8473],
++    ["ai-agent", 60.9511, 78.2051, 38.1772],
++    ["rl", 39.2242, 18.4766, 5.5911],
++  ]),
++  detectionPolicy: { schemaVersion: 1, id: "iso2-only", iso2Rules: true, slacRuleMode: "off" },
++};
++
+ export const fixtureStation = (
+   station: string,
+   sessions: number,
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+index 35841365..71fd091f 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
+ import type { BundledBenchmark, StationAnalysis } from "./data";
+ import {
+   CURRENT_EDITION,
++  ISO2_ONLY_BENCHMARK,
+   ISO_EDITION,
+   SNAPSHOT_EDITION,
+   SNAPSHOT_FAMILIES,
+@@ -139,6 +140,10 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(armTab(old, "iso2")).not.toContain('disabled=""');
+     // ...but it never ran ISO-2 and SLAC together
+     expect(armTab(old, "iso2normative")).toContain('disabled=""');
++    expect(armTab(old, "iso2normative")).toContain('title="Not measured for this model set (needs a replay)"');
++    // the reason is visible text tied to the tab, not only a tooltip on a tab that cannot take focus
++    expect(armTab(old, "iso2normative")).toContain('aria-describedby="fd-arms-not-measured"');
++    expect(old).toContain('id="fd-arms-not-measured"');
+     expect(text(old)).toContain("+ ISO-2 + SLAC 600 ms: Not measured for this model set (needs a replay)");
+     expect(text(old)).not.toContain("+ ISO 15118-2: Not measured");
+     expect(text(old)).toContain("including ISO 15118-2 rules and ISO 15118-3 SLAC timing.");
+@@ -163,6 +168,16 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(text(render(CURRENT_EDITION))).toContain("Verified: 23 Sept 2026");
+   });
+ 
++  it("opens an ISO-2-only benchmark on the replayed ISO-2 arm, not on a projection", () => {
++    const iso2 = render(ISO2_ONLY_BENCHMARK);
++    expect(iso2).toContain('data-relation="same"');
++    expect(iso2).toMatch(/aria-selected="true"[^>]*data-testid="fd-arm-iso2"/);
++    // strict x ISO-2 alone = that replay's leaderboard: TraditionalAI 70.3 / 84.1% / 24.8% / 8.4 s
++    expect(text(iso2)).toContain("70.3 Traditional AI · Highest score in this view");
++    expect(text(iso2)).toContain("Recall 84.1% False alarm 24.8% Median lead 8.4s");
++    expect(iso2).not.toContain('data-testid="fd-arm-provenance"');
++  });
++
+   it("finds the ISO edition's own arm from its leaderboard when the sidecar gives no artifact id", () => {
+     // web build, older sidecar, or the moment before /health answers
+     const iso = render(ISO_EDITION);
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+index e72bc7f5..0565faf0 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.tsx
+@@ -895,14 +895,17 @@ export default function ResearchDashboard({
+   const [chosenMix, setMix] = useState<"edition" | "research" | null>(null);
+   const mix = editionMix.length === 0 ? "research" : chosenMix ?? "edition";
+   const profile = researchGrid.profiles[profileId];
+-  // An arm this model set was never measured under (v4 has no ISO 15118-2
+-  // replay) cannot be selected; a stale choice falls back to the first
+-  // measured arm rather than rendering empty rows.
++  // An arm this model set was never measured under (the 41ded2cd set has no
++  // ISO-2 + SLAC replay) cannot be selected; a stale choice falls back to the
++  // first measured arm rather than rendering empty rows.
+   const armMeasured = (id: ResearchArmId) => profile.arms[id] !== undefined;
+   // Open on the arm that IS this benchmark's own policy when the grid has it
+-  // (the ISO 15118 edition: ISO-2 rules + SLAC 600 ms), so the panel's first
+-  // view equals the bundled leaderboard; otherwise the SLAC 600 ms arm as before.
+-  const policyDefaultArm: ResearchArmId = policyArm(policy) === "iso2normative" ? "iso2normative" : "normative";
++  // (the ISO 15118 edition: ISO-2 rules + SLAC 600 ms; an ISO-2-only benchmark:
++  // ISO-2), so the panel's first view equals the bundled leaderboard. The
++  // baseline policy keeps opening on the SLAC 600 ms arm as before.
++  const ownArm = policyArm(policy);
++  const policyDefaultArm: ResearchArmId =
++    ownArm && ownArm !== "baseline" && armMeasured(ownArm) ? ownArm : "normative";
+   const wantedArmId: ResearchArmId = chosenArmId ?? policyDefaultArm;
+   // a choice this grid lacks falls back to the edition's own policy arm first
+   const armId: ResearchArmId = armMeasured(wantedArmId)
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
+index f65f2c67..35289165 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
+@@ -125,6 +125,11 @@ describe("fault-detection research snapshot", () => {
+         expect(profile.arms[arm]!.RL).toEqual(profile.arms.baseline!.RL);
+       }
+     }
++    // ...except iso2, which the two model sets were replayed on with different
++    // rule code (the 2026-09-15 tree still had MultiAgent's V2G2-706 PreCharge
++    // vote). Pinned, so the difference stays a known one.
++    expect(RESEARCH_PROFILES_V4.published.arms.iso2!.MultiAgent).toEqual(RESEARCH_PROFILES.published.arms.iso2.MultiAgent);
++    expect(RESEARCH_PROFILES_V4.strict.arms.iso2!.MultiAgent).not.toEqual(RESEARCH_PROFILES.strict.arms.iso2.MultiAgent);
+   });
+ 
+   it("lists one grid per model set, the 2026-09-12 set first", () => {
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+index ce22fb0c..82e755ff 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+@@ -212,14 +212,20 @@ export const RESEARCH_PROFILES: Record<ResearchProfileId, ResearchProfile> = {
+  * results/research_grid_v4.json and generated into this file from there.
+  * No replay: the baseline arm rescores the v4 first-alert records under each
+  * label profile; the SLAC arms project the cached SLAC fire times onto them.
+- * The same method reproduces every 41ded2cdd5c2ba3f cell above exactly, and
+- * strict.baseline equals the v4 benchmark's leaderboard to full precision.
+- * AIAgent's SLAC cells are lower bounds (its evidence board is not replayed;
+- * on 41ded2cd the same shortcut was 0.0-0.2 points low). The two ISO arms are
++ * The same method reproduces every 41ded2cdd5c2ba3f baseline and SLAC cell
++ * above exactly, and strict.baseline equals the v4 benchmark's leaderboard to
++ * full precision. For AIAgent's SLAC cells, recall and false-alarm rate are
++ * lower bounds (its evidence board is not replayed); the score can move either
++ * way (0.0-0.2 low on 41ded2cd, 0.03 high on the v4 ISO-2 records). The two ISO arms are
+  * replays, not projections. iso2 (ISO 15118-2 rules alone, SLAC off) was
+  * replayed 2026-09-30/10-01 on the same frozen tree, weights and sessions and
+  * rescored per profile into results/research_grid_v4_iso2.json; strict.iso2
+- * equals that replay's leaderboard. iso2normative (ISO 15118-2 rules + SLAC 600 ms
++ * equals that replay's leaderboard. The two grids' iso2 arms come from
++ * different code: the 41ded2cd one (results/fleet_iso_rules, 2026-09-15) still
++ * had MultiAgent's V2G2-706 PreCharge vote, dropped before the v4 replays for
++ * its 348 false alarms. So MultiAgent's iso2 cells differ between the grids on
++ * strict/reviewed, though MultiAgent has no trained weights.
++ * iso2normative (ISO 15118-2 rules + SLAC 600 ms
+  * together) is different: it is the ISO 15118 edition's own held-out REPLAY
+  * (D:/ev_ai_stage/v4_iso, 2026-09-24) rescored per label profile into
+  * results/research_grid_v4_iso.json - exact for every model, AIAgent included;
+-- 
+2.45.1.windows.1
+

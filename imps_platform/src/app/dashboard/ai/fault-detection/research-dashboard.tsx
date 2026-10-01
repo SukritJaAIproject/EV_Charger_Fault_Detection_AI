@@ -895,14 +895,17 @@ export default function ResearchDashboard({
   const [chosenMix, setMix] = useState<"edition" | "research" | null>(null);
   const mix = editionMix.length === 0 ? "research" : chosenMix ?? "edition";
   const profile = researchGrid.profiles[profileId];
-  // An arm this model set was never measured under (v4 has no ISO 15118-2
-  // replay) cannot be selected; a stale choice falls back to the first
-  // measured arm rather than rendering empty rows.
+  // An arm this model set was never measured under (the 41ded2cd set has no
+  // ISO-2 + SLAC replay) cannot be selected; a stale choice falls back to the
+  // first measured arm rather than rendering empty rows.
   const armMeasured = (id: ResearchArmId) => profile.arms[id] !== undefined;
   // Open on the arm that IS this benchmark's own policy when the grid has it
-  // (the ISO 15118 edition: ISO-2 rules + SLAC 600 ms), so the panel's first
-  // view equals the bundled leaderboard; otherwise the SLAC 600 ms arm as before.
-  const policyDefaultArm: ResearchArmId = policyArm(policy) === "iso2normative" ? "iso2normative" : "normative";
+  // (the ISO 15118 edition: ISO-2 rules + SLAC 600 ms; an ISO-2-only benchmark:
+  // ISO-2), so the panel's first view equals the bundled leaderboard. The
+  // baseline policy keeps opening on the SLAC 600 ms arm as before.
+  const ownArm = policyArm(policy);
+  const policyDefaultArm: ResearchArmId =
+    ownArm && ownArm !== "baseline" && armMeasured(ownArm) ? ownArm : "normative";
   const wantedArmId: ResearchArmId = chosenArmId ?? policyDefaultArm;
   // a choice this grid lacks falls back to the edition's own policy arm first
   const armId: ResearchArmId = armMeasured(wantedArmId)

@@ -1,0 +1,26 @@
+﻿{
+    "artifactVersion":  "53b6f14244c2e633",
+    "finished":  "2026-10-01T05:34:43.1720174+07:00",
+    "codeBase":  "the ISO 15118 edition replay tree (code\\iso_arm, CODE_MANIFEST 52/52 verified 2026-09-30); EV_AI_NPD_RULE off",
+    "purpose":  "held-out research arm: ISO 15118-2 rules alone (no SLAC rule) for the v4 models",
+    "detectors":  [
+                      "TraditionalAI",
+                      "RL",
+                      "AIAgent",
+                      "AgenticAI",
+                      "MultiAgent"
+                  ],
+    "started":  "2026-09-30T22:25:21.7492090+07:00",
+    "split":  "test",
+    "sessions":  "G:\\ev_charger_ai_data_v4\\sessions",
+    "artifacts":  "D:\\ev_ai_stage\\v4\\artifacts",
+    "code":  "D:\\ev_ai_stage\\code\\iso_arm",
+    "detectionPolicy":  {
+                            "env":  {
+                                        "EV_AI_ISO_VEC":  "0",
+                                        "EV_AI_ISO":  "1"
+                                    },
+                            "slacRuleMode":  "off",
+                            "iso2Rules":  true
+                        }
+}

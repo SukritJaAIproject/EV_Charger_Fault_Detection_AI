@@ -64,9 +64,9 @@ describe("fault-detection research snapshot", () => {
     );
   });
 
-  it("gives the v4 models baseline, both SLAC arms and the replayed ISO-2 + SLAC arm, but no ISO-2-only arm", () => {
+  it("gives the v4 models every arm: baseline, ISO-2 alone, both SLAC arms and ISO-2 + SLAC", () => {
     for (const profile of Object.values(RESEARCH_PROFILES_V4)) {
-      expect(Object.keys(profile.arms).sort()).toEqual(["baseline", "empirical", "iso2normative", "normative"]);
+      expect(Object.keys(profile.arms).sort()).toEqual(["baseline", "empirical", "iso2", "iso2normative", "normative"]);
       for (const arm of Object.values(profile.arms)) {
         expect(Object.keys(arm ?? {}).sort()).toEqual([...MODEL_ORDER].sort());
       }
@@ -82,6 +82,22 @@ describe("fault-detection research snapshot", () => {
     expect(baseline.MultiAgent.score).toBe(60.2);
     expect(baseline.AIAgent.score).toBe(46.4);
     expect(baseline.RL.score).toBe(39.2);
+  });
+
+  it("pins v4 strict.iso2 to the ISO-2-only replay's leaderboard", () => {
+    // ev_charger_ai/results/v4_iso2/leaderboard_test.json (replayed 2026-09-30/10-01), 1 dp
+    const iso2 = RESEARCH_PROFILES_V4.strict.arms.iso2!;
+    expect(iso2.TraditionalAI.score).toBe(70.3);
+    expect(iso2.AgenticAI.score).toBe(69.8);
+    expect(iso2.MultiAgent.score).toBe(65.1);
+    expect(iso2.AIAgent.score).toBe(61.0);
+    // RL has no rule layer, and ISO-2 alone never beats ISO-2 + SLAC on score
+    for (const profile of Object.values(RESEARCH_PROFILES_V4)) {
+      expect(profile.arms.iso2!.RL).toEqual(profile.arms.baseline!.RL);
+      for (const model of ["TraditionalAI", "AIAgent", "AgenticAI", "MultiAgent"] as const) {
+        expect(profile.arms.iso2![model].score).toBeLessThanOrEqual(profile.arms.iso2normative![model].score);
+      }
+    }
   });
 
   it("pins v4 strict.iso2normative to the ISO 15118 edition's shipped leaderboard", () => {
@@ -109,6 +125,11 @@ describe("fault-detection research snapshot", () => {
         expect(profile.arms[arm]!.RL).toEqual(profile.arms.baseline!.RL);
       }
     }
+    // ...except iso2, which the two model sets were replayed on with different
+    // rule code (the 2026-09-15 tree still had MultiAgent's V2G2-706 PreCharge
+    // vote). Pinned, so the difference stays a known one.
+    expect(RESEARCH_PROFILES_V4.published.arms.iso2!.MultiAgent).toEqual(RESEARCH_PROFILES.published.arms.iso2.MultiAgent);
+    expect(RESEARCH_PROFILES_V4.strict.arms.iso2!.MultiAgent).not.toEqual(RESEARCH_PROFILES.strict.arms.iso2.MultiAgent);
   });
 
   it("lists one grid per model set, the 2026-09-12 set first", () => {

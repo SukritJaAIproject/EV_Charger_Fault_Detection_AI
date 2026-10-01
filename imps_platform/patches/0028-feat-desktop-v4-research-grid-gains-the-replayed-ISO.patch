@@ -1,0 +1,197 @@
+From e74760ab71b881bb00652a71893c740d783f6a32 Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Thu, 1 Oct 2026 05:41:08 +0700
+Subject: [PATCH 28/30] feat(desktop): v4 research grid gains the replayed
+ ISO-2-alone arm
+
+The last missing cell of the v4 research grid: ISO 15118-2 rules alone
+(EV_AI_ISO=1 EV_AI_ISO_VEC=0, SLAC off). It was replayed 2026-09-30 22:25 to
+10-01 05:34 on the same frozen tree, weights, split and sessions as the ISO
+15118 edition's replay, then rescored per label profile by
+ev_charger_ai/benchmark/research_grid_from_cache.py (replay-arm v4-iso2):
+- strict.iso2 equals that replay's leaderboard;
+- RL (no rule layer) equals baseline in every profile;
+- alert for alert, it differs from the ISO-2 + SLAC replay only where the SLAC
+  rule fired earlier (plus one AgenticAI memory knock-on).
+
+Strict scores, baseline -> ISO-2 alone -> ISO-2 + SLAC 600 ms:
+  TraditionalAI 69.6 -> 70.3 -> 77.3   (the edition's gain is almost all SLAC)
+  MultiAgent    60.2 -> 65.1 -> 72.5
+  AgenticAI     66.9 -> 69.8 -> 70.9
+  AIAgent       46.4 -> 61.0 -> 68.9   (ISO-2 is what rescues AIAgent)
+
+RESEARCH_PROFILES_V4 is regenerated from the pipeline JSON: all 60 existing
+cells unchanged, 15 iso2 cells added, and armScoredAt dates the new arm. The
+"+ ISO 15118-2" tab is now live for the v4 editions and nothing on the v4
+grid reads "not measured". 303 tests pass; tsc is 130 total, 0 in
+fault-detection.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../research-dashboard.test.ts                | 26 +++++++--------
+ .../ai/fault-detection/research-data.test.ts  | 20 +++++++++--
+ .../ai/fault-detection/research-data.ts       | 33 ++++++++++++++++---
+ 3 files changed, 59 insertions(+), 20 deletions(-)
+
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+index 3f5ff84b..35841365 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-dashboard.test.ts
+@@ -115,23 +115,20 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(text(render(SNAPSHOT_EDITION))).toContain("77.7 Traditional AI · Highest score in this view");
+   });
+ 
+-  it("marks what was not measured and what was projected for the v4 models", () => {
++  it("marks what was projected for the v4 models, which now have every arm measured", () => {
+     const v4 = render(CURRENT_EDITION);
+-    expect(armTab(v4, "iso2")).toContain('disabled=""');
+-    expect(armTab(v4, "iso2")).toContain('title="Not measured for this model set (needs a replay)"');
+-    expect(armTab(v4, "normative")).not.toContain('disabled=""');
++    // ISO-2 alone was replayed 2026-09-30/10-01: the tab is live, nothing is marked not measured
++    for (const arm of ["baseline", "iso2", "empirical", "normative", "iso2normative"]) {
++      expect(armTab(v4, arm)).not.toContain('disabled=""');
++      expect(armTab(v4, arm)).not.toContain('aria-describedby="fd-arms-not-measured"');
++    }
++    expect(text(v4)).not.toContain("Not measured for this model set");
++    expect(text(v4)).not.toContain("not yet measured for this model set");
++    expect(text(v4)).toContain("including ISO 15118-2 rules and ISO 15118-3 SLAC timing.");
++    // the default +SLAC 600 ms arm is still a projection, with AIAgent a lower bound
+     expect(text(v4)).toContain(
+       "This policy is projected from recorded alerts, not replayed · AI Agent's recall and false-alarm rate are lower bounds",
+     );
+-    // the reason is visible text, not only a tooltip on a tab that cannot take focus
+-    expect(text(v4)).toContain("+ ISO 15118-2: Not measured for this model set (needs a replay)");
+-    expect(armTab(v4, "iso2")).toContain('aria-describedby="fd-arms-not-measured"');
+-    // nothing on the page claims ISO-2-alone results or a SLAC replay check for the v4 set
+-    expect(text(v4)).toContain(
+-      "ISO 15118-2 rules combined with it (ISO 15118-2 alone not yet measured for this model set)",
+-    );
+-    // the replayed ISO-2 + SLAC arm is measured for v4 and is not a projection
+-    expect(armTab(v4, "iso2normative")).not.toContain('disabled=""');
+     // ...without claiming the set was never replayed: its ISO-2 + SLAC arm is a replay
+     expect(text(v4)).toContain("— SLAC projection not checked against a replay for this model set");
+     expect(text(v4)).not.toContain("Not replayed for this model set");
+@@ -211,7 +208,8 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
+     expect(t).toContain("1,326 fault sessions จาก 8,820 sessions ทดสอบใน 45 สถานีที่โมเดลไม่เคยเห็น");
+     expect(t).toContain("7 ประเภท");
+     expect(t).toContain("คำนวณบนโมเดลชุดเดียวกับ benchmark ด้านบน (53b6f14244c2e633)");
+-    expect(armTab(render(CURRENT_EDITION, { lang: "th" }), "iso2")).toContain('title="ยังไม่ได้วัดกับโมเดลชุดนี้ (ต้อง replay)"');
++    expect(armTab(render(CURRENT_EDITION, { lang: "th" }), "iso2")).not.toContain('disabled=""');
++    expect(armTab(render(SNAPSHOT_EDITION, { lang: "th" }), "iso2normative")).toContain('title="ยังไม่ได้วัดกับโมเดลชุดนี้ (ต้อง replay)"');
+     expect(text(render(null, { lang: "th", modelArtifact: "0123456789abcdef" }))).toContain(
+       "คำนวณบนโมเดลชุดก่อน (41ded2cdd5c2ba3f) ไม่ใช่ชุดที่ใช้ใน benchmark ด้านบน",
+     );
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
+index b2971057..f65f2c67 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.test.ts
+@@ -64,9 +64,9 @@ describe("fault-detection research snapshot", () => {
+     );
+   });
+ 
+-  it("gives the v4 models baseline, both SLAC arms and the replayed ISO-2 + SLAC arm, but no ISO-2-only arm", () => {
++  it("gives the v4 models every arm: baseline, ISO-2 alone, both SLAC arms and ISO-2 + SLAC", () => {
+     for (const profile of Object.values(RESEARCH_PROFILES_V4)) {
+-      expect(Object.keys(profile.arms).sort()).toEqual(["baseline", "empirical", "iso2normative", "normative"]);
++      expect(Object.keys(profile.arms).sort()).toEqual(["baseline", "empirical", "iso2", "iso2normative", "normative"]);
+       for (const arm of Object.values(profile.arms)) {
+         expect(Object.keys(arm ?? {}).sort()).toEqual([...MODEL_ORDER].sort());
+       }
+@@ -84,6 +84,22 @@ describe("fault-detection research snapshot", () => {
+     expect(baseline.RL.score).toBe(39.2);
+   });
+ 
++  it("pins v4 strict.iso2 to the ISO-2-only replay's leaderboard", () => {
++    // ev_charger_ai/results/v4_iso2/leaderboard_test.json (replayed 2026-09-30/10-01), 1 dp
++    const iso2 = RESEARCH_PROFILES_V4.strict.arms.iso2!;
++    expect(iso2.TraditionalAI.score).toBe(70.3);
++    expect(iso2.AgenticAI.score).toBe(69.8);
++    expect(iso2.MultiAgent.score).toBe(65.1);
++    expect(iso2.AIAgent.score).toBe(61.0);
++    // RL has no rule layer, and ISO-2 alone never beats ISO-2 + SLAC on score
++    for (const profile of Object.values(RESEARCH_PROFILES_V4)) {
++      expect(profile.arms.iso2!.RL).toEqual(profile.arms.baseline!.RL);
++      for (const model of ["TraditionalAI", "AIAgent", "AgenticAI", "MultiAgent"] as const) {
++        expect(profile.arms.iso2![model].score).toBeLessThanOrEqual(profile.arms.iso2normative![model].score);
++      }
++    }
++  });
++
+   it("pins v4 strict.iso2normative to the ISO 15118 edition's shipped leaderboard", () => {
+     // D:/ev_ai_stage/v4_iso/results/leaderboard_test.json, rounded to 1 dp
+     const iso = RESEARCH_PROFILES_V4.strict.arms.iso2normative!;
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+index 62d1f1db..ce22fb0c 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/research-data.ts
+@@ -215,8 +215,11 @@ export const RESEARCH_PROFILES: Record<ResearchProfileId, ResearchProfile> = {
+  * The same method reproduces every 41ded2cdd5c2ba3f cell above exactly, and
+  * strict.baseline equals the v4 benchmark's leaderboard to full precision.
+  * AIAgent's SLAC cells are lower bounds (its evidence board is not replayed;
+- * on 41ded2cd the same shortcut was 0.0-0.2 points low). The ISO 15118-2 arm
+- * needs a replay and is absent. iso2normative (ISO 15118-2 rules + SLAC 600 ms
++ * on 41ded2cd the same shortcut was 0.0-0.2 points low). The two ISO arms are
++ * replays, not projections. iso2 (ISO 15118-2 rules alone, SLAC off) was
++ * replayed 2026-09-30/10-01 on the same frozen tree, weights and sessions and
++ * rescored per profile into results/research_grid_v4_iso2.json; strict.iso2
++ * equals that replay's leaderboard. iso2normative (ISO 15118-2 rules + SLAC 600 ms
+  * together) is different: it is the ISO 15118 edition's own held-out REPLAY
+  * (D:/ev_ai_stage/v4_iso, 2026-09-24) rescored per label profile into
+  * results/research_grid_v4_iso.json - exact for every model, AIAgent included;
+@@ -239,6 +242,13 @@ export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile
+         AgenticAI: metric(70.2, 90.7, 33.0, 11.7),
+         MultiAgent: metric(56.3, 62.6, 28.3, 0.0),
+       },
++      iso2: {
++        TraditionalAI: metric(68.3, 79.1, 28.2, 48.5),
++        RL: metric(41.3, 21.6, 5.8, 50.4),
++        AIAgent: metric(58.3, 72.4, 41.0, 0.0),
++        AgenticAI: metric(70.1, 91.2, 34.0, 11.7),
++        MultiAgent: metric(62.5, 74.2, 29.2, 0.0),
++      },
+       empirical: {
+         TraditionalAI: metric(76.3, 92.4, 28.1, 49.5),
+         RL: metric(41.3, 21.6, 5.8, 50.4),
+@@ -275,6 +285,13 @@ export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile
+         AgenticAI: metric(66.9, 85.1, 31.0, 4.2),
+         MultiAgent: metric(60.2, 70.1, 25.0, 1.1),
+       },
++      iso2: {
++        TraditionalAI: metric(70.3, 84.1, 24.8, 8.4),
++        RL: metric(39.2, 18.5, 5.6, 29.8),
++        AIAgent: metric(61.0, 78.2, 38.2, 3.2),
++        AgenticAI: metric(69.8, 91.0, 31.2, 3.2),
++        MultiAgent: metric(65.1, 79.6, 25.8, 1.1),
++      },
+       empirical: {
+         TraditionalAI: metric(76.1, 93.7, 24.6, 23.6),
+         RL: metric(39.2, 18.5, 5.6, 29.8),
+@@ -311,6 +328,13 @@ export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile
+         AgenticAI: metric(59.2, 70.8, 30.2, 2.2),
+         MultiAgent: metric(61.0, 71.4, 24.8, 1.1),
+       },
++      iso2: {
++        TraditionalAI: metric(68.8, 80.6, 23.8, 8.3),
++        RL: metric(38.4, 17.0, 5.7, 31.4),
++        AIAgent: metric(61.5, 78.2, 37.6, 3.2),
++        AgenticAI: metric(62.3, 77.0, 30.3, 2.2),
++        MultiAgent: metric(65.0, 78.3, 24.9, 1.1),
++      },
+       empirical: {
+         TraditionalAI: metric(73.8, 90.4, 23.8, 8.5),
+         RL: metric(38.4, 17.0, 5.7, 31.4),
+@@ -362,8 +386,9 @@ export const RESEARCH_GRIDS: readonly ResearchGrid[] = [
+     profiles: RESEARCH_PROFILES_V4,
+     projectedArms: ["empirical", "normative"],
+     aiAgentLowerBoundArms: ["empirical", "normative"],
+-    // the ISO edition's replay finished 2026-09-24; rescored per profile here
+-    armScoredAt: { iso2normative: "2026-09-30T11:26:18+07:00" },
++    // both ISO arms are replays (iso2normative finished 2026-09-24, iso2 2026-10-01),
++    // rescored per profile
++    armScoredAt: { iso2: "2026-10-01T05:36:54+07:00", iso2normative: "2026-09-30T11:26:18+07:00" },
+     profileNotes: {
+       // Measured: excluding these 369 sessions makes every model's published
+       // false-alarm rate equal its strict one, alert for alert.
+-- 
+2.45.1.windows.1
+

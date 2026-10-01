@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { BundledBenchmark, StationAnalysis } from "./data";
 import {
   CURRENT_EDITION,
+  ISO2_ONLY_BENCHMARK,
   ISO_EDITION,
   SNAPSHOT_EDITION,
   SNAPSHOT_FAMILIES,
@@ -115,23 +116,20 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
     expect(text(render(SNAPSHOT_EDITION))).toContain("77.7 Traditional AI · Highest score in this view");
   });
 
-  it("marks what was not measured and what was projected for the v4 models", () => {
+  it("marks what was projected for the v4 models, which now have every arm measured", () => {
     const v4 = render(CURRENT_EDITION);
-    expect(armTab(v4, "iso2")).toContain('disabled=""');
-    expect(armTab(v4, "iso2")).toContain('title="Not measured for this model set (needs a replay)"');
-    expect(armTab(v4, "normative")).not.toContain('disabled=""');
+    // ISO-2 alone was replayed 2026-09-30/10-01: the tab is live, nothing is marked not measured
+    for (const arm of ["baseline", "iso2", "empirical", "normative", "iso2normative"]) {
+      expect(armTab(v4, arm)).not.toContain('disabled=""');
+      expect(armTab(v4, arm)).not.toContain('aria-describedby="fd-arms-not-measured"');
+    }
+    expect(text(v4)).not.toContain("Not measured for this model set");
+    expect(text(v4)).not.toContain("not yet measured for this model set");
+    expect(text(v4)).toContain("including ISO 15118-2 rules and ISO 15118-3 SLAC timing.");
+    // the default +SLAC 600 ms arm is still a projection, with AIAgent a lower bound
     expect(text(v4)).toContain(
       "This policy is projected from recorded alerts, not replayed · AI Agent's recall and false-alarm rate are lower bounds",
     );
-    // the reason is visible text, not only a tooltip on a tab that cannot take focus
-    expect(text(v4)).toContain("+ ISO 15118-2: Not measured for this model set (needs a replay)");
-    expect(armTab(v4, "iso2")).toContain('aria-describedby="fd-arms-not-measured"');
-    // nothing on the page claims ISO-2-alone results or a SLAC replay check for the v4 set
-    expect(text(v4)).toContain(
-      "ISO 15118-2 rules combined with it (ISO 15118-2 alone not yet measured for this model set)",
-    );
-    // the replayed ISO-2 + SLAC arm is measured for v4 and is not a projection
-    expect(armTab(v4, "iso2normative")).not.toContain('disabled=""');
     // ...without claiming the set was never replayed: its ISO-2 + SLAC arm is a replay
     expect(text(v4)).toContain("— SLAC projection not checked against a replay for this model set");
     expect(text(v4)).not.toContain("Not replayed for this model set");
@@ -142,6 +140,10 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
     expect(armTab(old, "iso2")).not.toContain('disabled=""');
     // ...but it never ran ISO-2 and SLAC together
     expect(armTab(old, "iso2normative")).toContain('disabled=""');
+    expect(armTab(old, "iso2normative")).toContain('title="Not measured for this model set (needs a replay)"');
+    // the reason is visible text tied to the tab, not only a tooltip on a tab that cannot take focus
+    expect(armTab(old, "iso2normative")).toContain('aria-describedby="fd-arms-not-measured"');
+    expect(old).toContain('id="fd-arms-not-measured"');
     expect(text(old)).toContain("+ ISO-2 + SLAC 600 ms: Not measured for this model set (needs a replay)");
     expect(text(old)).not.toContain("+ ISO 15118-2: Not measured");
     expect(text(old)).toContain("including ISO 15118-2 rules and ISO 15118-3 SLAC timing.");
@@ -164,6 +166,16 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
     // the baseline editions still open on + SLAC 600 ms
     expect(render(CURRENT_EDITION)).toMatch(/aria-selected="true"[^>]*data-testid="fd-arm-normative"/);
     expect(text(render(CURRENT_EDITION))).toContain("Verified: 23 Sept 2026");
+  });
+
+  it("opens an ISO-2-only benchmark on the replayed ISO-2 arm, not on a projection", () => {
+    const iso2 = render(ISO2_ONLY_BENCHMARK);
+    expect(iso2).toContain('data-relation="same"');
+    expect(iso2).toMatch(/aria-selected="true"[^>]*data-testid="fd-arm-iso2"/);
+    // strict x ISO-2 alone = that replay's leaderboard: TraditionalAI 70.3 / 84.1% / 24.8% / 8.4 s
+    expect(text(iso2)).toContain("70.3 Traditional AI · Highest score in this view");
+    expect(text(iso2)).toContain("Recall 84.1% False alarm 24.8% Median lead 8.4s");
+    expect(iso2).not.toContain('data-testid="fd-arm-provenance"');
   });
 
   it("finds the ISO edition's own arm from its leaderboard when the sidecar gives no artifact id", () => {
@@ -211,7 +223,8 @@ describe("Overview differs by edition because it reads the bundled benchmark", (
     expect(t).toContain("1,326 fault sessions จาก 8,820 sessions ทดสอบใน 45 สถานีที่โมเดลไม่เคยเห็น");
     expect(t).toContain("7 ประเภท");
     expect(t).toContain("คำนวณบนโมเดลชุดเดียวกับ benchmark ด้านบน (53b6f14244c2e633)");
-    expect(armTab(render(CURRENT_EDITION, { lang: "th" }), "iso2")).toContain('title="ยังไม่ได้วัดกับโมเดลชุดนี้ (ต้อง replay)"');
+    expect(armTab(render(CURRENT_EDITION, { lang: "th" }), "iso2")).not.toContain('disabled=""');
+    expect(armTab(render(SNAPSHOT_EDITION, { lang: "th" }), "iso2normative")).toContain('title="ยังไม่ได้วัดกับโมเดลชุดนี้ (ต้อง replay)"');
     expect(text(render(null, { lang: "th", modelArtifact: "0123456789abcdef" }))).toContain(
       "คำนวณบนโมเดลชุดก่อน (41ded2cdd5c2ba3f) ไม่ใช่ชุดที่ใช้ใน benchmark ด้านบน",
     );

@@ -106,6 +106,20 @@ export const ISO_EDITION: BundledBenchmark = {
   detectionPolicy: { schemaVersion: 1, id: "iso15118-standard", iso2Rules: true, slacRuleMode: "normative" },
 };
 
+// Not a shipped edition: a benchmark run under ISO-2 rules alone on the v4
+// models, with the numbers of that research replay
+// (ev_charger_ai/results/v4_iso2/leaderboard_test.json, 2026-10-01).
+export const ISO2_ONLY_BENCHMARK: BundledBenchmark = {
+  ...fixtureBundle(1_326, V4_FAMILIES, [
+    ["traditional", 70.2661, 84.0875, 24.7798],
+    ["agentic-ai", 69.7801, 91.0256, 31.1583],
+    ["multi-agent", 65.1002, 79.5626, 25.8473],
+    ["ai-agent", 60.9511, 78.2051, 38.1772],
+    ["rl", 39.2242, 18.4766, 5.5911],
+  ]),
+  detectionPolicy: { schemaVersion: 1, id: "iso2-only", iso2Rules: true, slacRuleMode: "off" },
+};
+
 export const fixtureStation = (
   station: string,
   sessions: number,

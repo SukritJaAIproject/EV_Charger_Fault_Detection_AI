@@ -12,6 +12,7 @@ import {
 } from "./edition-benchmark";
 import {
   CURRENT_EDITION,
+  ISO2_ONLY_BENCHMARK,
   ISO_EDITION,
   SNAPSHOT_EDITION,
   SNAPSHOT_FAMILIES,
@@ -147,6 +148,9 @@ describe("research model relation", () => {
     // the ISO edition's leaderboard is v4 strict x ISO-2 + SLAC 600 ms
     expect(researchModelRelation(ISO_EDITION)).toBe("same");
     expect(selectResearchGrid(ISO_EDITION).grid.artifact).toBe(RESEARCH_V4_ARTIFACT);
+    // an ISO-2-only v4 leaderboard matches the v4 grid's replayed iso2 arm
+    expect(researchModelRelation(ISO2_ONLY_BENCHMARK)).toBe("same");
+    expect(selectResearchGrid(ISO2_ONLY_BENCHMARK).grid.artifact).toBe(RESEARCH_V4_ARTIFACT);
     // baseline numbers labelled with the ISO policy match no grid's ISO arm
     const snapshotUnderRules = { ...SNAPSHOT_EDITION, detectionPolicy: ISO_EDITION.detectionPolicy };
     expect(researchModelRelation(snapshotUnderRules)).toBe("different");

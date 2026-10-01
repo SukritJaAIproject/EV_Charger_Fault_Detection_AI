@@ -28,8 +28,11 @@ The hero of the dashboard names the running edition (product name and version),
 the model artifact and the benchmark snapshot date, all reported by the sidecar's
 `/health`; the Overview tab starts with the benchmark that is bundled with that
 build (`data\summary.json`), so two editions with different models show
-different rankings there. The research panel below it is a fixed research
-snapshot that is identical in every edition.
+different rankings there. The research panel below it shows the research grid
+of the model set the edition ships (41ded2cd for the Snapshot edition, v4 for
+the current and ISO 15118 editions). It opens on the edition's own label
+profile and, when the grid has it, on the edition's own detection-policy arm,
+and dates each arm by when it was scored.
 
 ## What is bundled
 

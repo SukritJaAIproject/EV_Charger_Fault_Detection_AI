@@ -212,11 +212,20 @@ export const RESEARCH_PROFILES: Record<ResearchProfileId, ResearchProfile> = {
  * results/research_grid_v4.json and generated into this file from there.
  * No replay: the baseline arm rescores the v4 first-alert records under each
  * label profile; the SLAC arms project the cached SLAC fire times onto them.
- * The same method reproduces every 41ded2cdd5c2ba3f cell above exactly, and
- * strict.baseline equals the v4 benchmark's leaderboard to full precision.
- * AIAgent's SLAC cells are lower bounds (its evidence board is not replayed;
- * on 41ded2cd the same shortcut was 0.0-0.2 points low). The ISO 15118-2 arm
- * needs a replay and is absent. iso2normative (ISO 15118-2 rules + SLAC 600 ms
+ * The same method reproduces every 41ded2cdd5c2ba3f baseline and SLAC cell
+ * above exactly, and strict.baseline equals the v4 benchmark's leaderboard to
+ * full precision. For AIAgent's SLAC cells, recall and false-alarm rate are
+ * lower bounds (its evidence board is not replayed); the score can move either
+ * way (0.0-0.2 low on 41ded2cd, 0.03 high on the v4 ISO-2 records). The two ISO arms are
+ * replays, not projections. iso2 (ISO 15118-2 rules alone, SLAC off) was
+ * replayed 2026-09-30/10-01 on the same frozen tree, weights and sessions and
+ * rescored per profile into results/research_grid_v4_iso2.json; strict.iso2
+ * equals that replay's leaderboard. The two grids' iso2 arms come from
+ * different code: the 41ded2cd one (results/fleet_iso_rules, 2026-09-15) still
+ * had MultiAgent's V2G2-706 PreCharge vote, dropped before the v4 replays for
+ * its 348 false alarms. So MultiAgent's iso2 cells differ between the grids on
+ * strict/reviewed, though MultiAgent has no trained weights.
+ * iso2normative (ISO 15118-2 rules + SLAC 600 ms
  * together) is different: it is the ISO 15118 edition's own held-out REPLAY
  * (D:/ev_ai_stage/v4_iso, 2026-09-24) rescored per label profile into
  * results/research_grid_v4_iso.json - exact for every model, AIAgent included;
@@ -238,6 +247,13 @@ export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile
         AIAgent: metric(51.3, 58.0, 35.9, 0.0),
         AgenticAI: metric(70.2, 90.7, 33.0, 11.7),
         MultiAgent: metric(56.3, 62.6, 28.3, 0.0),
+      },
+      iso2: {
+        TraditionalAI: metric(68.3, 79.1, 28.2, 48.5),
+        RL: metric(41.3, 21.6, 5.8, 50.4),
+        AIAgent: metric(58.3, 72.4, 41.0, 0.0),
+        AgenticAI: metric(70.1, 91.2, 34.0, 11.7),
+        MultiAgent: metric(62.5, 74.2, 29.2, 0.0),
       },
       empirical: {
         TraditionalAI: metric(76.3, 92.4, 28.1, 49.5),
@@ -275,6 +291,13 @@ export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile
         AgenticAI: metric(66.9, 85.1, 31.0, 4.2),
         MultiAgent: metric(60.2, 70.1, 25.0, 1.1),
       },
+      iso2: {
+        TraditionalAI: metric(70.3, 84.1, 24.8, 8.4),
+        RL: metric(39.2, 18.5, 5.6, 29.8),
+        AIAgent: metric(61.0, 78.2, 38.2, 3.2),
+        AgenticAI: metric(69.8, 91.0, 31.2, 3.2),
+        MultiAgent: metric(65.1, 79.6, 25.8, 1.1),
+      },
       empirical: {
         TraditionalAI: metric(76.1, 93.7, 24.6, 23.6),
         RL: metric(39.2, 18.5, 5.6, 29.8),
@@ -310,6 +333,13 @@ export const RESEARCH_PROFILES_V4: Record<ResearchProfileId, ResearchGridProfile
         AIAgent: metric(47.9, 51.9, 35.2, 0.0),
         AgenticAI: metric(59.2, 70.8, 30.2, 2.2),
         MultiAgent: metric(61.0, 71.4, 24.8, 1.1),
+      },
+      iso2: {
+        TraditionalAI: metric(68.8, 80.6, 23.8, 8.3),
+        RL: metric(38.4, 17.0, 5.7, 31.4),
+        AIAgent: metric(61.5, 78.2, 37.6, 3.2),
+        AgenticAI: metric(62.3, 77.0, 30.3, 2.2),
+        MultiAgent: metric(65.0, 78.3, 24.9, 1.1),
       },
       empirical: {
         TraditionalAI: metric(73.8, 90.4, 23.8, 8.5),
@@ -362,8 +392,9 @@ export const RESEARCH_GRIDS: readonly ResearchGrid[] = [
     profiles: RESEARCH_PROFILES_V4,
     projectedArms: ["empirical", "normative"],
     aiAgentLowerBoundArms: ["empirical", "normative"],
-    // the ISO edition's replay finished 2026-09-24; rescored per profile here
-    armScoredAt: { iso2normative: "2026-09-30T11:26:18+07:00" },
+    // both ISO arms are replays (iso2normative finished 2026-09-24, iso2 2026-10-01),
+    // rescored per profile
+    armScoredAt: { iso2: "2026-10-01T05:36:54+07:00", iso2normative: "2026-09-30T11:26:18+07:00" },
     profileNotes: {
       // Measured: excluding these 369 sessions makes every model's published
       // false-alarm rate equal its strict one, alert for alert.
