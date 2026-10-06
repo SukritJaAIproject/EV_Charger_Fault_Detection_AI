@@ -454,14 +454,18 @@ function FaultDonut({
   );
 }
 
-function FaultDistributionChart({
+export function FaultDistributionChart({
   items,
   totalLabel,
   typeCountLabel,
+  eyebrow = "Fault distribution",
+  topFaultLabel = "Top fault",
 }: {
   items: readonly FaultCount[];
   totalLabel: string;
   typeCountLabel: (count: number) => string;
+  eyebrow?: string;
+  topFaultLabel?: string;
 }) {
   // The donut must close, so its total is the sum of what it draws.
   const total = items.reduce((sum, item) => sum + item.sessions, 0);
@@ -472,14 +476,14 @@ function FaultDistributionChart({
     <div className="fd-fault-distribution tw-grid tw-items-center tw-gap-6 lg:tw-grid-cols-[340px_minmax(0,1fr)] lg:tw-gap-8">
       <div className="fd-donut-stage tw-relative tw-overflow-hidden tw-rounded-[24px] tw-border tw-border-slate-200 tw-bg-white tw-p-5 sm:tw-p-6">
         <div className="tw-relative tw-mb-1 tw-flex tw-items-center tw-justify-between tw-gap-3">
-          <span className="tw-text-[10px] tw-font-bold tw-text-slate-500">Fault distribution</span>
+          <span className="tw-text-[10px] tw-font-bold tw-text-slate-500">{eyebrow}</span>
           <span className="ai-mono tw-rounded-full tw-bg-slate-100 tw-px-2.5 tw-py-1 tw-text-[9px] tw-font-bold tw-text-slate-600 tw-ring-1 tw-ring-slate-200">{typeCountLabel(slices.length)}</span>
         </div>
         <FaultDonut slices={slices} total={total} totalLabel={totalLabel} />
         <div className="tw-relative tw-mt-2 tw-flex tw-items-center tw-justify-between tw-gap-3 tw-rounded-xl tw-border tw-border-slate-200 tw-bg-slate-50 tw-px-3.5 tw-py-3">
           <span className="tw-flex tw-min-w-0 tw-items-center tw-gap-2 tw-text-[10px] tw-font-bold tw-text-slate-700">
             <span className="tw-h-2.5 tw-w-2.5 tw-flex-shrink-0 tw-rounded-full" style={{ backgroundColor: slices[0].color }} />
-            <span className="tw-truncate">Top fault · {formatFaultFamily(slices[0].family)}</span>
+            <span className="tw-truncate">{topFaultLabel} · {formatFaultFamily(slices[0].family)}</span>
           </span>
           <span className="ai-mono tw-flex-shrink-0 tw-text-[11px] tw-font-extrabold" style={{ color: slices[0].color }}>{slices[0].percentage.toFixed(1)}%</span>
         </div>

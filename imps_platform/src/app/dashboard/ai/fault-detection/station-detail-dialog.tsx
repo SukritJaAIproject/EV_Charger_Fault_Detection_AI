@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   BarChart3,
   Clock3,
+  HeartPulse,
   MapPin,
   Network,
   ShieldCheck,
@@ -20,6 +21,7 @@ import useLanguage from "@/utils/useLanguage";
 
 import type { StationAnalysis } from "./data";
 import FaultExplanationPanel from "./fault-explanation";
+import { calculateStationHealth, type StationHealthReason } from "./station-health";
 
 type Props = {
   station: StationAnalysis | null;
@@ -34,6 +36,29 @@ const COPY = {
     // equal agentic-ai's tp/late/miss/fp), not the edition's top-ranked model.
     benchmarkScore: "คะแนน Benchmark · Agentic AI",
     benchmarkScoreTrain: "คะแนน In-sample · Agentic AI (ชุดฝึก)",
+    healthTitle: "สุขภาพสถานีจาก PCAP",
+    healthScore: "PCAP Health",
+    healthEstimated: "ค่าประเมินจากข้อมูลย้อนหลัง",
+    healthMethod: "คำนวณจาก Fault จริงใน PCAP เท่านั้น โดยไม่ใช้ Recall, False Alarm หรือ Score ของ AI",
+    healthConfidence: "ความมั่นใจ",
+    healthHealthy: "สุขภาพดี",
+    healthWatch: "เฝ้าระวัง",
+    healthPlanService: "ควรวางแผนตรวจสอบ",
+    healthUrgent: "ควรตรวจสอบเร่งด่วน",
+    healthNoData: "ข้อมูลไม่เพียงพอ",
+    confidenceHigh: "สูง",
+    confidenceMedium: "ปานกลาง",
+    confidenceLow: "ต่ำ",
+    healthReliability: "ความน่าเชื่อถือของ Session · 55%",
+    healthSeverity: "ผลกระทบตามความรุนแรง · 30%",
+    healthConnectorBalance: "ความสม่ำเสมอของ Connector · 15%",
+    healthDrivers: "ปัจจัยประกอบคะแนน",
+    reasonStable: (value: number) => `Fault rate อยู่ในระดับต่ำ (${value.toFixed(1)}%)`,
+    reasonElevated: (value: number) => `Fault rate เริ่มสูง (${value.toFixed(1)}%)`,
+    reasonHigh: (value: number) => `Fault rate สูง (${value.toFixed(1)}%)`,
+    reasonSevere: (family: string, count: number) => `พบ ${family} ที่มีผลกระทบสูง ${count.toLocaleString("en-US")} sessions`,
+    reasonHotspot: (connector: string, value: number) => `${connector} มี Fault rate สูงสุด ${value.toFixed(1)}% ในบรรดา connector ที่มีอย่างน้อย 20 session`,
+    reasonLimited: (value: number) => `มีข้อมูลเพียง ${value.toLocaleString("en-US")} sessions ความมั่นใจจึงต่ำ`,
     overviewTrain: "ภาพรวมข้อมูลชุดฝึก (in-sample)",
     connectorCountTrain: "Connector ในชุดฝึก",
     noFamilyDataTrain: "ไม่พบ Fault family ในชุดฝึกของสถานีนี้",
@@ -84,6 +109,29 @@ const COPY = {
     close: "Close station details",
     benchmarkScore: "Benchmark score · Agentic AI",
     benchmarkScoreTrain: "In-sample score · Agentic AI (training)",
+    healthTitle: "PCAP-derived station health",
+    healthScore: "PCAP Health",
+    healthEstimated: "Historical-data estimate",
+    healthMethod: "Calculated only from labelled PCAP faults; AI recall, false alarms and benchmark score are excluded.",
+    healthConfidence: "Confidence",
+    healthHealthy: "Healthy",
+    healthWatch: "Watch",
+    healthPlanService: "Plan inspection",
+    healthUrgent: "Inspect urgently",
+    healthNoData: "Insufficient data",
+    confidenceHigh: "High",
+    confidenceMedium: "Medium",
+    confidenceLow: "Low",
+    healthReliability: "Session reliability · 55%",
+    healthSeverity: "Severity impact · 30%",
+    healthConnectorBalance: "Connector consistency · 15%",
+    healthDrivers: "Score drivers",
+    reasonStable: (value: number) => `Fault rate is low (${value.toFixed(1)}%).`,
+    reasonElevated: (value: number) => `Fault rate is elevated (${value.toFixed(1)}%).`,
+    reasonHigh: (value: number) => `Fault rate is high (${value.toFixed(1)}%).`,
+    reasonSevere: (family: string, count: number) => `${family} has high station impact in ${count.toLocaleString("en-US")} sessions.`,
+    reasonHotspot: (connector: string, value: number) => `${connector} has the highest fault rate at ${value.toFixed(1)}% among connectors with at least 20 sessions.`,
+    reasonLimited: (value: number) => `Only ${value.toLocaleString("en-US")} sessions are available, so confidence is low.`,
     overviewTrain: "Training-data overview (in-sample)",
     connectorCountTrain: "Connectors in training set",
     noFamilyDataTrain: "No fault family was present for this station in the training set.",
@@ -197,6 +245,40 @@ export default function StationDetailDialog({ station, onClose }: Props) {
 
   if (!station) return null;
   const isTrain = station.split === "train";
+  const health = calculateStationHealth(station);
+  const healthBandLabel = health.band === "healthy"
+    ? c.healthHealthy
+    : health.band === "watch"
+      ? c.healthWatch
+      : health.band === "plan_service"
+        ? c.healthPlanService
+        : health.band === "urgent"
+          ? c.healthUrgent
+          : c.healthNoData;
+  const healthConfidenceLabel = health.confidence === "high"
+    ? c.confidenceHigh
+    : health.confidence === "medium"
+      ? c.confidenceMedium
+      : c.confidenceLow;
+  const healthTone = health.score === null
+    ? "tw-bg-slate-400/15 tw-text-slate-200 tw-ring-slate-400/25"
+    : health.score >= 85
+      ? "tw-bg-emerald-400/15 tw-text-emerald-300 tw-ring-emerald-400/25"
+      : health.score >= 70
+        ? "tw-bg-amber-400/15 tw-text-amber-300 tw-ring-amber-400/25"
+        : health.score >= 50
+          ? "tw-bg-orange-400/15 tw-text-orange-300 tw-ring-orange-400/25"
+          : "tw-bg-red-400/15 tw-text-red-300 tw-ring-red-400/25";
+  const healthReasonText = (reason: StationHealthReason) => {
+    switch (reason.code) {
+      case "stable_fault_rate": return c.reasonStable(reason.value ?? 0);
+      case "elevated_fault_rate": return c.reasonElevated(reason.value ?? 0);
+      case "high_fault_rate": return c.reasonHigh(reason.value ?? 0);
+      case "high_severity_family": return c.reasonSevere(displayFamily(reason.family ?? "Unknown"), reason.count ?? 0);
+      case "connector_hotspot": return c.reasonHotspot(displayIdentifier(reason.connector ?? "Connector"), reason.value ?? 0);
+      case "limited_sample": return c.reasonLimited(reason.value ?? 0);
+    }
+  };
 
   const trueNegative = Math.max(0, station.normalSessions - station.fp);
   const scoreTone =
@@ -267,7 +349,21 @@ export default function StationDetailDialog({ station, onClose }: Props) {
 
       <DialogBody className="tw-min-h-0 tw-flex-1 tw-overflow-y-auto !tw-p-0 tw-text-gray-700">
         <div className="tw-space-y-6 tw-bg-slate-50/70 tw-p-4 sm:tw-p-7">
-          <section className="tw-grid tw-gap-3 sm:tw-grid-cols-2">
+          <section className="tw-grid tw-gap-3 sm:tw-grid-cols-3">
+            <div className="tw-rounded-2xl tw-bg-gray-900 tw-p-4 tw-text-white tw-shadow-sm">
+              <div className="tw-flex tw-items-center tw-gap-2 tw-text-[11px] tw-font-bold tw-uppercase tw-tracking-[0.13em] tw-text-white/50">
+                <HeartPulse className="tw-h-4 tw-w-4 tw-text-emerald-300" /> {c.healthScore}
+              </div>
+              <div className="tw-mt-2 tw-flex tw-items-end tw-gap-3">
+                <span className={`ai-mono tw-inline-flex tw-rounded-xl tw-px-3 tw-py-2 tw-text-3xl tw-font-black tw-ring-1 ${healthTone}`}>
+                  {health.score === null ? "N/A" : health.score.toFixed(1)}
+                </span>
+                <span className="tw-pb-2 tw-text-[12px] tw-font-bold tw-text-white/45">/ 100</span>
+              </div>
+              <div className="tw-mt-2 tw-text-[11px] tw-font-bold tw-text-white/65">
+                {healthBandLabel} · {c.healthConfidence}: {healthConfidenceLabel}
+              </div>
+            </div>
             <div className="tw-rounded-2xl tw-bg-gray-900 tw-p-4 tw-text-white tw-shadow-sm">
               <div className="tw-text-[11px] tw-font-bold tw-uppercase tw-tracking-[0.13em] tw-text-white/50">
                 {isTrain ? c.benchmarkScoreTrain : c.benchmarkScore}
@@ -289,6 +385,28 @@ export default function StationDetailDialog({ station, onClose }: Props) {
                   {station.topFaultFamily ? displayFamily(station.topFaultFamily) : "—"}
                 </span>
               </div>
+            </div>
+          </section>
+
+          <section className="tw-rounded-2xl tw-border tw-border-emerald-100 tw-bg-emerald-50/50 tw-p-4 sm:tw-p-5">
+            <SectionTitle icon={<HeartPulse className="tw-h-4 tw-w-4" />}>{c.healthTitle}</SectionTitle>
+            <p className="tw-text-[12px] tw-font-semibold tw-leading-5 tw-text-slate-600">{c.healthMethod}</p>
+            <div className="tw-mt-3 tw-grid tw-grid-cols-2 tw-gap-2.5 lg:tw-grid-cols-4">
+              <MetricCard label={c.healthReliability} value={formatPercent(health.components.reliability)} tone="emerald" />
+              <MetricCard label={c.healthSeverity} value={formatPercent(health.components.severity)} tone="amber" />
+              <MetricCard label={c.healthConnectorBalance} value={formatPercent(health.components.connectorBalance)} tone="blue" />
+              <MetricCard label={c.healthConfidence} value={`${healthConfidenceLabel} · ${health.confidenceScore.toFixed(1)}%`} tone={health.confidence === "low" ? "amber" : "slate"} />
+            </div>
+            <div className="tw-mt-4">
+              <div className="tw-text-[11px] tw-font-black tw-uppercase tw-tracking-[0.12em] tw-text-slate-500">{c.healthDrivers}</div>
+              <ul className="tw-mt-2 tw-grid tw-gap-2 md:tw-grid-cols-2">
+                {health.reasons.map((reason, index) => (
+                  <li key={`${reason.code}-${index}`} className="tw-flex tw-items-start tw-gap-2 tw-rounded-xl tw-bg-white tw-p-3 tw-text-[12px] tw-font-semibold tw-leading-5 tw-text-slate-700 tw-ring-1 tw-ring-slate-200">
+                    <span className="tw-mt-1 tw-h-2 tw-w-2 tw-flex-shrink-0 tw-rounded-full tw-bg-emerald-500" />
+                    {healthReasonText(reason)}
+                  </li>
+                ))}
+              </ul>
             </div>
           </section>
 

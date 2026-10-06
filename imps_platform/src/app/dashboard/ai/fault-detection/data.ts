@@ -163,6 +163,29 @@ export function stationRowTotals(rows: StationAnalysis[]) {
   );
 }
 
+export type StationFaultDistributionItem = {
+  family: string;
+  sessions: number;
+};
+
+/**
+ * Aggregate the labelled fault-family counts across every supplied station.
+ * The Stations tab passes all rows here so search, sorting, and split filters
+ * cannot silently change the fleet-wide chart.
+ */
+export function stationFaultDistribution(rows: readonly StationAnalysis[]): StationFaultDistributionItem[] {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    for (const fault of row.byFaultFamily) {
+      if (fault.faultySessions <= 0) continue;
+      totals.set(fault.family, (totals.get(fault.family) ?? 0) + fault.faultySessions);
+    }
+  }
+  return Array.from(totals.entries())
+    .map(([family, sessions]) => ({ family, sessions }))
+    .sort((left, right) => right.sessions - left.sessions || left.family.localeCompare(right.family));
+}
+
 export type StationSortKey = "station" | "fault_rate" | "recall" | "far";
 
 /**

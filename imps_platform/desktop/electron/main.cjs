@@ -1,6 +1,7 @@
 "use strict";
 
 const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
@@ -27,6 +28,11 @@ let nextProcess = null;
 let runtimeProcess = null;
 let runtimeLogStream = null;
 let shuttingDown = false;
+// Per-launch secret for the loopback API. The sidecar refuses every route but
+// /health without it, so another process or Windows account that finds the
+// port cannot read datasets, change ground truth or start training runs.
+const apiToken = crypto.randomBytes(32).toString("hex");
+let apiTokenFile = null;
 
 
 function getRuntimePaths() {
@@ -38,6 +44,8 @@ function getRuntimePaths() {
       runtimeExecutable: path.join(process.resourcesPath, "runtime", "imps-fault-runtime.exe"),
       modelDir: path.join(process.resourcesPath, "models"),
       tsharkPath: path.join(process.resourcesPath, "runtime", "wireshark", "tshark.exe"),
+      trainingWorker: path.join(process.resourcesPath, "training", "train_candidate.py"),
+      trainingRuntimeDir: path.join(process.resourcesPath, "training"),
       iconPath: path.join(process.resourcesPath, "icon.png"),
     };
   }
@@ -47,6 +55,8 @@ function getRuntimePaths() {
     runtimeExecutable: path.join(projectRoot, ".desktop-build", "runtime", "imps-fault-runtime.exe"),
     modelDir: path.join(projectRoot, ".desktop-build", "models"),
     tsharkPath: path.join(projectRoot, ".desktop-build", "runtime", "wireshark", "tshark.exe"),
+    trainingWorker: path.join(projectRoot, "desktop", "training", "train_candidate.py"),
+    trainingRuntimeDir: path.join(projectRoot, "desktop", "runtime"),
     iconPath: path.join(projectRoot, "public", "img", "AI-icon.png"),
   };
 }
@@ -92,6 +102,8 @@ function assertRuntimeFiles(runtime) {
     path.join(runtime.modelDir, "gru_fore.npz"),
     path.join(runtime.modelDir, "manifest.json"),
     runtime.tsharkPath,
+    runtime.trainingWorker,
+    path.join(runtime.trainingRuntimeDir, "capture.py"),
   ];
   const missing = required.filter((candidate) => !fs.existsSync(candidate));
   if (missing.length) {
@@ -100,7 +112,7 @@ function assertRuntimeFiles(runtime) {
 }
 
 
-function startInferenceRuntime(runtime, apiPort, webOrigin, jobsRoot, logStream) {
+function startInferenceRuntime(runtime, apiPort, webOrigin, jobsRoot, datasetsRoot, trainingRoot, logStream, token) {
   assertRuntimeFiles(runtime);
   fs.mkdirSync(jobsRoot, { recursive: true });
   const child = spawn(runtime.runtimeExecutable, [
@@ -112,6 +124,10 @@ function startInferenceRuntime(runtime, apiPort, webOrigin, jobsRoot, logStream)
     "--model-dir", runtime.modelDir,
     "--tshark", runtime.tsharkPath,
     "--jobs-root", jobsRoot,
+    "--datasets-root", datasetsRoot,
+    "--training-root", trainingRoot,
+    "--training-worker", runtime.trainingWorker,
+    "--training-runtime-dir", runtime.trainingRuntimeDir,
   ], {
     cwd: path.dirname(runtime.runtimeExecutable),
     env: {
@@ -121,6 +137,8 @@ function startInferenceRuntime(runtime, apiPort, webOrigin, jobsRoot, logStream)
       // these fields existed still starts.
       IMPS_PRODUCT_NAME: APP_NAME,
       IMPS_APP_VERSION: app.getVersion(),
+      // read once by the sidecar and removed from its environment
+      IMPS_API_TOKEN: token,
       OMP_NUM_THREADS: "1",
       MKL_NUM_THREADS: "1",
       OPENBLAS_NUM_THREADS: "1",
@@ -252,7 +270,29 @@ function terminateProcessTree(child) {
 }
 
 
+// Local tooling (smoke tests, the PCAP check) reads the port and token here.
+// %APPDATA% is private to this Windows account.
+function writeApiTokenFile(apiPort, webOrigin) {
+  apiTokenFile = path.join(app.getPath("userData"), "desktop-api.json");
+  const payload = { schemaVersion: 1, apiPort, webOrigin, token: apiToken, pid: process.pid, startedAt: new Date().toISOString() };
+  fs.writeFileSync(apiTokenFile, JSON.stringify(payload), { encoding: "utf8", mode: 0o600 });
+}
+
+
+function removeApiTokenFile() {
+  if (!apiTokenFile) return;
+  try {
+    const current = JSON.parse(fs.readFileSync(apiTokenFile, "utf8"));
+    if (current.token === apiToken) fs.unlinkSync(apiTokenFile);
+  } catch {
+    // Already gone, or replaced by a newer launch.
+  }
+  apiTokenFile = null;
+}
+
+
 function stopServices() {
+  removeApiTokenFile();
   terminateProcessTree(nextProcess);
   nextProcess = null;
   terminateProcessTree(runtimeProcess);
@@ -275,13 +315,18 @@ async function launch() {
   fs.mkdirSync(logDir, { recursive: true });
   runtimeLogStream = fs.createWriteStream(path.join(logDir, "desktop-runtime.log"), { flags: "a" });
   const jobsRoot = path.join(app.getPath("userData"), "pcap-jobs");
+  const datasetsRoot = path.join(app.getPath("userData"), "training-datasets");
+  const trainingRoot = path.join(app.getPath("userData"), "model-training");
   appendLog(
     runtimeLogStream,
     "RUNTIME",
-    `web=${webOrigin} api=http://${LOOPBACK}:${apiPort} next=${runtime.nextRoot} jobs=${jobsRoot}\n`,
+    `web=${webOrigin} api=http://${LOOPBACK}:${apiPort} next=${runtime.nextRoot} jobs=${jobsRoot} datasets=${datasetsRoot} training=${trainingRoot}\n`,
   );
-  runtimeProcess = startInferenceRuntime(runtime, apiPort, webOrigin, jobsRoot, runtimeLogStream);
+  runtimeProcess = startInferenceRuntime(
+    runtime, apiPort, webOrigin, jobsRoot, datasetsRoot, trainingRoot, runtimeLogStream, apiToken,
+  );
   await waitForRuntimeHealth(`http://${LOOPBACK}:${apiPort}/health`, runtimeProcess);
+  writeApiTokenFile(apiPort, webOrigin);
   nextProcess = await startNextServer(runtime.nextRoot, webPort, runtimeLogStream);
 
   if (isSmokeTest) {
@@ -290,7 +335,7 @@ async function launch() {
     return;
   }
 
-  const dashboardUrl = `${webOrigin}/dashboard/ai/fault-detection?desktop=1&desktopApiPort=${apiPort}&packaged=1`;
+  const dashboardUrl = `${webOrigin}/dashboard/ai/fault-detection?desktop=1&desktopApiPort=${apiPort}&desktopApiToken=${apiToken}&packaged=1`;
   mainWindow = new BrowserWindow({
     title: APP_NAME,
     width: 1440,

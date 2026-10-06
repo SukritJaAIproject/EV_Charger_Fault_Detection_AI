@@ -61,9 +61,18 @@ $arguments = @(
     "--tshark", $tshark,
     "--jobs-root", $jobsRoot
 )
-$runtimeProcess = Start-Process -FilePath $RuntimeExecutable -ArgumentList $arguments `
-    -WorkingDirectory (Split-Path -Parent $RuntimeExecutable) -WindowStyle Hidden `
-    -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+# The sidecar locks every route but /health without its launch token; give it
+# one the way the Electron launcher does.
+$apiToken = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+$env:IMPS_API_TOKEN = $apiToken
+try {
+    $runtimeProcess = Start-Process -FilePath $RuntimeExecutable -ArgumentList $arguments `
+        -WorkingDirectory (Split-Path -Parent $RuntimeExecutable) -WindowStyle Hidden `
+        -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+}
+finally {
+    Remove-Item Env:\IMPS_API_TOKEN -ErrorAction SilentlyContinue
+}
 
 function Wait-UntilReady {
     for ($attempt = 0; $attempt -lt 120; $attempt++) {
@@ -92,7 +101,7 @@ function Invoke-PcapAnalysis {
     $upload = Invoke-WebRequest -UseBasicParsing -Method Post `
         -Uri "$baseUrl/ai/fault-detection/jobs" -InFile $Pcap `
         -ContentType "application/octet-stream" `
-        -Headers @{ Origin = $origin; "X-Filename" = $Filename; Accept = "application/json" }
+        -Headers @{ Origin = $origin; "X-Filename" = $Filename; Accept = "application/json"; "X-iMPS-Token" = $apiToken }
     $job = $upload.Content | ConvertFrom-Json
     for ($attempt = 0; $attempt -lt 600; $attempt++) {
         if ($job.status -notin @("queued", "processing")) {
@@ -101,7 +110,7 @@ function Invoke-PcapAnalysis {
         Start-Sleep -Milliseconds 500
         $job = Invoke-RestMethod -UseBasicParsing `
             -Uri "$baseUrl/ai/fault-detection/jobs/$($job.jobId)" `
-            -Headers @{ Origin = $origin; Accept = "application/json" } -TimeoutSec 5
+            -Headers @{ Origin = $origin; Accept = "application/json"; "X-iMPS-Token" = $apiToken } -TimeoutSec 5
     }
     if ($job.status -ne "complete") {
         throw "PCAP job failed: status=$($job.status) error=$($job.error)"

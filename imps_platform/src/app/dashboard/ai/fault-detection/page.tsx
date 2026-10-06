@@ -6,9 +6,11 @@ import {
   AlertTriangle,
   BookOpenCheck,
   BrainCircuit,
+  ChartPie,
   ChevronRight,
   CircleDashed,
   Database,
+  HeartPulse,
   LoaderCircle,
   LayoutDashboard,
   MapPin,
@@ -16,6 +18,7 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  Tags,
   Upload,
   X,
   Zap,
@@ -38,20 +41,25 @@ import {
   allStationRows,
   heldOutStationTotals,
   sortStationRows,
+  stationFaultDistribution,
   stationRowTotals,
   stationSplitOf,
   type StationSortKey,
   type StationSplit,
 } from "./data";
 import { supportedFaultFamilies } from "./fault-catalog";
+import DatasetRetrainPanel from "./dataset-retrain-panel";
+import GroundTruthPanel from "./ground-truth-panel";
+import TrainModelPanel from "./train-model-panel";
 import FaultExplanationPanel, {
   FaultExplanationInline,
   ObservedStopAttribution,
 } from "./fault-explanation";
 import { useEditionTabTitle } from "./edition-identity";
 import FaultGlossaryDialog from "./fault-glossary-dialog";
-import ResearchDashboard from "./research-dashboard";
+import ResearchDashboard, { FaultDistributionChart } from "./research-dashboard";
 import StationDetailDialog from "./station-detail-dialog";
+import { calculateStationHealth, sortStationsByHealth } from "./station-health";
 import "../ai-theme.css";
 import "./fault-detection.css";
 
@@ -71,6 +79,9 @@ const COPY = {
     overviewTab: "ภาพรวม",
     stationsTab: "ผลรายสถานี",
     pcapTab: "วิเคราะห์ PCAP",
+    datasetTab: "Dataset & Retrain",
+    groundTruthTab: "Ground Truth Label",
+    trainModelTab: "Train Model",
     workspaceTitle: "อัปโหลดและวิเคราะห์ไฟล์",
     workspaceSub: "ระบบประมวลผลจากข้อมูลในไฟล์โดยตรง โดยไม่ใช้ ground truth และไม่แก้ไขผล benchmark เดิม",
     dropTitle: "ลากไฟล์มาวาง หรือคลิกเพื่อเลือก",
@@ -117,6 +128,7 @@ const COPY = {
         ? `ผล Agentic AI จาก held-out test ${sessions} sessions แสดงแยกทุกสถานี โดยใช้เกณฑ์เดียวกับ benchmark`
         : "ผล Agentic AI จาก held-out test แสดงแยกทุกสถานี โดยใช้เกณฑ์เดียวกับ benchmark",
     stationNote: "กดที่สถานีเพื่อดูผลแยก Connector และ Fault · เป็นข้อมูล PCAP ทดสอบ ไม่ใช่สถานะสุขภาพแบบเรียลไทม์",
+    stationHealthNote: "PCAP Health เป็นค่าประเมินจาก Fault ที่มีป้ายกำกับในชุดข้อมูล ไม่ใช่สถานะเรียลไทม์ · AI Score ยังคงเป็นคะแนนประสิทธิภาพการตรวจจับและแสดงแยกกัน",
     stationsAnalyzed: "สถานีที่วิเคราะห์",
     testSessions: "Test sessions",
     knownFaults: "Known fault sessions",
@@ -124,6 +136,7 @@ const COPY = {
     searchStation: "ค้นหารหัสหรือชื่อสถานี",
     sortStation: "เรียงตามชื่อสถานี",
     sortFaultRate: "Fault rate สูงสุด",
+    sortHealth: "สุขภาพต่ำสุด",
     sortRecall: "Recall ต่ำสุด",
     sortFar: "False alarm สูงสุด",
     station: "สถานี",
@@ -133,7 +146,12 @@ const COPY = {
     lateMissed: "ช้า / พลาด",
     falseAlarms: "False alarms",
     topFault: "Fault หลัก",
-    score: "Score",
+    score: "AI Score",
+    healthScore: "PCAP Health",
+    healthConfidence: "ความมั่นใจ",
+    confidenceHigh: "สูง",
+    confidenceMedium: "ปานกลาง",
+    confidenceLow: "ต่ำ",
     viewStationDetails: "ดูรายละเอียดสถานี",
     noStations: "ไม่พบสถานีที่ตรงกับคำค้น",
     stationNoteSplit: "กดที่สถานีเพื่อดูผลแยก Connector และ Fault · แต่ละสถานีมีป้ายบอกว่าเป็น held-out หรือชุดฝึก (in-sample) · ไม่ใช่สถานะสุขภาพแบบเรียลไทม์",
@@ -145,6 +163,12 @@ const COPY = {
     faultGuide: "คู่มือ Fault",
     openFaultGuide: (count: number) => `เปิดคู่มือ Fault ทั้ง ${count} ประเภท`,
     visibleStations: "สถานีที่แสดง",
+    fleetFaultChartTitle: "สัดส่วน Fault ครบทุกสถานี",
+    fleetFaultChartSub: (stations: string, faults: string) =>
+      `รวม ${faults} fault sessions จาก ${stations} สถานี · ไม่เปลี่ยนตามการค้นหาและตัวกรองชุดข้อมูล`,
+    fleetFaultChartEyebrow: "FAULT MIX · ALL STATIONS",
+    fleetFaultTypeCount: (count: number) => `${count} ประเภท`,
+    fleetFaultEmpty: "ยังไม่มีข้อมูลประเภท Fault สำหรับสถานีชุดนี้",
     splitLabel: "ชุดข้อมูล",
     splitHeldOut: "Held-out (ประเมินจริง)",
     splitTrain: "ชุดฝึก (in-sample)",
@@ -185,6 +209,9 @@ const COPY = {
     overviewTab: "Overview",
     stationsTab: "Stations",
     pcapTab: "Analyze PCAP",
+    datasetTab: "Dataset & Retrain",
+    groundTruthTab: "Ground Truth Label",
+    trainModelTab: "Train Model",
     workspaceTitle: "Upload and analyze a capture",
     workspaceSub: "The file is analyzed directly without ground truth and does not alter the existing benchmark results.",
     dropTitle: "Drop a file here, or click to browse",
@@ -231,6 +258,7 @@ const COPY = {
         ? `Agentic AI results from ${sessions} held-out sessions, broken down by station using the benchmark's exact scoring rules.`
         : "Agentic AI results on the held-out sessions, broken down by station using the benchmark's exact scoring rules.",
     stationNote: "Select a station for connector and fault details · These are held-out PCAP results, not real-time station health.",
+    stationHealthNote: "PCAP Health is estimated from labelled faults in this dataset, not live telemetry · AI Score remains a separate measure of detection performance.",
     stationsAnalyzed: "Stations analyzed",
     testSessions: "Test sessions",
     knownFaults: "Known fault sessions",
@@ -238,6 +266,7 @@ const COPY = {
     searchStation: "Search station code or name",
     sortStation: "Sort by station",
     sortFaultRate: "Highest fault rate",
+    sortHealth: "Lowest health",
     sortRecall: "Lowest recall",
     sortFar: "Highest false alarms",
     station: "Station",
@@ -247,7 +276,12 @@ const COPY = {
     lateMissed: "Late / missed",
     falseAlarms: "False alarms",
     topFault: "Top fault",
-    score: "Score",
+    score: "AI Score",
+    healthScore: "PCAP Health",
+    healthConfidence: "Confidence",
+    confidenceHigh: "High",
+    confidenceMedium: "Medium",
+    confidenceLow: "Low",
     viewStationDetails: "View station details",
     noStations: "No stations match the search.",
     stationNoteSplit: "Select a station for connector and fault details · Each station is labelled held-out or training (in-sample) · Not real-time station health.",
@@ -259,6 +293,12 @@ const COPY = {
     faultGuide: "Fault guide",
     openFaultGuide: (count: number) => `Open the guide to all ${count} fault families`,
     visibleStations: "Stations shown",
+    fleetFaultChartTitle: "Fault distribution across all stations",
+    fleetFaultChartSub: (stations: string, faults: string) =>
+      `${faults} fault sessions across ${stations} stations · unaffected by search and data-split filters`,
+    fleetFaultChartEyebrow: "FAULT MIX · ALL STATIONS",
+    fleetFaultTypeCount: (count: number) => `${count} types`,
+    fleetFaultEmpty: "No fault-family data is available for these stations.",
     splitLabel: "Data split",
     splitHeldOut: "Held-out (evaluation)",
     splitTrain: "Training (in-sample)",
@@ -288,7 +328,7 @@ const COPY = {
   },
 } as const;
 
-type StationSort = StationSortKey;
+type StationSort = StationSortKey | "health";
 type StationSplitFilter = StationSplit | "all";
 
 /** Held-out / in-sample marker next to a station name. */
@@ -304,7 +344,7 @@ function SplitBadge({ split, heldOut, train }: { split: StationSplit; heldOut: s
     </span>
   );
 }
-type DashboardView = "overview" | "stations" | "pcap";
+type DashboardView = "overview" | "stations" | "pcap" | "dataset" | "labels" | "training";
 const PCAP_ANALYSIS_ENABLED = process.env.NEXT_PUBLIC_FAULT_PCAP_ENABLED !== "false";
 
 const formatInt = (value: number | null | undefined) =>
@@ -606,7 +646,7 @@ export default function FaultDetectionPage() {
     const rows = query
       ? splitStations.filter((row) => row.station.toLowerCase().includes(query))
       : splitStations;
-    return sortStationRows(rows, stationSort);
+    return stationSort === "health" ? sortStationsByHealth(rows) : sortStationRows(rows, stationSort);
   }, [stationQuery, stationSort, splitStations]);
   // the search is scoped to the selected split; say so when the other split has matches
   const otherSplitMatches = useMemo(() => {
@@ -621,6 +661,11 @@ export default function FaultDetectionPage() {
   const trainTotals = useMemo(
     () => stationRowTotals(stations.filter((row) => stationSplitOf(row) === "train")),
     [stations],
+  );
+  const fleetFaultDistribution = useMemo(() => stationFaultDistribution(stations), [stations]);
+  const fleetFaultTotal = useMemo(
+    () => fleetFaultDistribution.reduce((total, item) => total + item.sessions, 0),
+    [fleetFaultDistribution],
   );
   const showsTrainRows = hasTrainStations && stationSplitFilter !== "test";
   const stationSessionsLabel = !hasTrainStations || stationSplitFilter === "test"
@@ -726,12 +771,21 @@ export default function FaultDetectionPage() {
         </section>
 
         <nav className="tw-mt-3 sm:tw-mt-5" aria-label="Fault detection dashboard views">
-          <div role="tablist" className={`fd-view-tabs tw-grid tw-w-full tw-gap-1 tw-rounded-2xl tw-border tw-border-slate-200 tw-bg-white/95 tw-p-1.5 tw-shadow-sm sm:tw-inline-grid sm:tw-w-auto ${PCAP_ANALYSIS_ENABLED ? "tw-grid-cols-3 sm:tw-min-w-[540px]" : "tw-grid-cols-2 sm:tw-min-w-[380px]"}`}>
+          <div role="tablist" className={`fd-view-tabs tw-grid tw-w-full tw-gap-1 tw-rounded-2xl tw-border tw-border-slate-200 tw-bg-white/95 tw-p-1.5 tw-shadow-sm sm:tw-inline-grid sm:tw-w-auto ${desktopMode && PCAP_ANALYSIS_ENABLED ? "tw-grid-cols-2 sm:tw-min-w-[1040px] sm:tw-grid-cols-6" : PCAP_ANALYSIS_ENABLED ? "tw-grid-cols-3 sm:tw-min-w-[540px]" : "tw-grid-cols-2 sm:tw-min-w-[380px]"}`}>
             {[
               { id: "overview" as const, label: c.overviewTab, icon: <LayoutDashboard className="tw-h-4 tw-w-4" /> },
               { id: "stations" as const, label: c.stationsTab, icon: <MapPin className="tw-h-4 tw-w-4" /> },
               ...(PCAP_ANALYSIS_ENABLED
                 ? [{ id: "pcap" as const, label: c.pcapTab, icon: <Upload key="pcap" className="tw-h-4 tw-w-4" /> }]
+                : []),
+              ...(desktopMode && PCAP_ANALYSIS_ENABLED
+                ? [{ id: "dataset" as const, label: c.datasetTab, icon: <Database key="dataset" className="tw-h-4 tw-w-4" /> }]
+                : []),
+              ...(desktopMode && PCAP_ANALYSIS_ENABLED
+                ? [{ id: "labels" as const, label: c.groundTruthTab, icon: <Tags key="labels" className="tw-h-4 tw-w-4" /> }]
+                : []),
+              ...(desktopMode && PCAP_ANALYSIS_ENABLED
+                ? [{ id: "training" as const, label: c.trainModelTab, icon: <BrainCircuit key="training" className="tw-h-4 tw-w-4" /> }]
                 : []),
             ].map((item) => (
               <button
@@ -1164,6 +1218,42 @@ export default function FaultDetectionPage() {
         </section>
         )}
 
+        {/* Mounted for the whole desktop session and only hidden on other tabs:
+            unmounting would abort an import that is still uploading files. */}
+        {desktopMode && PCAP_ANALYSIS_ENABLED && (
+          <section
+            id="fault-view-panel-dataset"
+            role="tabpanel"
+            aria-labelledby="fault-view-tab-dataset"
+            hidden={activeView !== "dataset"}
+            className="tw-mt-5 tw-pb-4 sm:tw-mt-6 sm:tw-pb-6"
+          >
+            <DatasetRetrainPanel lang={lang} active={activeView === "dataset"} />
+          </section>
+        )}
+
+        {desktopMode && PCAP_ANALYSIS_ENABLED && activeView === "labels" && (
+          <section
+            id="fault-view-panel-labels"
+            role="tabpanel"
+            aria-labelledby="fault-view-tab-labels"
+            className="tw-mt-5 tw-pb-4 sm:tw-mt-6 sm:tw-pb-6"
+          >
+            <GroundTruthPanel lang={lang} />
+          </section>
+        )}
+
+        {desktopMode && PCAP_ANALYSIS_ENABLED && activeView === "training" && (
+          <section
+            id="fault-view-panel-training"
+            role="tabpanel"
+            aria-labelledby="fault-view-tab-training"
+            className="tw-mt-5 tw-pb-4 sm:tw-mt-6 sm:tw-pb-6"
+          >
+            <TrainModelPanel lang={lang} />
+          </section>
+        )}
+
         {activeView === "stations" && (
         <section
           id="fault-view-panel-stations"
@@ -1182,7 +1272,7 @@ export default function FaultDetectionPage() {
                   : stationSplitFilter === "train"
                     ? c.stationSubTrain(trainTotals.stations, formatInt(trainTotals.sessions))
                     : c.stationSubAll(heldOutTotals.stations + trainTotals.stations, heldOutTotals.stations, formatInt(heldOutTotals.sessions), trainTotals.stations)}
-                note={showsTrainRows ? c.stationNoteSplit : c.stationNote}
+                note={c.stationHealthNote}
                 actions={(
                   <>
                   {stationSnapshotLabel && (
@@ -1254,6 +1344,46 @@ export default function FaultDetectionPage() {
                   )}
                 </div>
 
+                <section
+                  className="tw-border-b tw-border-gray-100 tw-bg-slate-50/50 tw-p-4 sm:tw-p-6"
+                  data-testid="fd-all-station-fault-distribution"
+                  aria-labelledby="fd-all-station-fault-title"
+                >
+                  <div className="tw-flex tw-flex-col tw-gap-3 sm:tw-flex-row sm:tw-items-start sm:tw-justify-between">
+                    <div className="tw-flex tw-min-w-0 tw-items-start tw-gap-3">
+                      <span className="tw-flex tw-h-10 tw-w-10 tw-flex-shrink-0 tw-items-center tw-justify-center tw-rounded-xl tw-bg-blue-50 tw-text-blue-700 tw-ring-1 tw-ring-blue-100">
+                        <ChartPie className="tw-h-5 tw-w-5" />
+                      </span>
+                      <div className="tw-min-w-0">
+                        <h3 id="fd-all-station-fault-title" className="tw-text-base tw-font-black tw-text-slate-950 sm:tw-text-lg">
+                          {c.fleetFaultChartTitle}
+                        </h3>
+                        <p className="tw-mt-1 tw-max-w-3xl tw-text-[12px] tw-font-medium tw-leading-5 tw-text-slate-500 sm:tw-text-[13px]">
+                          {c.fleetFaultChartSub(formatInt(stations.length), formatInt(fleetFaultTotal))}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="ai-mono tw-inline-flex tw-w-fit tw-flex-shrink-0 tw-rounded-full tw-bg-white tw-px-3 tw-py-1.5 tw-text-[11px] tw-font-black tw-text-blue-700 tw-ring-1 tw-ring-blue-200">
+                      {formatInt(stations.length)} {c.stationsAnalyzed}
+                    </span>
+                  </div>
+                  {fleetFaultDistribution.length > 0 ? (
+                    <div className="tw-mt-5">
+                      <FaultDistributionChart
+                        items={fleetFaultDistribution}
+                        totalLabel={c.faultSessions}
+                        typeCountLabel={c.fleetFaultTypeCount}
+                        eyebrow={c.fleetFaultChartEyebrow}
+                        topFaultLabel={c.topFault}
+                      />
+                    </div>
+                  ) : (
+                    <div className="tw-mt-5 tw-rounded-2xl tw-border tw-border-dashed tw-border-slate-300 tw-bg-white tw-p-8 tw-text-center tw-text-[13px] tw-font-semibold tw-text-slate-500">
+                      {c.fleetFaultEmpty}
+                    </div>
+                  )}
+                </section>
+
                 <div className="tw-flex tw-flex-col tw-gap-2.5 tw-border-b tw-border-gray-100 tw-bg-gray-50/70 tw-p-4 sm:tw-flex-row sm:tw-items-center sm:tw-justify-between sm:tw-px-6 sm:tw-py-4">
                   <label className="tw-relative tw-block tw-w-full sm:tw-max-w-sm">
                     <span className="tw-sr-only">{c.searchStation}</span>
@@ -1294,8 +1424,9 @@ export default function FaultDetectionPage() {
                       aria-label={c.sortStation}
                       className="tw-h-11 tw-min-w-0 tw-flex-1 tw-rounded-xl tw-border tw-border-gray-200 tw-bg-white tw-px-3 tw-text-[13px] tw-font-bold tw-text-gray-700 tw-outline-none focus:tw-border-blue-500 focus:tw-ring-4 focus:tw-ring-blue-100 sm:tw-min-w-[190px]"
                     >
-                      <option value="station">{c.sortStation}</option>
-                      <option value="fault_rate">{c.sortFaultRate}</option>
+                       <option value="station">{c.sortStation}</option>
+                       <option value="health">{c.sortHealth}</option>
+                       <option value="fault_rate">{c.sortFaultRate}</option>
                       <option value="recall">{c.sortRecall}</option>
                       <option value="far">{c.sortFar}</option>
                     </select>
@@ -1317,6 +1448,21 @@ export default function FaultDetectionPage() {
 
                 <div className="tw-space-y-3 tw-p-4 sm:tw-p-6 lg:tw-hidden">
                   {visibleStations.map((station) => {
+                    const health = calculateStationHealth(station);
+                    const healthTone = health.score === null
+                      ? "tw-bg-slate-50 tw-text-slate-600 tw-ring-slate-200"
+                      : health.score >= 85
+                        ? "tw-bg-emerald-50 tw-text-emerald-700 tw-ring-emerald-100"
+                        : health.score >= 70
+                          ? "tw-bg-amber-50 tw-text-amber-700 tw-ring-amber-100"
+                          : health.score >= 50
+                            ? "tw-bg-orange-50 tw-text-orange-700 tw-ring-orange-100"
+                            : "tw-bg-red-50 tw-text-red-700 tw-ring-red-100";
+                    const confidenceLabel = health.confidence === "high"
+                      ? c.confidenceHigh
+                      : health.confidence === "medium"
+                        ? c.confidenceMedium
+                        : c.confidenceLow;
                     const scoreTone = station.score >= 70
                       ? "tw-bg-emerald-50 tw-text-emerald-700 tw-ring-emerald-100"
                       : station.score >= 50
@@ -1347,16 +1493,21 @@ export default function FaultDetectionPage() {
                               </span>
                             </span>
                           </span>
-                          <span className={`ai-mono tw-inline-flex tw-min-w-[64px] tw-justify-center tw-rounded-xl tw-px-2.5 tw-py-2 tw-text-[13px] tw-font-black tw-ring-1 ${scoreTone}`}>
-                            {station.score.toFixed(1)}
+                          <span className="tw-flex tw-flex-shrink-0 tw-flex-col tw-items-end tw-gap-1.5">
+                            <span className={`ai-mono tw-inline-flex tw-min-w-[76px] tw-items-center tw-justify-center tw-gap-1.5 tw-rounded-xl tw-px-2.5 tw-py-2 tw-text-[13px] tw-font-black tw-ring-1 ${healthTone}`} title={c.healthScore}>
+                              <HeartPulse className="tw-h-3.5 tw-w-3.5" /> {health.score === null ? "N/A" : health.score.toFixed(1)}
+                            </span>
+                            <span className={`ai-mono tw-text-[10px] tw-font-black ${scoreTone.split(" ").find((token) => token.startsWith("tw-text-")) ?? "tw-text-slate-500"}`}>
+                              AI {station.score.toFixed(1)}
+                            </span>
                           </span>
                         </span>
 
                         <span className="tw-mt-4 tw-grid tw-grid-cols-3 tw-gap-2">
                           {[
-                            [c.stationSessions, formatInt(station.sessions), "tw-text-slate-900"],
-                            [c.faultSessions, `${station.faultRate.toFixed(1)}%`, "tw-text-red-700"],
-                            ["Recall", `${station.recall.toFixed(1)}%`, "tw-text-emerald-700"],
+                             [c.stationSessions, formatInt(station.sessions), "tw-text-slate-900"],
+                             [c.faultSessions, `${station.faultRate.toFixed(1)}%`, "tw-text-red-700"],
+                             [c.healthConfidence, confidenceLabel, health.confidence === "low" ? "tw-text-amber-700" : "tw-text-emerald-700"],
                           ].map(([label, value, color]) => (
                             <span key={label} className="tw-rounded-xl tw-bg-slate-50 tw-p-2.5 tw-ring-1 tw-ring-slate-100">
                               <span className="tw-block tw-text-[10px] tw-font-bold tw-leading-4 tw-text-slate-500">{label}</span>
@@ -1393,7 +1544,7 @@ export default function FaultDetectionPage() {
                 </div>
 
                 <div className="tw-hidden tw-max-h-[620px] tw-overflow-auto lg:tw-block">
-                  <table className="tw-w-full tw-min-w-[920px] tw-table-fixed tw-border-collapse tw-text-left">
+                  <table className="tw-w-full tw-min-w-[1040px] tw-table-fixed tw-border-collapse tw-text-left">
                     <caption className="tw-sr-only">{c.stationTitle}</caption>
                     <thead className="tw-sticky tw-top-0 tw-z-10 tw-bg-gray-900 tw-text-white">
                       <tr>
@@ -1403,9 +1554,10 @@ export default function FaultDetectionPage() {
                           { label: c.faultSessions, width: "tw-w-[92px]" },
                           { label: c.detected, width: "tw-w-[116px]" },
                           { label: c.lateMissed, width: "tw-w-[90px]" },
-                          { label: c.falseAlarms, width: "tw-w-[104px]" },
-                          { label: c.topFault, width: "tw-w-[130px]" },
-                          { label: c.score, width: "tw-w-[74px]" },
+                           { label: c.falseAlarms, width: "tw-w-[104px]" },
+                           { label: c.topFault, width: "tw-w-[130px]" },
+                           { label: c.healthScore, width: "tw-w-[102px]" },
+                           { label: c.score, width: "tw-w-[74px]" },
                         ].map((heading) => (
                           <th key={heading.label} scope="col" className={`${heading.width} tw-whitespace-normal tw-px-3.5 tw-py-3.5 tw-align-bottom tw-text-[11px] tw-font-bold tw-uppercase tw-leading-tight tw-tracking-wide tw-text-white/65`}>{heading.label}</th>
                         ))}
@@ -1413,6 +1565,21 @@ export default function FaultDetectionPage() {
                     </thead>
                     <tbody>
                       {visibleStations.map((station) => {
+                        const health = calculateStationHealth(station);
+                        const healthTone = health.score === null
+                          ? "tw-bg-slate-50 tw-text-slate-600"
+                          : health.score >= 85
+                            ? "tw-bg-emerald-50 tw-text-emerald-700"
+                            : health.score >= 70
+                              ? "tw-bg-amber-50 tw-text-amber-700"
+                              : health.score >= 50
+                                ? "tw-bg-orange-50 tw-text-orange-700"
+                                : "tw-bg-red-50 tw-text-red-700";
+                        const confidenceLabel = health.confidence === "high"
+                          ? c.confidenceHigh
+                          : health.confidence === "medium"
+                            ? c.confidenceMedium
+                            : c.confidenceLow;
                         const scoreTone = station.score >= 70
                           ? "tw-bg-emerald-50 tw-text-emerald-700"
                           : station.score >= 50
@@ -1454,8 +1621,8 @@ export default function FaultDetectionPage() {
                             <td className="tw-px-3.5 tw-py-3.5">
                               <div className="ai-mono tw-text-[13px] tw-font-black tw-text-red-700">{formatInt(station.faultySessions)}</div>
                               <div className="ai-mono tw-mt-0.5 tw-text-[10px] tw-text-gray-400">{station.faultRate.toFixed(1)}%</div>
-                            </td>
-                            <td className="tw-px-3.5 tw-py-3.5">
+                             </td>
+                             <td className="tw-px-3.5 tw-py-3.5">
                               <div className="ai-mono tw-text-[13px] tw-font-black tw-text-emerald-700">{formatInt(station.tp)}</div>
                               <div className="ai-mono tw-mt-0.5 tw-text-[10px] tw-text-gray-400">Recall {station.recall.toFixed(1)}%</div>
                             </td>
@@ -1468,6 +1635,12 @@ export default function FaultDetectionPage() {
                               <span className="tw-inline-block tw-max-w-full tw-truncate tw-whitespace-nowrap tw-rounded-md tw-bg-gray-100 tw-px-2.5 tw-py-1 tw-text-[10px] tw-font-extrabold tw-text-gray-600" title={station.topFaultFamily ?? undefined}>
                                 {station.topFaultFamily ? displayFamily(station.topFaultFamily) : "—"}
                               </span>
+                            </td>
+                            <td className="tw-px-3.5 tw-py-3.5">
+                              <span className={`ai-mono tw-inline-flex tw-min-w-[66px] tw-items-center tw-justify-center tw-gap-1 tw-rounded-lg tw-px-2 tw-py-1.5 tw-text-[13px] tw-font-black ${healthTone}`}>
+                                <HeartPulse className="tw-h-3.5 tw-w-3.5" /> {health.score === null ? "N/A" : health.score.toFixed(1)}
+                              </span>
+                              <div className="tw-mt-1 tw-text-[9px] tw-font-bold tw-uppercase tw-tracking-wide tw-text-slate-400">{c.healthConfidence}: {confidenceLabel}</div>
                             </td>
                             <td className="tw-px-3.5 tw-py-3.5">
                               <span className={`ai-mono tw-inline-flex tw-min-w-[58px] tw-justify-center tw-rounded-lg tw-px-2.5 tw-py-1.5 tw-text-[13px] tw-font-black ${scoreTone}`}>

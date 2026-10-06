@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseDesktopRuntimeStatus, parseFaultDetectionSummary } from "./api";
-import { allStationRows, faultDetectionPreview, heldOutStationTotals, sortStationRows, stationRowTotals, stationSplitOf, type StationAnalysis } from "./data";
+import { allStationRows, faultDetectionPreview, heldOutStationTotals, sortStationRows, stationFaultDistribution, stationRowTotals, stationSplitOf, type StationAnalysis } from "./data";
 
 function station(name: string, sessions: number, faulty: number, split?: "test" | "train"): StationAnalysis {
   const normal = sessions - faulty;
@@ -92,6 +92,27 @@ describe("training-station rows (byStationTrain)", () => {
     expect(stationRowTotals(rows)).toEqual({ stations: 3, sessions: 10, faultySessions: 3, alertedSessions: 3 });
     expect(stationRowTotals(rows.filter((row) => stationSplitOf(row) === "train"))).toEqual({ stations: 1, sessions: 5, faultySessions: 2, alertedSessions: 2 });
     expect(stationRowTotals([])).toEqual({ stations: 0, sessions: 0, faultySessions: 0, alertedSessions: 0 });
+  });
+
+  it("aggregates the fault-family mix across every station and sorts the chart", () => {
+    const held = station("held-a", 10, 6, "test");
+    held.byFaultFamily = [
+      { ...held.byFaultFamily[0], family: "EVSE_FAULT", faultySessions: 4 },
+      { ...held.byFaultFamily[0], family: "PROTOCOL_FAILED", faultySessions: 2 },
+    ];
+    const train = station("train-b", 10, 5, "train");
+    train.byFaultFamily = [
+      { ...train.byFaultFamily[0], family: "PROTOCOL_FAILED", faultySessions: 3 },
+      { ...train.byFaultFamily[0], family: "SESSION_ABORT", faultySessions: 2 },
+      { ...train.byFaultFamily[0], family: "ZERO_COUNT", faultySessions: 0 },
+    ];
+
+    expect(stationFaultDistribution([held, train])).toEqual([
+      { family: "PROTOCOL_FAILED", sessions: 5 },
+      { family: "EVSE_FAULT", sessions: 4 },
+      { family: "SESSION_ABORT", sessions: 2 },
+    ]);
+    expect(stationFaultDistribution([])).toEqual([]);
   });
 
   it("sorts names and fault rates across both splits, model scores held-out first", () => {

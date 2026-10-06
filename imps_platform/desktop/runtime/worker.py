@@ -57,26 +57,44 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+REPLACE_ATTEMPTS = 8
+REPLACE_BACKOFF_SECONDS = 0.05
+
+
+def write_json_atomic(path: Path, payload: dict[str, Any], *, attempts: int = REPLACE_ATTEMPTS) -> None:
+    """Write then replace. On Windows the replace fails while another process
+    (the sidecar reading progress for a status poll, or an on-access scanner)
+    has the target open, so it is retried briefly before the error is raised."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
     with temporary.open("w", encoding="utf-8", newline="\n") as handle:
         json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    for attempt in range(attempts):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(REPLACE_BACKOFF_SECONDS * (attempt + 1))
 
 
 def update_progress(path: Path, stage: str, progress: float, detail: str) -> None:
-    write_json_atomic(
-        path,
-        {
-            "stage": stage,
-            "progress": max(0.0, min(100.0, float(progress))),
-            "detail": detail,
-            "updatedAt": utc_now(),
-        },
-    )
+    """Progress is advisory: a failed write must never fail the analysis."""
+    try:
+        write_json_atomic(
+            path,
+            {
+                "stage": stage,
+                "progress": max(0.0, min(100.0, float(progress))),
+                "detail": detail,
+                "updatedAt": utc_now(),
+            },
+        )
+    except OSError:
+        pass
 
 
 def sha256_file(path: Path) -> str:

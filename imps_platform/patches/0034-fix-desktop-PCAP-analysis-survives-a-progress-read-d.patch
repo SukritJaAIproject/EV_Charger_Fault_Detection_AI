@@ -1,0 +1,201 @@
+From 0361fd6be7e8e693d4dc427cfe4992eb8413f16b Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 11:08:59 +0700
+Subject: [PATCH 34/34] fix(desktop): PCAP analysis survives a progress read
+ during its write
+
+The analysis worker replaced progress.json with no retry. On Windows the
+replace fails while the sidecar has the file open for a status poll, and
+the whole job died with WinError 5 (it failed the 1.7.0 build smoke test).
+Progress writes now retry and are best-effort; result and job-state writes
+retry before failing. The training test no longer leaves __pycache__ in
+desktop/training, which ships inside the installer.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ iMPS_platform/CHANGELOG.md                    |  3 +-
+ iMPS_platform/desktop/runtime/job_service.py  | 11 +++-
+ .../runtime/tests/test_training_service.py    |  7 ++-
+ .../runtime/tests/test_worker_progress.py     | 55 +++++++++++++++++++
+ iMPS_platform/desktop/runtime/worker.py       | 40 ++++++++++----
+ 5 files changed, 102 insertions(+), 14 deletions(-)
+ create mode 100644 iMPS_platform/desktop/runtime/tests/test_worker_progress.py
+
+diff --git a/iMPS_platform/CHANGELOG.md b/iMPS_platform/CHANGELOG.md
+index cc4306d1..9569fa35 100644
+--- a/iMPS_platform/CHANGELOG.md
++++ b/iMPS_platform/CHANGELOG.md
+@@ -33,7 +33,8 @@ Ground Truth Label, Train Model, Station Health), reviewed and fixed before rele
+ - Removed the "automatic retraining" wording: retraining is always started by a person. Thai dates in the new tabs use the Gregorian calendar like the rest of the app, and the remaining English-only strings are translated.
+ - Removing captures that no batch references (after a crash or a discard) now happens only when every batch manifest was read; a damaged or locked manifest no longer costs its batch's reviewed captures.
+ - Completing a batch whose manifest cannot be written leaves it uploading so the request can be retried, and manifest writes retry briefly when Windows reports the file in use.
+-- The desktop runtime's Python tests (now 60, including crafted-archive, recovery and concurrency tests) run in every `desktop:prepare` build.
++- PCAP analysis no longer fails at random when its progress file is being read for a status update at the moment the analysis writes it (Windows refuses the replace); progress writes retry and can never end an analysis.
++- The desktop runtime's Python tests (now 63, including crafted-archive, recovery and concurrency tests) run in every `desktop:prepare` build.
+ 
+ ## [1.6.0] 2026-10-01
+ 
+diff --git a/iMPS_platform/desktop/runtime/job_service.py b/iMPS_platform/desktop/runtime/job_service.py
+index 80b73dc5..ee74d78d 100644
+--- a/iMPS_platform/desktop/runtime/job_service.py
++++ b/iMPS_platform/desktop/runtime/job_service.py
+@@ -51,7 +51,16 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+         json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+         handle.flush()
+         os.fsync(handle.fileno())
+-    os.replace(temporary, path)
++    # Windows refuses the replace while a status poll (or a scanner) has the
++    # file open; that clears within moments.
++    for attempt in range(8):
++        try:
++            os.replace(temporary, path)
++            return
++        except PermissionError:
++            if attempt == 7:
++                raise
++            time.sleep(0.05 * (attempt + 1))
+ 
+ 
+ def _is_link_like(path: Path) -> bool:
+diff --git a/iMPS_platform/desktop/runtime/tests/test_training_service.py b/iMPS_platform/desktop/runtime/tests/test_training_service.py
+index 803176d1..0906b3a8 100644
+--- a/iMPS_platform/desktop/runtime/tests/test_training_service.py
++++ b/iMPS_platform/desktop/runtime/tests/test_training_service.py
+@@ -304,7 +304,12 @@ def _load_worker_module():
+     worker = Path(__file__).resolve().parents[2] / "training" / "train_candidate.py"
+     spec = importlib.util.spec_from_file_location("train_candidate_under_test", worker)
+     module = importlib.util.module_from_spec(spec)
+-    spec.loader.exec_module(module)
++    # desktop/training ships as is inside the installer: leave no __pycache__ there
++    previous, sys.dont_write_bytecode = sys.dont_write_bytecode, True
++    try:
++        spec.loader.exec_module(module)
++    finally:
++        sys.dont_write_bytecode = previous
+     return module
+ 
+ 
+diff --git a/iMPS_platform/desktop/runtime/tests/test_worker_progress.py b/iMPS_platform/desktop/runtime/tests/test_worker_progress.py
+new file mode 100644
+index 00000000..6b755bd0
+--- /dev/null
++++ b/iMPS_platform/desktop/runtime/tests/test_worker_progress.py
+@@ -0,0 +1,55 @@
++from __future__ import annotations
++
++import json
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++from unittest import mock
++
++
++RUNTIME_ROOT = Path(__file__).resolve().parents[1]
++if str(RUNTIME_ROOT) not in sys.path:
++    sys.path.insert(0, str(RUNTIME_ROOT))
++
++import worker  # noqa: E402
++
++
++class WorkerProgressTests(unittest.TestCase):
++    """The PCAP worker writes progress.json while the sidecar reads it for status polls."""
++
++    def test_a_replace_refused_while_the_file_is_read_is_retried(self) -> None:
++        real_replace = worker.os.replace
++        calls = {"n": 0}
++
++        def busy_twice(source, target):
++            calls["n"] += 1
++            if calls["n"] <= 2:
++                raise PermissionError(5, "Access is denied")
++            real_replace(source, target)
++
++        with tempfile.TemporaryDirectory() as temp:
++            target = Path(temp) / "progress.json"
++            with mock.patch.object(worker.os, "replace", side_effect=busy_twice), mock.patch.object(worker.time, "sleep"):
++                worker.update_progress(target, "extracting", 12, "Decoding PCAP with TShark")
++            self.assertEqual(json.loads(target.read_text(encoding="utf-8"))["stage"], "extracting")
++            self.assertEqual(calls["n"], 3)
++
++    def test_progress_never_fails_the_analysis(self) -> None:
++        with tempfile.TemporaryDirectory() as temp:
++            target = Path(temp) / "progress.json"
++            with mock.patch.object(worker.os, "replace", side_effect=PermissionError(5, "Access is denied")), \
++                    mock.patch.object(worker.time, "sleep"):
++                worker.update_progress(target, "extracting", 12, "Decoding PCAP with TShark")
++            self.assertFalse(target.exists())
++
++    def test_the_result_write_still_reports_a_lasting_failure(self) -> None:
++        with tempfile.TemporaryDirectory() as temp:
++            with mock.patch.object(worker.os, "replace", side_effect=PermissionError(5, "Access is denied")), \
++                    mock.patch.object(worker.time, "sleep"):
++                with self.assertRaises(PermissionError):
++                    worker.write_json_atomic(Path(temp) / "result.json", {"ok": True})
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/iMPS_platform/desktop/runtime/worker.py b/iMPS_platform/desktop/runtime/worker.py
+index 6570fcd3..8f727767 100644
+--- a/iMPS_platform/desktop/runtime/worker.py
++++ b/iMPS_platform/desktop/runtime/worker.py
+@@ -57,26 +57,44 @@ def utc_now() -> str:
+     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+ 
+ 
+-def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
++REPLACE_ATTEMPTS = 8
++REPLACE_BACKOFF_SECONDS = 0.05
++
++
++def write_json_atomic(path: Path, payload: dict[str, Any], *, attempts: int = REPLACE_ATTEMPTS) -> None:
++    """Write then replace. On Windows the replace fails while another process
++    (the sidecar reading progress for a status poll, or an on-access scanner)
++    has the target open, so it is retried briefly before the error is raised."""
+     path.parent.mkdir(parents=True, exist_ok=True)
+     temporary = path.with_name(path.name + ".tmp")
+     with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+         json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+         handle.flush()
+         os.fsync(handle.fileno())
+-    os.replace(temporary, path)
++    for attempt in range(attempts):
++        try:
++            os.replace(temporary, path)
++            return
++        except PermissionError:
++            if attempt == attempts - 1:
++                raise
++            time.sleep(REPLACE_BACKOFF_SECONDS * (attempt + 1))
+ 
+ 
+ def update_progress(path: Path, stage: str, progress: float, detail: str) -> None:
+-    write_json_atomic(
+-        path,
+-        {
+-            "stage": stage,
+-            "progress": max(0.0, min(100.0, float(progress))),
+-            "detail": detail,
+-            "updatedAt": utc_now(),
+-        },
+-    )
++    """Progress is advisory: a failed write must never fail the analysis."""
++    try:
++        write_json_atomic(
++            path,
++            {
++                "stage": stage,
++                "progress": max(0.0, min(100.0, float(progress))),
++                "detail": detail,
++                "updatedAt": utc_now(),
++            },
++        )
++    except OSError:
++        pass
+ 
+ 
+ def sha256_file(path: Path) -> str:
+-- 
+2.45.1.windows.1
+

@@ -1,6 +1,6 @@
 {
   "name": "material-tailwind-dashboard-nextjs-pro",
-  "version": "1.3.4",
+  "version": "1.7.0",
   "description": "Offline Windows desktop application for EV charger fault detection and PCAP analysis.",
   "author": "iMPS Project",
   "private": true,
@@ -114,6 +114,14 @@
       {
         "from": ".desktop-build/models",
         "to": "models"
+      },
+      {
+        "from": "desktop/training",
+        "to": "training"
+      },
+      {
+        "from": "desktop/runtime/capture.py",
+        "to": "training/capture.py"
       },
       {
         "from": "desktop/licenses",

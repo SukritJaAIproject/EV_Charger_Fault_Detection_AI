@@ -5,7 +5,13 @@ import {
   isDesktopFaultDetectionApi,
   parseDesktopRuntimeStatus,
   parseFaultDetectionSummary,
+  parseGroundTruthBatch,
+  parseGroundTruthLabel,
+  parseModelTrainingJob,
+  parseModelTrainingSummary,
   parsePcapAnalysisJob,
+  parseTrainingDatasetImport,
+  parseTrainingDatasetSummary,
   resolveFaultDetectionApiBase,
 } from "./api";
 import { faultDetectionPreview } from "./data";
@@ -285,6 +291,224 @@ describe("parsePcapAnalysisJob", () => {
       originalName: "capture.pcap",
       sizeBytes: 24,
     })).toThrow(/invalid response/i);
+  });
+});
+
+describe("training dataset API schemas", () => {
+  const imported = {
+    schemaVersion: 1 as const,
+    importId: "b27a3b5f27bd4d50a1d4b94e3b29daba",
+    name: "October 2026",
+    sourceType: "zip" as const,
+    status: "ready" as const,
+    createdAt: "2026-10-01T10:00:00Z",
+    completedAt: "2026-10-01T10:01:00Z",
+    fileCount: 18,
+    bytes: 4096,
+    duplicateCount: 2,
+    rejectedCount: 1,
+    labelStatus: "unlabeled" as const,
+    labeledFileCount: 0,
+    remainingFileCount: 18,
+    normalFileCount: 0,
+    faultFileCount: 0,
+    excludedFileCount: 0,
+    readyForRetrain: false,
+    recommendedRetrainAt: "2026-11-01T00:00:00Z",
+    warnings: ["Ignored 1 non-PCAP file(s) in the ZIP archive."],
+  };
+
+  it("accepts a staged monthly import and its aggregate inbox", () => {
+    expect(parseTrainingDatasetImport(imported).fileCount).toBe(18);
+    const summary = parseTrainingDatasetSummary({
+      schemaVersion: 1,
+      storagePath: "C:\\Users\\tester\\AppData\\Roaming\\iMPS Fault Detection\\training-datasets",
+      schedule: {
+        cadence: "monthly",
+        nextWindowAt: "2026-11-01T00:00:00Z",
+        mode: "manual_approval",
+      },
+      totals: {
+        imports: 1,
+        files: 18,
+        bytes: 4096,
+        duplicates: 2,
+        rejected: 1,
+        labeledFiles: 0,
+      },
+      readyForRetrain: false,
+      blocker: "labels_and_training_pipeline_required",
+      imports: [imported],
+    });
+    expect(summary.schedule.cadence).toBe("monthly");
+    expect(summary.readyForRetrain).toBe(false);
+    expect(summary.imports[0].status).toBe("ready");
+  });
+
+  it("rejects an import that claims retraining readiness without a valid label status", () => {
+    expect(() => parseTrainingDatasetImport({ ...imported, labelStatus: "guessed" })).toThrow(/invalid response/i);
+  });
+
+  it("accepts a fully labelled inbox that is still blocked on the training pipeline", () => {
+    const reviewed = {
+      ...imported,
+      labelStatus: "reviewed" as const,
+      labeledFileCount: 18,
+      remainingFileCount: 0,
+      normalFileCount: 10,
+      faultFileCount: 7,
+      excludedFileCount: 1,
+    };
+    const summary = parseTrainingDatasetSummary({
+      schemaVersion: 1,
+      storagePath: "C:\\training-datasets",
+      schedule: { cadence: "monthly", nextWindowAt: "2026-11-01T00:00:00Z", mode: "manual_approval" },
+      totals: { imports: 1, files: 18, bytes: 4096, duplicates: 0, rejected: 0, labeledFiles: 18 },
+      readyForRetrain: false,
+      blocker: "training_pipeline_required",
+      imports: [reviewed],
+    });
+    expect(summary.blocker).toBe("training_pipeline_required");
+  });
+});
+
+describe("ground-truth API schemas", () => {
+  const label = {
+    classification: "fault" as const,
+    faultFamily: "PROTOCOL_FAILED" as const,
+    reviewer: "QA Operator",
+    notes: "Sequence confirmed from packets.",
+    revision: 2,
+    createdAt: "2026-10-01T10:00:00Z",
+    updatedAt: "2026-10-01T10:05:00Z",
+  };
+
+  it("accepts a revisioned label and batch progress", () => {
+    expect(parseGroundTruthLabel(label).revision).toBe(2);
+    const batch = parseGroundTruthBatch({
+      schemaVersion: 1,
+      importId: "b27a3b5f27bd4d50a1d4b94e3b29daba",
+      name: "October 2026",
+      status: "ready",
+      fileCount: 1,
+      labelStatus: "reviewed",
+      labeledFileCount: 1,
+      remainingFileCount: 0,
+      normalFileCount: 0,
+      faultFileCount: 1,
+      excludedFileCount: 0,
+      files: [{
+        sha256: "a".repeat(64),
+        originalName: "capture.pcap",
+        relativePath: "station-a/capture.pcap",
+        sizeBytes: 2048,
+        captureFormat: "pcap",
+        label,
+      }],
+    });
+    expect(batch.files[0].label?.faultFamily).toBe("PROTOCOL_FAILED");
+  });
+
+  it("rejects an unsupported fault family", () => {
+    expect(() => parseGroundTruthLabel({ ...label, faultFamily: "UNKNOWN_FAULT" })).toThrow(/invalid label/i);
+  });
+});
+
+describe("model-training API schemas", () => {
+  const reviewedImport = {
+    schemaVersion: 1 as const,
+    importId: "b27a3b5f27bd4d50a1d4b94e3b29daba",
+    name: "October 2026",
+    sourceType: "folder" as const,
+    status: "ready" as const,
+    createdAt: "2026-10-01T10:00:00Z",
+    completedAt: "2026-10-01T10:01:00Z",
+    fileCount: 18,
+    bytes: 4096,
+    duplicateCount: 0,
+    rejectedCount: 0,
+    labelStatus: "reviewed" as const,
+    labeledFileCount: 18,
+    remainingFileCount: 0,
+    normalFileCount: 10,
+    faultFileCount: 7,
+    excludedFileCount: 1,
+    readyForRetrain: false,
+    recommendedRetrainAt: "2026-11-01T00:00:00Z",
+    warnings: [],
+  };
+  const job = {
+    schemaVersion: 1 as const,
+    jobId: "b".repeat(32),
+    name: "October candidate",
+    status: "complete" as const,
+    stage: "complete",
+    progress: 100,
+    detail: "Candidate model training completed.",
+    createdAt: "2026-10-01T10:05:00Z",
+    startedAt: "2026-10-01T10:05:01Z",
+    completedAt: "2026-10-01T10:10:00Z",
+    error: null,
+    dataset: {
+      importIds: [reviewedImport.importId],
+      fileCount: 17,
+      normalFileCount: 10,
+      faultFileCount: 7,
+      excludedFileCount: 1,
+    },
+    config: { epochs: 3, mode: "safe_fine_tune" as const },
+    baseArtifactVersion: "53b6f14244c2e633",
+    candidate: {
+      artifactVersion: "0123456789abcdef",
+      createdAt: "2026-10-01T10:10:00Z",
+      approvalStatus: "manual_validation_required" as const,
+      training: {
+        device: "cuda" as const,
+        deviceName: "NVIDIA GPU",
+        epochs: 3,
+        normalCaptures: 10,
+        faultReserveCaptures: 7,
+        normalSessions: 15,
+        faultReserveSessions: 9,
+        extractedEvents: 4000,
+        aeWindows: 120,
+        forecasterWindows: 240,
+        aeLossInitial: 0.08,
+        aeLossFinal: 0.04,
+        forecasterLossInitial: 0.05,
+        forecasterLossFinal: 0.03,
+        durationSeconds: 298,
+      },
+      files: {
+        "lstm_ae.npz": { sha256: "a".repeat(64), sizeBytes: 1024 },
+        "gru_fore.npz": { sha256: "c".repeat(64), sizeBytes: 2048 },
+      },
+    },
+  };
+
+  it("accepts a completed candidate and eligible reviewed batches", () => {
+    expect(parseModelTrainingJob(job).candidate?.training.device).toBe("cuda");
+    const summary = parseModelTrainingSummary({
+      schemaVersion: 1,
+      engine: {
+        available: true,
+        mode: "external_pytorch",
+        device: "auto_cuda_or_cpu",
+        missing: [],
+        maxEpochs: 8,
+      },
+      eligibleImports: [reviewedImport],
+      jobs: [job],
+    });
+    expect(summary.eligibleImports).toHaveLength(1);
+    expect(summary.jobs[0].candidate?.artifactVersion).toBe("0123456789abcdef");
+  });
+
+  it("rejects a candidate that bypasses manual validation", () => {
+    expect(() => parseModelTrainingJob({
+      ...job,
+      candidate: { ...job.candidate, approvalStatus: "deployed" },
+    })).toThrow(/invalid job/i);
   });
 });
 

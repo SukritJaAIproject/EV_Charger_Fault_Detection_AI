@@ -154,6 +154,32 @@ async function exportSummary() {
 }
 
 
+// The sidecar's own tests (dataset import limits, ground truth, training jobs,
+// the HTTP token) gate every desktop build. They need only the standard
+// library; the worker sampling tests also use NumPy and skip without it.
+async function runRuntimeUnitTests() {
+  const configured = process.env.PYTHON ? [{ command: process.env.PYTHON, prefix: [] }] : [];
+  const candidates = [
+    ...configured,
+    { command: "python", prefix: [] },
+    { command: "py", prefix: ["-3"] },
+  ];
+  const testsRoot = path.join(projectRoot, "desktop", "runtime", "tests");
+  for (const candidate of candidates) {
+    try {
+      await run(candidate.command, [...candidate.prefix, "-m", "unittest", "discover", "-s", testsRoot, "-v"]);
+      return;
+    } catch (error) {
+      // Try the next interpreter only when this one does not exist (ENOENT, or the
+      // Windows Store "python" alias, which exits 9009); a failing test stops the build.
+      const missing = error?.code === "ENOENT" || /\bcode 9009\b/.test(String(error?.message));
+      if (!missing) throw new Error(`Desktop runtime unit tests failed: ${error.message}`);
+    }
+  }
+  throw new Error("Desktop runtime unit tests need Python 3, which was not found.");
+}
+
+
 async function findServerEntry(root, depth = 0) {
   const direct = path.join(root, "server.js");
   if (await exists(direct)) return direct;
@@ -171,6 +197,7 @@ async function findServerEntry(root, depth = 0) {
 
 async function main() {
   await mkdir(desktopBuildRoot, { recursive: true });
+  await runRuntimeUnitTests();
   await preparePortableRuntime();
   const summaryPath = await exportSummary();
   await smokePortableRuntime();

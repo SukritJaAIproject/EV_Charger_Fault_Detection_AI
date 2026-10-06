@@ -1,0 +1,1071 @@
+From 315af345ed087991a8a851ceda2d697f7fc2a14a Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 11:06:17 +0700
+Subject: [PATCH 33/34] fix(desktop): second review of the 1.7.0 fixes
+
+Backend
+- Never delete stored captures on a partial view: startup and discard
+  cleanup run only when every batch manifest was read, so a manifest held
+  by a scanner or damaged no longer costs its batch's reviewed captures.
+- ZIP pre-check uses zipfile's own end-record reader (ZIP64 applied as the
+  parser applies it) and caps the central directory at 6 MiB; a lying plain
+  end record can no longer hide a million-entry directory.
+- complete_import writes the final state before swapping it in, so a failed
+  write leaves the batch uploading and retryable; manifest and label writes
+  retry briefly on Windows sharing errors; a failed flush no longer fails
+  an upload that was stored; discard reads only finished manifests.
+- The API token fails closed: without IMPS_API_TOKEN every route but
+  /health is locked unless --no-api-token is given; smoke_runtime.ps1
+  passes its own token.
+- desktop:prepare falls through the Windows Store python alias (exit 9009).
+
+Frontend
+- Errors from import, Finish and Discard stay visible (the follow-up
+  refresh no longer clears them); a folder import skips files the importer
+  refuses instead of stopping; batch names stay within 120 characters as
+  both the sidecar and the schema count them.
+- Train Model: preview spinner and errors reset with the selection, AE and
+  GRU window pools shown separately, requirement labels in Thai, refresh
+  keeps the selection; Finish reports a batch that did not become ready.
+- Ground Truth radios move with the arrow keys; the hotspot reason names
+  the 20-session rule.
+
+Tests: 60 Python (unreadable-manifest cleanup, ZIP64, retryable completion,
+parallel uploads with discards), 223 vitest.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ iMPS_platform/CHANGELOG.md                    |   8 +-
+ iMPS_platform/desktop/DATASET_RETRAIN.md      |  17 ++-
+ .../desktop/runtime/dataset_service.py        | 125 ++++++++-------
+ .../desktop/runtime/imps_fault_runtime.py     |  13 +-
+ .../desktop/runtime/smoke_runtime.ps1         |  19 ++-
+ .../runtime/tests/test_dataset_service.py     | 143 ++++++++++++++++++
+ .../desktop/scripts/prepare-desktop.mjs       |   6 +-
+ .../app/dashboard/ai/fault-detection/api.ts   |  12 +-
+ .../fault-detection/dataset-retrain-panel.tsx |  86 ++++++++---
+ .../fault-detection/desktop-api-token.test.ts |  34 +++++
+ .../ai/fault-detection/ground-truth-panel.tsx |  14 +-
+ .../fault-detection/station-detail-dialog.tsx |   4 +-
+ .../ai/fault-detection/train-model-panel.tsx  |  39 ++++-
+ 13 files changed, 420 insertions(+), 100 deletions(-)
+
+diff --git a/iMPS_platform/CHANGELOG.md b/iMPS_platform/CHANGELOG.md
+index 8374b76b..cc4306d1 100644
+--- a/iMPS_platform/CHANGELOG.md
++++ b/iMPS_platform/CHANGELOG.md
+@@ -14,9 +14,9 @@ Ground Truth Label, Train Model, Station Health), reviewed and fixed before rele
+ 
+ ### Security
+ 
+-- The loopback API now requires a per-launch token (`X-iMPS-Token`) on every route except `/health`. Another process or Windows account that finds the port can no longer read datasets, change ground truth or start training runs.
++- The loopback API now requires a per-launch token (`X-iMPS-Token`) on every route except `/health`. Another process or Windows account that finds the port can no longer read datasets, change ground truth or start training runs. A sidecar started without a token fails closed.
+ - ZIP imports read only stored and DEFLATE entries: a BZIP2 or LZMA entry of a few kilobytes could expand to gigabytes in one decompress call. The compression-ratio check now covers every entry above 64 KiB instead of only those above 1 MiB.
+-- The ZIP entry count and central-directory size are checked from the archive's end record before the archive is parsed, so a crafted directory of millions of records is refused without using gigabytes of memory.
++- The ZIP entry count and central-directory size (at most 6 MiB) are checked with zipfile's own end-record reader, ZIP64 records included, before the archive is parsed, so a crafted directory of millions of records is refused without using gigabytes of memory.
+ 
+ ### Fixed
+ 
+@@ -31,7 +31,9 @@ Ground Truth Label, Train Model, Station Health), reviewed and fixed before rele
+ - Switching tabs no longer aborts an import in progress, and an interrupted import is marked failed at the next start with its temp files and orphaned captures removed.
+ - A damaged ZIP entry is rejected without losing the rest of the archive, a full disk is reported before an upload starts, and a long ZIP import no longer blocks labelling.
+ - Removed the "automatic retraining" wording: retraining is always started by a person. Thai dates in the new tabs use the Gregorian calendar like the rest of the app, and the remaining English-only strings are translated.
+-- The desktop runtime's Python tests (now 55, including crafted-archive tests) run in every `desktop:prepare` build.
++- Removing captures that no batch references (after a crash or a discard) now happens only when every batch manifest was read; a damaged or locked manifest no longer costs its batch's reviewed captures.
++- Completing a batch whose manifest cannot be written leaves it uploading so the request can be retried, and manifest writes retry briefly when Windows reports the file in use.
++- The desktop runtime's Python tests (now 60, including crafted-archive, recovery and concurrency tests) run in every `desktop:prepare` build.
+ 
+ ## [1.6.0] 2026-10-01
+ 
+diff --git a/iMPS_platform/desktop/DATASET_RETRAIN.md b/iMPS_platform/desktop/DATASET_RETRAIN.md
+index f0514c90..49d31759 100644
+--- a/iMPS_platform/desktop/DATASET_RETRAIN.md
++++ b/iMPS_platform/desktop/DATASET_RETRAIN.md
+@@ -54,7 +54,9 @@ least one capture, and `failed` when it cannot become ready:
+ - a batch still `uploading` when the sidecar starts was interrupted (the app
+   closed, or the upload stopped) and is marked `failed` at startup. Leftover
+   upload temp files are deleted, and stored captures that no batch references
+-  any more are removed.
++  any more are removed. That cleanup runs only when every batch manifest could
++  be read: a manifest that is damaged, or held open by a scanner or backup
++  tool, keeps every stored capture until it can be read again.
+ 
+ An unfinished batch (`uploading` or `failed`) can be discarded. Discarding
+ deletes the batch and every stored capture that only it referenced; captures
+@@ -103,8 +105,10 @@ training runs.
+ Local tooling (smoke tests, the PCAP check) reads the port and token from
+ `%APPDATA%/<product>/desktop-api.json`, which the launcher writes after the
+ sidecar is healthy and removes when the app closes. `%APPDATA%` is private to
+-the Windows account. A sidecar started without the variable (development,
+-`smoke_runtime.ps1`) does not require a token.
++the Windows account. A sidecar started without the variable fails closed: it
++locks every route but `/health` with a random token nobody knows.
++`smoke_runtime.ps1` passes its own token; `--no-api-token` serves the routes
++openly and is meant for development only.
+ 
+ If the dataset or training store cannot be used (for example the folder was
+ moved behind a junction), the sidecar still starts: PCAP inference keeps
+@@ -117,9 +121,10 @@ Uploads are streamed to disk rather than held in memory.
+ 
+ - 4 GiB maximum HTTP upload; 512 MiB maximum individual capture.
+ - 20 GiB maximum expanded batch; 10,000 ZIP entries.
+-- The entry count and the central-directory size (at most 16 MiB) are read from
+-  the archive's end record before the archive is opened, so a crafted directory
+-  of millions of records is refused without being parsed.
++- The entry count and the central-directory size (at most 6 MiB) are read with
++  zipfile's own end-record reader, which applies a ZIP64 record exactly as the
++  parser will, before the archive is opened. A crafted directory of millions of
++  records is refused without being parsed.
+ - Only stored and DEFLATE entries are read. BZIP2 and LZMA entries are rejected:
+   Python bounds the output of a DEFLATE read but not of those decompressors, so
+   a few kilobytes of BZIP2 could expand to gigabytes in one call.
+diff --git a/iMPS_platform/desktop/runtime/dataset_service.py b/iMPS_platform/desktop/runtime/dataset_service.py
+index 2e7d11b2..e1382010 100644
+--- a/iMPS_platform/desktop/runtime/dataset_service.py
++++ b/iMPS_platform/desktop/runtime/dataset_service.py
+@@ -13,7 +13,6 @@ import os
+ import re
+ import shutil
+ import stat
+-import struct
+ import threading
+ import time
+ import uuid
+@@ -33,9 +32,14 @@ MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024
+ MAX_CAPTURE_BYTES = 512 * 1024 * 1024
+ MAX_IMPORT_BYTES = 20 * 1024 * 1024 * 1024
+ MAX_ARCHIVE_ENTRIES = 10_000
+-# The central directory is parsed by zipfile in one go, before any limit can be
+-# checked, so its size is bounded first from the end-of-central-directory record.
+-MAX_CENTRAL_DIRECTORY_BYTES = 16 * 1024 * 1024
++# zipfile parses the whole central directory in one go, sized by the end
++# record, before any limit can be checked; 10,000 entries with names up to 500
++# characters and their extra fields fit well within this bound.
++MAX_CENTRAL_DIRECTORY_BYTES = 6 * 1024 * 1024
++# Windows refuses os.replace while another process (a scanner, a reader in this
++# process) has the target open; such sharing errors clear within moments.
++REPLACE_ATTEMPTS = 8
++REPLACE_BACKOFF_SECONDS = 0.05
+ MAX_COMPRESSION_RATIO = 200
+ # Below this many expanded bytes a high ratio cannot exhaust anything.
+ RATIO_CHECK_FLOOR_BYTES = 64 * 1024
+@@ -79,6 +83,17 @@ def _next_month_start() -> str:
+     return datetime(year, month, 1, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+ 
+ 
++def _replace_with_retry(source: Path, target: Path) -> None:
++    for attempt in range(REPLACE_ATTEMPTS):
++        try:
++            os.replace(source, target)
++            return
++        except PermissionError:
++            if attempt == REPLACE_ATTEMPTS - 1:
++                raise
++            time.sleep(REPLACE_BACKOFF_SECONDS * (attempt + 1))
++
++
+ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+     path.parent.mkdir(parents=True, exist_ok=True)
+     temporary = path.with_name(path.name + ".tmp")
+@@ -86,7 +101,7 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+         json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+         handle.flush()
+         os.fsync(handle.fileno())
+-    os.replace(temporary, path)
++    _replace_with_retry(temporary, path)
+ 
+ 
+ def _load_json(path: Path) -> dict[str, Any]:
+@@ -120,40 +135,21 @@ def _normalise_relative_path(value: str) -> str:
+ 
+ 
+ def _central_directory_bounds(path: Path) -> tuple[int, int]:
+-    """Entry count and central-directory size, read from the archive's end records.
++    """Entry count and central-directory size exactly as zipfile will read them.
+ 
+     zipfile.ZipFile() reads the whole central directory and builds an object per
+-    record before infolist() returns, so a crafted 50 MB archive with a million
++    record before infolist() returns, so a crafted archive with a million
+     records costs gigabytes of memory before any limit could be checked. The
+-    end-of-central-directory record (and its ZIP64 form) states both numbers.
++    size it parses comes from the end record, replaced by a ZIP64 record found
++    directly before it whenever one is there, whatever the plain record says.
++    Calling zipfile's own end-record reader keeps this check and the parser in
++    agreement; a separate implementation could be fed a different answer.
+     """
+-    size = path.stat().st_size
+     with path.open("rb") as handle:
+-        tail_length = min(size, 22 + 65_535)
+-        handle.seek(size - tail_length)
+-        tail = handle.read(tail_length)
+-        position = tail.rfind(b"PK\x05\x06")
+-        if position < 0 or len(tail) - position < 22:
+-            raise zipfile.BadZipFile("end of central directory not found")
+-        (_, _, _, _, entries, cd_size, _, _) = struct.unpack("<4sHHHHIIH", tail[position:position + 22])
+-        if entries == 0xFFFF or cd_size == 0xFFFFFFFF:
+-            locator_at = size - tail_length + position - 20
+-            if locator_at < 0:
+-                raise zipfile.BadZipFile("ZIP64 locator not found")
+-            handle.seek(locator_at)
+-            locator = handle.read(20)
+-            if len(locator) != 20 or locator[:4] != b"PK\x06\x07":
+-                raise zipfile.BadZipFile("ZIP64 locator not found")
+-            (record_at,) = struct.unpack("<Q", locator[8:16])
+-            if record_at < 0 or record_at + 56 > size:
+-                raise zipfile.BadZipFile("ZIP64 end record is out of range")
+-            handle.seek(record_at)
+-            record = handle.read(56)
+-            if len(record) != 56 or record[:4] != b"PK\x06\x06":
+-                raise zipfile.BadZipFile("ZIP64 end record not found")
+-            (entries,) = struct.unpack("<Q", record[32:40])
+-            (cd_size,) = struct.unpack("<Q", record[40:48])
+-    return int(entries), int(cd_size)
++        endrec = zipfile._EndRecData(handle)  # noqa: SLF001 - see the docstring
++    if not endrec:
++        raise zipfile.BadZipFile("end of central directory not found")
++    return int(endrec[zipfile._ECD_ENTRIES_TOTAL]), int(endrec[zipfile._ECD_SIZE])  # noqa: SLF001
+ 
+ 
+ def _ensure_free_space(directory: Path, needed_bytes: int) -> None:
+@@ -223,8 +219,11 @@ class TrainingDatasetService:
+         # digest -> ("missing" | "ok" | "invalid", record)
+         self._label_cache: dict[str, tuple[str, dict[str, Any] | None]] = {}
+         self._recover_imports()
+-        self._known_hashes = self._read_known_hashes()
+-        self._collect_unreferenced_content()
++        self._known_hashes, complete = self._read_known_hashes()
++        # Only with every manifest read can a stored capture be called unreferenced:
++        # a manifest locked by a scanner or damaged must never cost its captures.
++        if complete:
++            self._collect_unreferenced_content()
+ 
+     # ------------------------------------------------------------------ storage
+ 
+@@ -264,18 +263,29 @@ class TrainingDatasetService:
+                 except OSError:
+                     continue
+ 
+-    def _read_known_hashes(self) -> set[str]:
++    def _read_known_hashes(self, skip: frozenset[str] = frozenset()) -> tuple[set[str], bool]:
++        """Captures referenced by the manifests on disk, and whether every one was read.
++
++        An import directory without a manifest was never written past creation
++        and references nothing; any other read failure makes the view partial.
++        """
+         known: set[str] = set()
++        complete = True
+         for import_dir in self._import_dirs():
++            if import_dir.name in skip:
++                continue
+             try:
+                 payload = _load_json(import_dir / "manifest.json")
++            except FileNotFoundError:
++                continue
+             except (OSError, ValueError, json.JSONDecodeError):
++                complete = False
+                 continue
+             for item in payload.get("files") or []:
+                 digest = item.get("sha256") if isinstance(item, dict) else None
+                 if isinstance(digest, str) and SHA256_RE.fullmatch(digest):
+                     known.add(digest)
+-        return known
++        return known, complete
+ 
+     def _content_path(self, digest: str, capture_format: str) -> Path:
+         extension = ".pcapng" if capture_format == "pcapng" else ".pcap"
+@@ -855,8 +865,14 @@ class TrainingDatasetService:
+                 self._warning(state, message)
+             finally:
+                 upload.temp_path.unlink(missing_ok=True)
+-                # a ZIP is one request: always record what it brought in
+-                self._maybe_flush(upload.import_id, state, force=upload.source_type == "zip")
++                # A ZIP is one request: always try to record what it brought in. The
++                # capture itself is stored and held in memory, so a failed manifest
++                # write is retried by the next flush or by completion, not reported
++                # as a failed upload.
++                try:
++                    self._maybe_flush(upload.import_id, state, force=upload.source_type == "zip")
++                except OSError:
++                    pass
+                 self._publish_open(upload.import_id, state)
+             return self._public(state, with_labels=False)
+ 
+@@ -866,18 +882,21 @@ class TrainingDatasetService:
+             if state.get("status") != "uploading":
+                 return self._public(state)
+             state = self._open(import_id)
++            # Build the final state aside and keep the open one untouched until the
++            # manifest is written: a failed write leaves the batch uploading and the
++            # request can simply be retried.
++            final = dict(state)
++            final["completedAt"] = utc_now()
+             if int(state.get("fileCount") or 0) <= 0:
+-                state["status"] = "failed"
+-                state["failureReason"] = EMPTY_IMPORT_REASON
+-                state["completedAt"] = utc_now()
+-                self._write_state(import_id, state)
++                final["status"] = "failed"
++                final["failureReason"] = EMPTY_IMPORT_REASON
++                self._write_state(import_id, final)
+                 self._close(import_id)
+                 raise DatasetServiceError(EMPTY_IMPORT_REASON, 422)
+-            state["status"] = "ready"
+-            state["completedAt"] = utc_now()
+-            self._write_state(import_id, state)
++            final["status"] = "ready"
++            self._write_state(import_id, final)
+             self._close(import_id)
+-            return self._public(state)
++            return self._public(final)
+ 
+     def discard_import(self, import_id: str) -> dict[str, Any]:
+         """Delete an import that never became ready, and captures only it referenced.
+@@ -898,10 +917,11 @@ class TrainingDatasetService:
+             # still has its temp file open, and the batch then stays intact.
+             trash = self.imports_root / f".discarded-{import_id}-{uuid.uuid4().hex[:8]}"
+             try:
+-                os.replace(import_dir, trash)
++                _replace_with_retry(import_dir, trash)
+             except OSError as exc:
+                 raise DatasetServiceError(
+-                    "This dataset batch is still receiving files. Wait for the upload to stop, then discard it.",
++                    "This dataset batch is busy: a file is still uploading or another program has it open. "
++                    "Try again in a moment.",
+                     409,
+                 ) from exc
+             with self._lock:
+@@ -911,11 +931,12 @@ class TrainingDatasetService:
+             with self._lock:
+                 self._manifest_cache.pop(import_id, None)
+                 self._import_locks.pop(import_id, None)
+-                known = self._read_known_hashes()
++                # open imports are known from memory; their manifests are being flushed
++                known, complete = self._read_known_hashes(frozenset(self._open_states))
+                 for digests in self._open_digests.values():
+                     known |= digests
+                 self._known_hashes = known
+-            removed = self._collect_unreferenced_content(own)
++            removed = self._collect_unreferenced_content(own) if complete else 0
+             return {"schemaVersion": 1, "importId": import_id, "discarded": True, "removedContentFiles": removed}
+ 
+     # ------------------------------------------------------------------- review
+diff --git a/iMPS_platform/desktop/runtime/imps_fault_runtime.py b/iMPS_platform/desktop/runtime/imps_fault_runtime.py
+index 789f2772..c10016c1 100644
+--- a/iMPS_platform/desktop/runtime/imps_fault_runtime.py
++++ b/iMPS_platform/desktop/runtime/imps_fault_runtime.py
+@@ -7,6 +7,7 @@ import hashlib
+ import hmac
+ import json
+ import os
++import secrets
+ import signal
+ import sys
+ import threading
+@@ -534,6 +535,8 @@ def _serve(argv: list[str]) -> int:
+     # environment (IMPS_PRODUCT_NAME / IMPS_APP_VERSION); the flags override it.
+     parser.add_argument("--product-name", default=None)
+     parser.add_argument("--app-version", default=None)
++    # Development only: serve every route without the launch token.
++    parser.add_argument("--no-api-token", action="store_true")
+     args = parser.parse_args(argv)
+     if args.host not in {"127.0.0.1", "localhost"}:
+         raise SystemExit("The desktop API can bind only to loopback")
+@@ -563,8 +566,16 @@ def _serve(argv: list[str]) -> int:
+         detection_policy=policy_id,
+         benchmark_rank=agentic_rank,
+     )
+-    # Read once and keep it out of every child process's environment.
++    # Read once and keep it out of every child process's environment. Without
++    # one the routes are locked by a random token nobody knows (fail closed);
++    # only an explicit --no-api-token serves them openly.
+     api_token = os.environ.pop(TOKEN_ENV, "").strip() or None
++    if args.no_api_token:
++        api_token = None
++        print(f"WARNING --no-api-token: every route is served without {TOKEN_HEADER}", file=sys.stderr, flush=True)
++    elif api_token is None:
++        api_token = secrets.token_hex(32)
++        print(f"WARNING {TOKEN_ENV} is not set: every route but /health is locked", file=sys.stderr, flush=True)
+     # Dataset import, ground truth and training are optional: a store that
+     # cannot be used (moved behind a junction, unreadable) disables those
+     # routes with the reason instead of taking PCAP inference down with it.
+diff --git a/iMPS_platform/desktop/runtime/smoke_runtime.ps1 b/iMPS_platform/desktop/runtime/smoke_runtime.ps1
+index 16bcffde..71a8c6ed 100644
+--- a/iMPS_platform/desktop/runtime/smoke_runtime.ps1
++++ b/iMPS_platform/desktop/runtime/smoke_runtime.ps1
+@@ -61,9 +61,18 @@ $arguments = @(
+     "--tshark", $tshark,
+     "--jobs-root", $jobsRoot
+ )
+-$runtimeProcess = Start-Process -FilePath $RuntimeExecutable -ArgumentList $arguments `
+-    -WorkingDirectory (Split-Path -Parent $RuntimeExecutable) -WindowStyle Hidden `
+-    -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
++# The sidecar locks every route but /health without its launch token; give it
++# one the way the Electron launcher does.
++$apiToken = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
++$env:IMPS_API_TOKEN = $apiToken
++try {
++    $runtimeProcess = Start-Process -FilePath $RuntimeExecutable -ArgumentList $arguments `
++        -WorkingDirectory (Split-Path -Parent $RuntimeExecutable) -WindowStyle Hidden `
++        -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
++}
++finally {
++    Remove-Item Env:\IMPS_API_TOKEN -ErrorAction SilentlyContinue
++}
+ 
+ function Wait-UntilReady {
+     for ($attempt = 0; $attempt -lt 120; $attempt++) {
+@@ -92,7 +101,7 @@ function Invoke-PcapAnalysis {
+     $upload = Invoke-WebRequest -UseBasicParsing -Method Post `
+         -Uri "$baseUrl/ai/fault-detection/jobs" -InFile $Pcap `
+         -ContentType "application/octet-stream" `
+-        -Headers @{ Origin = $origin; "X-Filename" = $Filename; Accept = "application/json" }
++        -Headers @{ Origin = $origin; "X-Filename" = $Filename; Accept = "application/json"; "X-iMPS-Token" = $apiToken }
+     $job = $upload.Content | ConvertFrom-Json
+     for ($attempt = 0; $attempt -lt 600; $attempt++) {
+         if ($job.status -notin @("queued", "processing")) {
+@@ -101,7 +110,7 @@ function Invoke-PcapAnalysis {
+         Start-Sleep -Milliseconds 500
+         $job = Invoke-RestMethod -UseBasicParsing `
+             -Uri "$baseUrl/ai/fault-detection/jobs/$($job.jobId)" `
+-            -Headers @{ Origin = $origin; Accept = "application/json" } -TimeoutSec 5
++            -Headers @{ Origin = $origin; Accept = "application/json"; "X-iMPS-Token" = $apiToken } -TimeoutSec 5
+     }
+     if ($job.status -ne "complete") {
+         throw "PCAP job failed: status=$($job.status) error=$($job.error)"
+diff --git a/iMPS_platform/desktop/runtime/tests/test_dataset_service.py b/iMPS_platform/desktop/runtime/tests/test_dataset_service.py
+index 660ba303..4c077106 100644
+--- a/iMPS_platform/desktop/runtime/tests/test_dataset_service.py
++++ b/iMPS_platform/desktop/runtime/tests/test_dataset_service.py
+@@ -3,7 +3,9 @@ from __future__ import annotations
+ import io
+ import json
+ import stat
++import struct
+ import sys
++import threading
+ import tempfile
+ import unittest
+ import zipfile
+@@ -498,5 +500,146 @@ class DatasetHardeningTests(unittest.TestCase):
+             TrainingDatasetService(junction)
+ 
+ 
++class DatasetSecondReviewTests(unittest.TestCase):
++    """Second review of 1.7.0: cleanup with unreadable manifests, ZIP64 records, failed writes, threads."""
++
++    def setUp(self) -> None:
++        self.temp = tempfile.TemporaryDirectory()
++        self.root = Path(self.temp.name)
++        self.storage = self.root / "datasets"
++        self.service = TrainingDatasetService(self.storage)
++
++    def tearDown(self) -> None:
++        self.temp.cleanup()
++
++    def upload(self, service: TrainingDatasetService, import_id: str, name: str, payload: bytes) -> dict:
++        upload = service.begin_upload(import_id, name, name, content_length=len(payload))
++        service.write_upload(upload, payload)
++        return service.finish_upload(upload)
++
++    def stored_blobs(self) -> list[Path]:
++        return list((self.storage / "files").glob("*/*.pcap*"))
++
++    def test_an_unreadable_manifest_never_costs_its_captures(self) -> None:
++        batch = self.service.create_import("Reviewed", "folder")
++        self.upload(self.service, batch["importId"], "one.pcap", _capture(b"kept"))
++        self.service.complete_import(batch["importId"])
++        manifest = self.storage / "imports" / batch["importId"] / "manifest.json"
++        good = manifest.read_text(encoding="utf-8")
++        manifest.write_text(good[:20], encoding="utf-8")  # damaged, or locked by a scanner
++
++        restarted = TrainingDatasetService(self.storage)
++        self.assertEqual(len(self.stored_blobs()), 1)
++        self.assertEqual(restarted.summary()["unreadableImports"], 1)
++
++        empty = restarted.create_import("Empty", "folder")
++        with self.assertRaises(DatasetServiceError):
++            restarted.complete_import(empty["importId"])
++        restarted.discard_import(empty["importId"])
++        self.assertEqual(len(self.stored_blobs()), 1)  # discard cleanup skipped too
++
++        manifest.write_text(good, encoding="utf-8")
++        self.assertEqual(TrainingDatasetService(self.storage).label_batch(batch["importId"])["fileCount"], 1)
++
++    def test_a_zip64_record_cannot_hide_a_huge_central_directory(self) -> None:
++        raw = _zip_bytes([("a.pcap", _capture(b"z"))], zipfile.ZIP_STORED)
++        end = raw.rfind(b"PK\x05\x06")
++        zip64_record = struct.pack(
++            "<4sQ2H2L4Q", b"PK\x06\x06", 44, 45, 45, 0, 0, 1_000_000, 1_000_000, 64 * 1024 * 1024, 0,
++        )
++        locator = struct.pack("<4sLQL", b"PK\x06\x07", 0, end, 1)
++        crafted = raw[:end] + zip64_record + locator + raw[end:]
++        try:
++            entries, cd_size = dataset_service._central_directory_bounds(self._write(crafted))
++            # the bounds are the ZIP64 values zipfile would parse, not the plain record's
++            self.assertEqual((entries, cd_size), (1_000_000, 64 * 1024 * 1024))
++        except zipfile.BadZipFile:
++            pass  # newer patch releases refuse the inconsistent ZIP64 record outright
++
++        batch = self.service.create_import("ZIP64", "zip")
++        with mock.patch.object(dataset_service.zipfile, "ZipFile", side_effect=AssertionError("parsed")):
++            state = self.upload(self.service, batch["importId"], "crafted.zip", crafted)
++        self.assertEqual(state["fileCount"], 0)
++        self.assertTrue(any(
++            "10,000 entries" in item or "directory is too large" in item or "ZIP archive is invalid" in item
++            for item in state["warnings"]
++        ))
++
++    def _write(self, payload: bytes) -> Path:
++        path = self.root / "probe.zip"
++        path.write_bytes(payload)
++        return path
++
++    def test_a_failed_completion_write_leaves_the_batch_uploading_and_can_be_retried(self) -> None:
++        batch = self.service.create_import("Retry", "folder")
++        self.upload(self.service, batch["importId"], "one.pcap", _capture(b"retry"))
++        real_write = dataset_service._write_json_atomic
++        calls = {"n": 0}
++
++        def failing_once(path: Path, payload: dict) -> None:
++            calls["n"] += 1
++            if calls["n"] == 1:
++                raise PermissionError(5, "locked by a scanner")
++            real_write(path, payload)
++
++        with mock.patch.object(dataset_service, "_write_json_atomic", side_effect=failing_once):
++            with self.assertRaises(PermissionError):
++                self.service.complete_import(batch["importId"])
++            self.assertEqual(self.service.summary()["imports"][0]["status"], "uploading")
++            completed = self.service.complete_import(batch["importId"])
++        self.assertEqual(completed["status"], "ready")
++        manifest = json.loads((self.storage / "imports" / batch["importId"] / "manifest.json").read_text("utf-8"))
++        self.assertEqual(manifest["status"], "ready")
++
++    def test_a_failed_manifest_flush_does_not_fail_the_upload(self) -> None:
++        batch = self.service.create_import("Flush", "zip")
++        with mock.patch.object(self.service, "_write_state", side_effect=PermissionError(5, "locked")):
++            state = self.upload(self.service, batch["importId"], "captures.zip", _zip_bytes([("a.pcap", _capture(b"f"))]))
++        self.assertEqual(state["fileCount"], 1)
++        self.assertEqual(self.service.complete_import(batch["importId"])["fileCount"], 1)
++
++    def test_parallel_uploads_summaries_and_discards_stay_consistent(self) -> None:
++        batches = [self.service.create_import(f"Parallel {index}", "folder")["importId"] for index in range(3)]
++        errors: list[BaseException] = []
++        stop = threading.Event()
++
++        def uploader(import_id: str, tag: int) -> None:
++            try:
++                for index in range(40):
++                    self.upload(self.service, import_id, f"{index}.pcap", _capture(f"{tag}-{index}".encode()))
++                # one capture shared by every batch
++                self.upload(self.service, import_id, "shared.pcap", _capture(b"shared"))
++            except BaseException as exc:  # noqa: BLE001 - surfaced by the assertion below
++                errors.append(exc)
++
++        def poller() -> None:
++            try:
++                while not stop.is_set():
++                    self.service.summary()
++                    empty = self.service.create_import("Throwaway", "folder")
++                    with self.assertRaises(DatasetServiceError):
++                        self.service.complete_import(empty["importId"])
++                    self.service.discard_import(empty["importId"])
++            except BaseException as exc:  # noqa: BLE001
++                errors.append(exc)
++
++        threads = [threading.Thread(target=uploader, args=(import_id, tag)) for tag, import_id in enumerate(batches)]
++        watcher = threading.Thread(target=poller)
++        watcher.start()
++        for thread in threads:
++            thread.start()
++        for thread in threads:
++            thread.join(60)
++        stop.set()
++        watcher.join(60)
++        self.assertEqual(errors, [])
++        for import_id in batches:
++            self.assertEqual(self.service.complete_import(import_id)["fileCount"], 41)
++        self.assertEqual(len(self.stored_blobs()), 3 * 40 + 1)
++        restarted = TrainingDatasetService(self.storage)
++        self.assertEqual(len(self.stored_blobs()), 3 * 40 + 1)
++        self.assertEqual(restarted.summary()["totals"]["files"], 3 * 41)
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/iMPS_platform/desktop/scripts/prepare-desktop.mjs b/iMPS_platform/desktop/scripts/prepare-desktop.mjs
+index 9cd54e71..077b859b 100644
+--- a/iMPS_platform/desktop/scripts/prepare-desktop.mjs
++++ b/iMPS_platform/desktop/scripts/prepare-desktop.mjs
+@@ -170,8 +170,10 @@ async function runRuntimeUnitTests() {
+       await run(candidate.command, [...candidate.prefix, "-m", "unittest", "discover", "-s", testsRoot, "-v"]);
+       return;
+     } catch (error) {
+-      // try the next interpreter only when this one does not exist; a failing test stops the build
+-      if (error?.code !== "ENOENT") throw new Error(`Desktop runtime unit tests failed: ${error.message}`);
++      // Try the next interpreter only when this one does not exist (ENOENT, or the
++      // Windows Store "python" alias, which exits 9009); a failing test stops the build.
++      const missing = error?.code === "ENOENT" || /\bcode 9009\b/.test(String(error?.message));
++      if (!missing) throw new Error(`Desktop runtime unit tests failed: ${error.message}`);
+     }
+   }
+   throw new Error("Desktop runtime unit tests need Python 3, which was not found.");
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts
+index 7cdb3379..ad0717de 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/api.ts
+@@ -496,10 +496,16 @@ const pcapAnalysisJobSchema = z.object({
+   result: inferenceResultSchema.nullable().optional(),
+ });
+ 
++// The sidecar limits names to 120 characters as Python counts them (code points);
++// zod's max() counts UTF-16 units and would reject a valid name containing an emoji.
++const serverName = z.string().min(1).refine((value) => Array.from(value).length <= 120, {
++  message: "Name must be at most 120 characters.",
++});
++
+ const trainingDatasetImportSchema = z.object({
+   schemaVersion: z.literal(1),
+   importId: z.string().regex(/^[0-9a-f]{32}$/),
+-  name: z.string().min(1).max(120),
++  name: serverName,
+   sourceType: z.enum(["zip", "folder"]),
+   status: z.enum(["uploading", "ready", "failed"]),
+   createdAt: z.string().min(1),
+@@ -585,7 +591,7 @@ const groundTruthFileSchema = z.object({
+ const groundTruthBatchSchema = z.object({
+   schemaVersion: z.literal(1),
+   importId: z.string().regex(/^[0-9a-f]{32}$/),
+-  name: z.string().min(1).max(120),
++  name: serverName,
+   status: z.literal("ready"),
+   fileCount: nonNegativeInteger,
+   labelStatus: z.enum(["unlabeled", "partially_labeled", "reviewed"]),
+@@ -664,7 +670,7 @@ const modelTrainingCandidateSchema = z.object({
+ const modelTrainingJobSchema = z.object({
+   schemaVersion: z.literal(1),
+   jobId: z.string().regex(/^[0-9a-f]{32}$/),
+-  name: z.string().min(1).max(120),
++  name: serverName,
+   status: z.enum(["queued", "processing", "complete", "failed"]),
+   stage: z.string().min(1),
+   progress: percentage,
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/dataset-retrain-panel.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/dataset-retrain-panel.tsx
+index 5677b577..d911b1be 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/dataset-retrain-panel.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/dataset-retrain-panel.tsx
+@@ -18,6 +18,7 @@ import {
+ } from "lucide-react";
+ 
+ import {
++  FaultDetectionApiError,
+   MAX_DATASET_CAPTURE_BYTES,
+   MAX_DATASET_UPLOAD_BYTES,
+   completeTrainingDatasetImport,
+@@ -75,9 +76,14 @@ const COPY = {
+     unreadable: "batch ที่อ่าน manifest ไม่ได้",
+     invalidZip: "กรุณาเลือกไฟล์ .zip หนึ่งไฟล์ ขนาดไม่เกิน 4 GiB",
+     invalidFolder: "ไม่พบไฟล์ .pcap หรือ .pcapng ที่ใช้ได้ในโฟลเดอร์ที่เลือก",
+-    skipped: "ข้ามไฟล์ว่างหรือใหญ่เกิน 512 MiB",
++    skipped: "ข้ามไฟล์ที่ใช้ไม่ได้ (ว่าง ใหญ่เกิน 512 MiB หรือชื่อ/path ไม่ผ่าน)",
+     failed: "นำเข้า dataset ไม่สำเร็จ",
+     actionFailed: "ทำรายการไม่สำเร็จ",
++    notFinished: "batch นี้ปิดไม่ได้",
++    reasons: {
++      interrupted: "การนำเข้าหยุดก่อนเสร็จ (ปิดแอปหรือการอัปโหลดหยุด) กรุณาลบ batch นี้แล้วนำเข้าไฟล์ใหม่",
++      empty: "ไม่มีไฟล์ PCAP หรือ PCAPNG ที่ใช้ได้ถูกนำเข้า",
++    },
+   },
+   en: {
+     title: "Dataset inbox for monthly retraining",
+@@ -121,9 +127,14 @@ const COPY = {
+     unreadable: "batch(es) with an unreadable manifest",
+     invalidZip: "Select one .zip file of at most 4 GiB.",
+     invalidFolder: "The selected folder contains no usable .pcap or .pcapng files.",
+-    skipped: "Skipped empty files or files over 512 MiB",
++    skipped: "Skipped unusable files (empty, over 512 MiB, or a name or path the importer refuses)",
+     failed: "Dataset import failed",
+     actionFailed: "The action failed",
++    notFinished: "This batch could not be finished",
++    reasons: {
++      interrupted: "The import was interrupted before it finished (the app closed or the upload stopped). Discard it and import the files again.",
++      empty: "No valid PCAP or PCAPNG files were imported.",
++    },
+   },
+ } as const;
+ 
+@@ -137,19 +148,43 @@ const formatBytes = (bytes: number) => {
+   return `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+ };
+ 
+-/** The batch name the server stores: whitespace collapsed, at most 120 characters. */
++/**
++ * The batch name the server stores: whitespace collapsed, at most 120
++ * characters. Cut by code point and kept within 120 UTF-16 units as well, so
++ * neither the sidecar nor the dashboard's schema can refuse it.
++ */
+ export function datasetImportName(month: string, rootName: string): string {
+   const name = `${month} · ${rootName}`.split(/\s+/).filter(Boolean).join(" ");
+-  return Array.from(name).slice(0, MAX_IMPORT_NAME).join("").trim();
++  let result = "";
++  for (const character of Array.from(name)) {
++    if (result.length + character.length > MAX_IMPORT_NAME) break;
++    result += character;
++  }
++  return result.trim();
++}
++
++/** The sidecar's per-file checks (begin_upload): a refused file is skipped, not sent. */
++function importerAcceptsPath(name: string, relativePath: string): boolean {
++  if (!/^.+\.(pcap|pcapng)$/i.test(name) || Array.from(name).length > 255) return false;
++  const path = (relativePath || name).replaceAll("\\", "/").trim();
++  if (!path || path.includes("\u0000") || Array.from(path).length > 500 || path.startsWith("/")) return false;
++  const parts = path.split("/");
++  return !parts.some((part) => part === "" || part === "." || part === "..") && !parts[0].includes(":");
+ }
+ 
+ /** Folder captures the importer will accept, and how many were left out. */
+ export function selectFolderCaptures(incoming: File[]): { files: File[]; skipped: number } {
+   const captures = incoming.filter((file) => /\.(pcap|pcapng)$/i.test(file.name));
+-  const files = captures.filter((file) => file.size > 0 && file.size <= MAX_DATASET_CAPTURE_BYTES);
++  const files = captures.filter((file) => file.size > 0
++    && file.size <= MAX_DATASET_CAPTURE_BYTES
++    && importerAcceptsPath(file.name, file.webkitRelativePath || file.name));
+   return { files, skipped: captures.length - files.length };
+ }
+ 
++/** A per-file refusal (bad name, size or content) skips that file; anything else stops the import. */
++const isPerFileRefusal = (error: unknown) =>
++  error instanceof FaultDetectionApiError && error.kind === "http" && [400, 413, 415].includes(error.status ?? 0);
++
+ const inputDirectoryAttributes = {
+   webkitdirectory: "",
+   directory: "",
+@@ -167,6 +202,12 @@ function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string
+   );
+ }
+ 
++function failureText(reason: string, c: (typeof COPY)[Lang]): string {
++  if (reason === COPY.en.reasons.interrupted) return c.reasons.interrupted;
++  if (reason === COPY.en.reasons.empty) return c.reasons.empty;
++  return reason;
++}
++
+ function statusBadge(item: TrainingDatasetImport, c: (typeof COPY)[Lang]) {
+   if (item.status === "ready") return { text: c.ready, tone: "tw-bg-emerald-100 tw-text-emerald-800" };
+   if (item.status === "failed") return { text: c.importFailed, tone: "tw-bg-red-100 tw-text-red-800" };
+@@ -187,9 +228,10 @@ export default function DatasetRetrainPanel({ lang, active = true }: { lang: Lan
+   const [busyImportId, setBusyImportId] = useState<string | null>(null);
+   const [progress, setProgress] = useState({ current: 0, total: 0, name: "" });
+ 
+-  const loadSummary = useCallback(async (signal?: AbortSignal) => {
++  // keepMessages: a refresh after an action must not erase that action's error.
++  const loadSummary = useCallback(async (signal?: AbortSignal, keepMessages = false) => {
+     setLoading(true);
+-    setError(null);
++    if (!keepMessages) setError(null);
+     try {
+       setSummary(await getTrainingDatasetSummary({ signal }));
+     } catch (caught) {
+@@ -254,12 +296,18 @@ export default function DatasetRetrainPanel({ lang, active = true }: { lang: Lan
+       for (let index = 0; index < files.length; index += 1) {
+         const file = files[index];
+         setProgress({ current: index, total: files.length, name: file.webkitRelativePath || file.name });
+-        await uploadTrainingDatasetFile(
+-          created.importId,
+-          file,
+-          file.webkitRelativePath || file.name,
+-          { signal: controller.signal },
+-        );
++        try {
++          await uploadTrainingDatasetFile(
++            created.importId,
++            file,
++            file.webkitRelativePath || file.name,
++            { signal: controller.signal },
++          );
++        } catch (caught) {
++          // a ZIP is the whole batch; in a folder one refused file is skipped
++          if (sourceType === "zip" || !isPerFileRefusal(caught)) throw caught;
++          skipped += 1;
++        }
+       }
+       const completed = await completeTrainingDatasetImport(created.importId, { signal: controller.signal });
+       setProgress({ current: files.length, total: files.length, name: completed.name });
+@@ -274,7 +322,7 @@ export default function DatasetRetrainPanel({ lang, active = true }: { lang: Lan
+       abortRef.current = null;
+       if (zipInputRef.current) zipInputRef.current.value = "";
+       if (folderInputRef.current) folderInputRef.current.value = "";
+-      if (!controller.signal.aborted) void loadSummary();
++      if (!controller.signal.aborted) void loadSummary(undefined, true);
+     }
+   }, [c, loadSummary]);
+ 
+@@ -284,12 +332,14 @@ export default function DatasetRetrainPanel({ lang, active = true }: { lang: Lan
+     setBusyImportId(importId);
+     try {
+       const completed = await completeTrainingDatasetImport(importId);
+-      setSuccess(`${c.imported}: ${completed.fileCount.toLocaleString("en-US")} ${c.files}`);
++      // the sidecar answers with the batch's current state when it was no longer uploading
++      if (completed.status === "ready") setSuccess(`${c.imported}: ${completed.fileCount.toLocaleString("en-US")} ${c.files}`);
++      else setError(`${c.notFinished}: ${failureText(completed.failureReason ?? "", c) || completed.status}`);
+     } catch (caught) {
+       setError(caught instanceof Error ? caught.message : c.actionFailed);
+     } finally {
+       setBusyImportId(null);
+-      void loadSummary();
++      void loadSummary(undefined, true);
+     }
+   }, [c, loadSummary]);
+ 
+@@ -305,7 +355,7 @@ export default function DatasetRetrainPanel({ lang, active = true }: { lang: Lan
+       setError(caught instanceof Error ? caught.message : c.actionFailed);
+     } finally {
+       setBusyImportId(null);
+-      void loadSummary();
++      void loadSummary(undefined, true);
+     }
+   }, [c, loadSummary]);
+ 
+@@ -438,7 +488,7 @@ export default function DatasetRetrainPanel({ lang, active = true }: { lang: Lan
+                         </div>
+                         <span className={`tw-flex-shrink-0 tw-rounded-full tw-px-2.5 tw-py-1 tw-text-[9px] tw-font-black ${badge.tone}`}>{badge.text}</span>
+                       </div>
+-                      {item.failureReason && <p className="tw-mt-2 tw-text-[10px] tw-font-semibold tw-leading-4 tw-text-red-700">{item.failureReason}</p>}
++                      {item.failureReason && <p className="tw-mt-2 tw-text-[10px] tw-font-semibold tw-leading-4 tw-text-red-700">{failureText(item.failureReason, c)}</p>}
+                       {item.warnings.length > 0 && <p className="tw-mt-2 tw-text-[10px] tw-font-medium tw-leading-4 tw-text-amber-700">{c.warnings}: {item.warnings.join(" · ")}</p>}
+                       {unfinished && (
+                         <div className="tw-mt-2.5 tw-flex tw-flex-wrap tw-gap-2">
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/desktop-api-token.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/desktop-api-token.test.ts
+index c135aa01..5eebf287 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/desktop-api-token.test.ts
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/desktop-api-token.test.ts
+@@ -136,6 +136,40 @@ describe("dataset import helpers", () => {
+     expect(datasetImportName("2026-10", "  station   A  ")).toBe("2026-10 · station A");
+   });
+ 
++  it("keeps a name with emoji within 120 UTF-16 units and never splits a surrogate pair", () => {
++    const name = datasetImportName("2026-10", "\u{1F50C}".repeat(80));
++    expect(name.length).toBeLessThanOrEqual(120);
++    expect(Array.from(name).length).toBeLessThanOrEqual(120);
++    expect(name).not.toMatch(/[\uD800-\uDBFF]$/);
++    expect(parseTrainingDatasetSummary({
++      schemaVersion: 1,
++      storagePath: "C:\\data",
++      schedule: { cadence: "monthly", nextWindowAt: "2026-11-01T00:00:00Z", mode: "manual_approval" },
++      totals: { imports: 0, files: 0, bytes: 0, duplicates: 0, rejected: 0, labeledFiles: 0 },
++      readyForRetrain: false,
++      blocker: null,
++      imports: [{
++        schemaVersion: 1, importId: "b27a3b5f27bd4d50a1d4b94e3b29daba", name: "\u{1F50C}".repeat(120), sourceType: "zip",
++        status: "uploading", createdAt: "2026-10-01T10:00:00Z", completedAt: null, fileCount: 0, bytes: 0,
++        duplicateCount: 0, rejectedCount: 0, labelStatus: "unlabeled", labeledFileCount: 0, remainingFileCount: 0,
++        normalFileCount: 0, faultFileCount: 0, excludedFileCount: 0, readyForRetrain: false,
++        recommendedRetrainAt: "2026-11-01T00:00:00Z", warnings: [],
++      }],
++    }).imports[0].name).toHaveLength(240);
++  });
++
++  it("skips files whose name or path the importer refuses", () => {
++    const file = (name: string, relative: string) => ({ name, size: 24, webkitRelativePath: relative }) as File;
++    const { files, skipped } = selectFolderCaptures([
++      file("good.pcap", "root/good.pcap"),
++      file(".pcap", "root/.pcap"),
++      file("deep.pcap", `root/${"d".repeat(600)}/deep.pcap`),
++      file(`${"n".repeat(260)}.pcap`, `root/${"n".repeat(260)}.pcap`),
++    ]);
++    expect(files.map((item) => item.name)).toEqual(["good.pcap"]);
++    expect(skipped).toBe(3);
++  });
++
+   it("skips empty and oversized captures instead of refusing the whole folder", () => {
+     const file = (name: string, size: number) => ({ name, size }) as File;
+     const { files, skipped } = selectFolderCaptures([
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/ground-truth-panel.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/ground-truth-panel.tsx
+index c90f3d14..ecf03081 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/ground-truth-panel.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/ground-truth-panel.tsx
+@@ -31,6 +31,7 @@ import { snapshotDateLocale } from "./data";
+ import { getFaultExplanation, supportedFaultFamilies } from "./fault-catalog";
+ 
+ const PAGE_SIZE = 25;
++const CLASSIFICATION_ORDER: GroundTruthClassification[] = ["normal", "fault", "exclude"];
+ 
+ const COPY = {
+   th: {
+@@ -267,6 +268,17 @@ export default function GroundTruthPanel({ lang }: { lang: Lang }) {
+     setNotes(selectedFile.label?.notes ?? "");
+   }, [selectedFile]);
+ 
++  // Arrow keys move between Normal / Fault / Exclude like a native radio group.
++  const moveClassification = (event: React.KeyboardEvent<HTMLButtonElement>, current: GroundTruthClassification) => {
++    const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
++    if (!step) return;
++    event.preventDefault();
++    const index = (CLASSIFICATION_ORDER.indexOf(current) + step + CLASSIFICATION_ORDER.length) % CLASSIFICATION_ORDER.length;
++    setClassification(CLASSIFICATION_ORDER[index]);
++    const radios = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
++    radios?.[index]?.focus();
++  };
++
+   const decisionMissing = classification === null || (classification === "fault" && faultFamily === null);
+ 
+   const filteredFiles = useMemo(() => {
+@@ -428,7 +440,7 @@ export default function GroundTruthPanel({ lang }: { lang: Lang }) {
+                         ["normal", c.normal, c.normalBody, CheckCircle2, "emerald"],
+                         ["fault", c.fault, c.faultBody, AlertTriangle, "red"],
+                         ["exclude", c.exclude, c.excludeBody, Ban, "amber"],
+-                      ] as const).map(([value, title, body, Icon, tone]) => <button key={value} type="button" role="radio" aria-checked={classification === value} onClick={() => setClassification(value)} className={`tw-rounded-xl tw-border tw-p-3 tw-text-left ${classification === value ? tone === "emerald" ? "tw-border-emerald-400 tw-bg-emerald-50" : tone === "red" ? "tw-border-red-400 tw-bg-red-50" : "tw-border-amber-400 tw-bg-amber-50" : "tw-border-slate-200 tw-bg-white"}`}><Icon className={`tw-h-4 tw-w-4 ${tone === "emerald" ? "tw-text-emerald-700" : tone === "red" ? "tw-text-red-700" : "tw-text-amber-700"}`} /><span className="tw-mt-2 tw-block tw-text-[11px] tw-font-black tw-text-slate-900">{title}</span><span className="tw-mt-1 tw-block tw-text-[9px] tw-font-medium tw-leading-4 tw-text-slate-500">{body}</span></button>)}
++                      ] as const).map(([value, title, body, Icon, tone]) => <button key={value} type="button" role="radio" aria-checked={classification === value} tabIndex={classification === value || (classification === null && value === "normal") ? 0 : -1} onKeyDown={(event) => moveClassification(event, value)} onClick={() => setClassification(value)} className={`tw-rounded-xl tw-border tw-p-3 tw-text-left ${classification === value ? tone === "emerald" ? "tw-border-emerald-400 tw-bg-emerald-50" : tone === "red" ? "tw-border-red-400 tw-bg-red-50" : "tw-border-amber-400 tw-bg-amber-50" : "tw-border-slate-200 tw-bg-white"}`}><Icon className={`tw-h-4 tw-w-4 ${tone === "emerald" ? "tw-text-emerald-700" : tone === "red" ? "tw-text-red-700" : "tw-text-amber-700"}`} /><span className="tw-mt-2 tw-block tw-text-[11px] tw-font-black tw-text-slate-900">{title}</span><span className="tw-mt-1 tw-block tw-text-[9px] tw-font-medium tw-leading-4 tw-text-slate-500">{body}</span></button>)}
+                     </div>
+                     {classification === "fault" && <label className="tw-mt-4 tw-block"><span className="tw-mb-1.5 tw-block tw-text-[11px] tw-font-black tw-text-slate-700">{c.faultFamily}</span><select value={faultFamily ?? ""} required onChange={(event) => setFaultFamily(event.target.value ? event.target.value as GroundTruthFaultFamily : null)} className="tw-h-11 tw-w-full tw-rounded-xl tw-border tw-border-slate-200 tw-bg-white tw-px-3 tw-text-[12px] tw-font-bold tw-text-slate-800 tw-outline-none focus:tw-border-red-400"><option value="" disabled>{c.chooseFamily}</option>{supportedFaultFamilies.map((family) => <option key={family} value={family}>{family.replaceAll("_", " ")} · {getFaultExplanation(family, lang).title}</option>)}</select></label>}
+                     <label className="tw-mt-4 tw-block"><span className="tw-mb-1.5 tw-block tw-text-[11px] tw-font-black tw-text-slate-700">{c.notes}</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} rows={6} placeholder={c.notesPlaceholder} className="tw-w-full tw-resize-y tw-rounded-xl tw-border tw-border-slate-200 tw-bg-white tw-p-3 tw-text-[12px] tw-font-medium tw-leading-5 tw-text-slate-800 tw-outline-none focus:tw-border-violet-400" /><span className="tw-mt-1 tw-block tw-text-right tw-text-[9px] tw-font-bold tw-text-slate-400">{notes.length}/2000</span></label>
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx
+index 7fa191eb..367773a5 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/station-detail-dialog.tsx
+@@ -57,7 +57,7 @@ const COPY = {
+     reasonElevated: (value: number) => `Fault rate เริ่มสูง (${value.toFixed(1)}%)`,
+     reasonHigh: (value: number) => `Fault rate สูง (${value.toFixed(1)}%)`,
+     reasonSevere: (family: string, count: number) => `พบ ${family} ที่มีผลกระทบสูง ${count.toLocaleString("en-US")} sessions`,
+-    reasonHotspot: (connector: string, value: number) => `${connector} มี Fault rate สูงสุด ${value.toFixed(1)}%`,
++    reasonHotspot: (connector: string, value: number) => `${connector} มี Fault rate สูงสุด ${value.toFixed(1)}% ในบรรดา connector ที่มีอย่างน้อย 20 session`,
+     reasonLimited: (value: number) => `มีข้อมูลเพียง ${value.toLocaleString("en-US")} sessions ความมั่นใจจึงต่ำ`,
+     overviewTrain: "ภาพรวมข้อมูลชุดฝึก (in-sample)",
+     connectorCountTrain: "Connector ในชุดฝึก",
+@@ -130,7 +130,7 @@ const COPY = {
+     reasonElevated: (value: number) => `Fault rate is elevated (${value.toFixed(1)}%).`,
+     reasonHigh: (value: number) => `Fault rate is high (${value.toFixed(1)}%).`,
+     reasonSevere: (family: string, count: number) => `${family} has high station impact in ${count.toLocaleString("en-US")} sessions.`,
+-    reasonHotspot: (connector: string, value: number) => `${connector} has the highest fault rate at ${value.toFixed(1)}%.`,
++    reasonHotspot: (connector: string, value: number) => `${connector} has the highest fault rate at ${value.toFixed(1)}% among connectors with at least 20 sessions.`,
+     reasonLimited: (value: number) => `Only ${value.toLocaleString("en-US")} sessions are available, so confidence is low.`,
+     overviewTrain: "Training-data overview (in-sample)",
+     connectorCountTrain: "Connectors in training set",
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/train-model-panel.tsx b/iMPS_platform/src/app/dashboard/ai/fault-detection/train-model-panel.tsx
+index 867e1362..dfd02c5e 100644
+--- a/iMPS_platform/src/app/dashboard/ai/fault-detection/train-model-panel.tsx
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/train-model-panel.tsx
+@@ -40,6 +40,21 @@ const COPY = {
+     engineMissingBody: "การตรวจจับ Fault เดิมยังใช้งานได้ตามปกติ แต่ต้องมีส่วนประกอบด้านล่างครบก่อนเริ่มฝึก",
+     configHint: "กำหนดตำแหน่งได้ในไฟล์นี้ (JSON: python, aiProject, baselineArtifacts) แล้วกดรีเฟรช",
+     configError: "อ่านไฟล์ตั้งค่าไม่ได้",
++    requirementLabels: {
++      python: "Python ที่ติดตั้ง PyTorch",
++      aiProject: "โปรเจกต์วิจัย (models/nn_tools.py, core/feature_tracker.py, core/schema.py)",
++      baselineArtifacts: "Baseline checkpoint (lstm_ae.pt, gru_fore.pt)",
++      worker: "Training worker (มากับแอป)",
++      decoder: "ตัวถอดรหัส capture (มากับแอป)",
++      tshark: "TShark (มากับแอป)",
++      baseModel: "Manifest ของโมเดลที่ติดตั้ง (มากับแอป)",
++      baselineMatch: "Baseline checkpoint ตรงกับโมเดลที่ติดตั้ง",
++    } as Record<string, string>,
++    requirementDetails: {
++      "The external baseline checkpoints do not match the installed model.": "Baseline checkpoint ภายนอกไม่ตรงกับโมเดลที่ติดตั้ง",
++      "The baseline model manifest or checkpoints are invalid.": "Manifest หรือ checkpoint ของ baseline ไม่ถูกต้อง",
++      "Checked once every file above is present.": "จะตรวจเมื่อมีไฟล์ด้านบนครบ",
++    } as Record<string, string>,
+     sourceLabels: { command_line: "command line", environment: "environment", config_file: "engine.json", default: "ค่าเริ่มต้น" },
+     batches: "เลือก Dataset batch",
+     batchesHint: "แสดงเฉพาะ batch ที่ตรวจ Ground Truth ครบทุกไฟล์",
+@@ -73,7 +88,7 @@ const COPY = {
+     sessionsHint: (normal: number, fault: number) => `Normal ${normal.toLocaleString("en-US")} · Fault กันไว้ ${fault.toLocaleString("en-US")}`,
+     windows: "Training windows",
+     windowsHint: "LSTM-AE / GRU",
+-    sampledOf: (available: number) => `สุ่มจาก ${available.toLocaleString("en-US")} windows`,
++    sampledOf: (ae: number, fore: number) => `สุ่มจาก ${ae.toLocaleString("en-US")} / ${fore.toLocaleString("en-US")} windows`,
+     aeLoss: "LSTM-AE loss",
+     foreLoss: "GRU loss",
+     duration: "เวลาฝึก",
+@@ -96,6 +111,8 @@ const COPY = {
+     engineMissingBody: "Existing fault detection keeps working, but every item below must be present before a run can start.",
+     configHint: "Set the locations in this file (JSON: python, aiProject, baselineArtifacts), then refresh.",
+     configError: "The settings file cannot be read",
++    requirementLabels: {} as Record<string, string>,
++    requirementDetails: {} as Record<string, string>,
+     sourceLabels: { command_line: "command line", environment: "environment", config_file: "engine.json", default: "default" },
+     batches: "Select dataset batches",
+     batchesHint: "Only batches with every Ground Truth label reviewed are shown.",
+@@ -129,7 +146,7 @@ const COPY = {
+     sessionsHint: (normal: number, fault: number) => `Normal ${normal.toLocaleString("en-US")} · Fault reserve ${fault.toLocaleString("en-US")}`,
+     windows: "Training windows",
+     windowsHint: "LSTM-AE / GRU",
+-    sampledOf: (available: number) => `sampled from ${available.toLocaleString("en-US")} windows`,
++    sampledOf: (ae: number, fore: number) => `sampled from ${ae.toLocaleString("en-US")} / ${fore.toLocaleString("en-US")} windows`,
+     aeLoss: "LSTM-AE loss",
+     foreLoss: "GRU loss",
+     duration: "Training time",
+@@ -174,6 +191,7 @@ export default function TrainModelPanel({ lang }: { lang: Lang }) {
+   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+   const [preview, setPreview] = useState<ModelTrainingPreview | null>(null);
+   const [previewLoading, setPreviewLoading] = useState(false);
++  const [previewError, setPreviewError] = useState<string | null>(null);
+   const [selectedJobId, setSelectedJobId] = useState("");
+   const [name, setName] = useState("Monthly candidate");
+   const [epochs, setEpochs] = useState(3);
+@@ -187,7 +205,11 @@ export default function TrainModelPanel({ lang }: { lang: Lang }) {
+     try {
+       const result = await getModelTrainingSummary({ signal });
+       setSummary(result);
+-      setSelectedIds((current) => current.filter((id) => result.eligibleImports.some((item) => item.importId === id)));
++      // keep the same array when nothing was dropped, or every refresh re-runs the preview
++      setSelectedIds((current) => {
++        const kept = current.filter((id) => result.eligibleImports.some((item) => item.importId === id));
++        return kept.length === current.length ? current : kept;
++      });
+       setSelectedJobId((current) => result.jobs.some((job) => job.jobId === current) ? current : result.jobs[0]?.jobId ?? "");
+     } catch (caught) {
+       if (caught instanceof DOMException && caught.name === "AbortError") return;
+@@ -207,6 +229,8 @@ export default function TrainModelPanel({ lang }: { lang: Lang }) {
+   // per-batch counts would overstate batches that share captures.
+   useEffect(() => {
+     setPreview(null);
++    setPreviewError(null);
++    setPreviewLoading(false);
+     if (!selectedIds.length || selectedIds.length > MAX_BATCHES_PER_RUN) return undefined;
+     const controller = new AbortController();
+     const timer = window.setTimeout(() => {
+@@ -215,7 +239,7 @@ export default function TrainModelPanel({ lang }: { lang: Lang }) {
+         .then((result) => setPreview(result))
+         .catch((caught) => {
+           if (caught instanceof DOMException && caught.name === "AbortError") return;
+-          setError(caught instanceof Error ? caught.message : c.failedLoad);
++          setPreviewError(caught instanceof Error ? caught.message : c.failedLoad);
+         })
+         .finally(() => {
+           if (!controller.signal.aborted) setPreviewLoading(false);
+@@ -343,12 +367,12 @@ export default function TrainModelPanel({ lang }: { lang: Lang }) {
+                           ? <CheckCircle2 className="tw-mt-0.5 tw-h-3.5 tw-w-3.5 tw-flex-shrink-0 tw-text-emerald-600" aria-hidden="true" />
+                           : <XCircle className="tw-mt-0.5 tw-h-3.5 tw-w-3.5 tw-flex-shrink-0 tw-text-red-600" aria-hidden="true" />}
+                         <span className="tw-min-w-0">
+-                          <span className={`tw-font-black ${item.ok ? "tw-text-slate-700" : "tw-text-red-800"}`}>{item.label}</span>
++                          <span className={`tw-font-black ${item.ok ? "tw-text-slate-700" : "tw-text-red-800"}`}>{c.requirementLabels[item.id] ?? item.label}</span>
+                           {engine.configSource && item.id in engine.configSource && (
+                             <span className="tw-ml-1 tw-font-semibold tw-text-slate-400">({c.sourceLabels[engine.configSource[item.id as keyof typeof engine.configSource]]})</span>
+                           )}
+                           {item.path && <span className="ai-mono tw-block tw-break-all tw-font-medium tw-text-slate-500">{item.path}</span>}
+-                          {!item.ok && item.detail && <span className="tw-block tw-font-semibold tw-text-amber-800">{item.detail}</span>}
++                          {!item.ok && item.detail && <span className="tw-block tw-font-semibold tw-text-amber-800">{c.requirementDetails[item.detail] ?? item.detail}</span>}
+                         </span>
+                       </li>
+                     ))}
+@@ -425,6 +449,7 @@ export default function TrainModelPanel({ lang }: { lang: Lang }) {
+               </label>
+             </div>
+             {tooManyBatches && <p className="tw-mt-2 tw-text-[10px] tw-font-bold tw-text-amber-700">{c.tooManyBatches}</p>}
++            {previewError && <p role="alert" className="tw-mt-2 tw-text-[10px] tw-font-bold tw-text-red-700">{previewError}</p>}
+             {!activeJobId && previewCurrent && !preview.hasNormal && <p className="tw-mt-2 tw-text-[10px] tw-font-bold tw-text-amber-700">{c.selectNormal}</p>}
+             {previewCurrent && !preview.withinLimit && <p className="tw-mt-2 tw-text-[10px] tw-font-bold tw-text-amber-700">{c.overLimit}</p>}
+             {activeJobId && <p className="tw-mt-2 tw-text-[10px] tw-font-bold tw-text-blue-700">{c.activeRun}</p>}
+@@ -476,7 +501,7 @@ export default function TrainModelPanel({ lang }: { lang: Lang }) {
+                         label={c.windows}
+                         value={`${fmt(training.aeWindows)} / ${fmt(training.forecasterWindows)}`}
+                         hint={training.aeWindowsAvailable !== undefined && training.forecasterWindowsAvailable !== undefined
+-                          ? `${c.windowsHint} · ${c.sampledOf(training.aeWindowsAvailable + training.forecasterWindowsAvailable)}`
++                          ? `${c.windowsHint} · ${c.sampledOf(training.aeWindowsAvailable, training.forecasterWindowsAvailable)}`
+                           : c.windowsHint}
+                       />
+                       <Metric label={c.aeLoss} value={`${fmtLoss(training.aeLossInitial)} → ${fmtLoss(training.aeLossFinal)}`} />
+-- 
+2.45.1.windows.1
+

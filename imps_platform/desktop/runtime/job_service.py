@@ -51,7 +51,16 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    # Windows refuses the replace while a status poll (or a scanner) has the
+    # file open; that clears within moments.
+    for attempt in range(8):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def _is_link_like(path: Path) -> bool:

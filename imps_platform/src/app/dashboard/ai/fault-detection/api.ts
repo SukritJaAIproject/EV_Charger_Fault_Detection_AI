@@ -5,11 +5,18 @@ import type { FaultDetectionSummary, StationRollupMetrics } from "./data";
 export const FAULT_DETECTION_SUMMARY_PATH = "/ai/fault-detection/summary";
 export const FAULT_DETECTION_JOBS_PATH = "/ai/fault-detection/jobs";
 export const FAULT_DETECTION_HEALTH_PATH = "/health";
+export const FAULT_DETECTION_DATASETS_PATH = "/ai/fault-detection/datasets";
+export const FAULT_DETECTION_TRAINING_PATH = "/ai/fault-detection/training";
 export const MAX_PCAP_UPLOAD_BYTES = 256 * 1024 * 1024;
+export const MAX_DATASET_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024;
+export const MAX_DATASET_CAPTURE_BYTES = 512 * 1024 * 1024;
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000").replace(/\/+$/, "");
 const DESKTOP_API_BASE = "http://localhost:18765";
 const DESKTOP_API_PORT_STORAGE_KEY = "imps.faultDetection.desktopApiPort";
+const DESKTOP_API_TOKEN_STORAGE_KEY = "imps.faultDetection.desktopApiToken";
+export const DESKTOP_API_TOKEN_HEADER = "X-iMPS-Token";
+const DESKTOP_API_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 
 function isValidDesktopApiPort(value: number): boolean {
   return Number.isInteger(value) && value >= 1024 && value <= 65535;
@@ -53,6 +60,39 @@ export function resolveFaultDetectionApiBase(search?: string): string {
  */
 export function isDesktopFaultDetectionApi(search?: string): boolean {
   return resolveFaultDetectionApiBase(search) !== API_BASE;
+}
+
+/**
+ * The per-launch secret the Electron launcher puts in the dashboard URL. It is
+ * kept for the tab like the port, because client navigation drops the query.
+ */
+export function resolveDesktopApiToken(search?: string): string | null {
+  const query = search ?? (typeof window === "undefined" ? "" : window.location.search);
+  const requested = new URLSearchParams(query).get("desktopApiToken");
+  if (requested && DESKTOP_API_TOKEN_PATTERN.test(requested)) {
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.setItem(DESKTOP_API_TOKEN_STORAGE_KEY, requested);
+      } catch {
+        // The query string still carries it on this page.
+      }
+    }
+    return requested;
+  }
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.sessionStorage.getItem(DESKTOP_API_TOKEN_STORAGE_KEY);
+    return stored && DESKTOP_API_TOKEN_PATTERN.test(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Request headers, plus the launch token when the request goes to the desktop sidecar. */
+export function faultDetectionApiHeaders(headers: Record<string, string>, search?: string): Record<string, string> {
+  if (!isDesktopFaultDetectionApi(search)) return headers;
+  const token = resolveDesktopApiToken(search);
+  return token ? { ...headers, [DESKTOP_API_TOKEN_HEADER]: token } : headers;
 }
 
 const finiteNumber = z.number().finite();
@@ -456,8 +496,257 @@ const pcapAnalysisJobSchema = z.object({
   result: inferenceResultSchema.nullable().optional(),
 });
 
+// The sidecar limits names to 120 characters as Python counts them (code points);
+// zod's max() counts UTF-16 units and would reject a valid name containing an emoji.
+const serverName = z.string().min(1).refine((value) => Array.from(value).length <= 120, {
+  message: "Name must be at most 120 characters.",
+});
+
+const trainingDatasetImportSchema = z.object({
+  schemaVersion: z.literal(1),
+  importId: z.string().regex(/^[0-9a-f]{32}$/),
+  name: serverName,
+  sourceType: z.enum(["zip", "folder"]),
+  status: z.enum(["uploading", "ready", "failed"]),
+  createdAt: z.string().min(1),
+  completedAt: z.string().min(1).nullable(),
+  fileCount: nonNegativeInteger,
+  bytes: nonNegativeInteger,
+  duplicateCount: nonNegativeInteger,
+  rejectedCount: nonNegativeInteger,
+  labelStatus: z.enum(["unlabeled", "partially_labeled", "reviewed"]),
+  labeledFileCount: nonNegativeInteger,
+  remainingFileCount: nonNegativeInteger,
+  normalFileCount: nonNegativeInteger,
+  faultFileCount: nonNegativeInteger,
+  excludedFileCount: nonNegativeInteger,
+  // ground-truth files that exist but cannot be read; those captures need review again
+  invalidLabelCount: nonNegativeInteger.optional().default(0),
+  readyForRetrain: z.boolean(),
+  recommendedRetrainAt: z.string().min(1),
+  failureReason: z.string().nullable().optional().default(null),
+  warnings: z.array(z.string().min(1)).max(20),
+});
+
+const trainingDatasetSummarySchema = z.object({
+  schemaVersion: z.literal(1),
+  storagePath: z.string().min(1),
+  schedule: z.object({
+    cadence: z.literal("monthly"),
+    nextWindowAt: z.string().min(1),
+    mode: z.literal("manual_approval"),
+  }),
+  totals: z.object({
+    imports: nonNegativeInteger,
+    files: nonNegativeInteger,
+    bytes: nonNegativeInteger,
+    duplicates: nonNegativeInteger,
+    rejected: nonNegativeInteger,
+    labeledFiles: nonNegativeInteger,
+  }),
+  readyForRetrain: z.boolean(),
+  blocker: z.enum(["labels_and_training_pipeline_required", "training_pipeline_required"]).nullable(),
+  unreadableImports: nonNegativeInteger.optional().default(0),
+  imports: z.array(trainingDatasetImportSchema),
+});
+
+const groundTruthFaultFamilySchema = z.enum([
+  "PROTOCOL_FAILED",
+  "EVSE_FAULT",
+  "ISOLATION_FAULT",
+  "EV_ERROR",
+  "SESSION_ABORT",
+  "SLAC_FAILURE",
+  "COMM_FREEZE",
+  "NO_POWER_DELIVERED",
+]);
+
+const groundTruthLabelSchema = z.object({
+  classification: z.enum(["normal", "fault", "exclude"]),
+  faultFamily: groundTruthFaultFamilySchema.nullable(),
+  reviewer: z.string().min(1).max(80),
+  notes: z.string().max(2_000),
+  revision: z.number().int().positive(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+}).superRefine((label, context) => {
+  if (label.classification === "fault" && label.faultFamily === null) {
+    context.addIssue({ code: "custom", path: ["faultFamily"], message: "Fault labels require a fault family." });
+  }
+  if (label.classification !== "fault" && label.faultFamily !== null) {
+    context.addIssue({ code: "custom", path: ["faultFamily"], message: "Only fault labels can have a fault family." });
+  }
+});
+
+const groundTruthFileSchema = z.object({
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  originalName: z.string().min(1),
+  relativePath: z.string().min(1),
+  sizeBytes: nonNegativeInteger,
+  captureFormat: z.enum(["pcap", "pcapng"]),
+  label: groundTruthLabelSchema.nullable(),
+  labelInvalid: z.boolean().optional().default(false),
+});
+
+const groundTruthBatchSchema = z.object({
+  schemaVersion: z.literal(1),
+  importId: z.string().regex(/^[0-9a-f]{32}$/),
+  name: serverName,
+  status: z.literal("ready"),
+  fileCount: nonNegativeInteger,
+  labelStatus: z.enum(["unlabeled", "partially_labeled", "reviewed"]),
+  labeledFileCount: nonNegativeInteger,
+  remainingFileCount: nonNegativeInteger,
+  normalFileCount: nonNegativeInteger,
+  faultFileCount: nonNegativeInteger,
+  excludedFileCount: nonNegativeInteger,
+  invalidLabelCount: nonNegativeInteger.optional().default(0),
+  files: z.array(groundTruthFileSchema),
+});
+
+const modelTrainingRequirementSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  path: z.string().nullable(),
+  ok: z.boolean(),
+  detail: z.string().optional(),
+});
+
+const engineSettingSourceSchema = z.enum(["command_line", "environment", "config_file", "default"]);
+
+const modelTrainingEngineSchema = z.object({
+  available: z.boolean(),
+  mode: z.literal("external_pytorch"),
+  device: z.literal("auto_cuda_or_cpu"),
+  missing: z.array(z.string()),
+  requirements: z.array(modelTrainingRequirementSchema).optional().default([]),
+  configFile: z.string().nullable().optional().default(null),
+  configSource: z.object({
+    python: engineSettingSourceSchema,
+    aiProject: engineSettingSourceSchema,
+    baselineArtifacts: engineSettingSourceSchema,
+  }).nullable().optional().default(null),
+  configError: z.string().nullable().optional().default(null),
+  maxEpochs: z.number().int().min(1).max(100),
+});
+
+const modelTrainingFileSchema = z.object({
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  sizeBytes: nonNegativeInteger,
+});
+
+const modelTrainingCandidateSchema = z.object({
+  artifactVersion: z.string().regex(/^[0-9a-f]{16}$/),
+  createdAt: z.string().min(1),
+  approvalStatus: z.literal("manual_validation_required"),
+  training: z.object({
+    device: z.enum(["cpu", "cuda"]),
+    deviceName: z.string().min(1),
+    epochs: z.number().int().positive(),
+    normalCaptures: nonNegativeInteger,
+    faultReserveCaptures: nonNegativeInteger,
+    normalSessions: nonNegativeInteger,
+    faultReserveSessions: nonNegativeInteger,
+    extractedEvents: nonNegativeInteger,
+    aeWindows: nonNegativeInteger,
+    forecasterWindows: nonNegativeInteger,
+    // runs from 1.7.0 on: windows available before sampling, and what was sampled from
+    aeWindowsAvailable: nonNegativeInteger.optional(),
+    forecasterWindowsAvailable: nonNegativeInteger.optional(),
+    contributingCaptures: nonNegativeInteger.optional(),
+    contributingSessions: nonNegativeInteger.optional(),
+    aeLossInitial: nonNegativeNumber,
+    aeLossFinal: nonNegativeNumber,
+    forecasterLossInitial: nonNegativeNumber,
+    forecasterLossFinal: nonNegativeNumber,
+    durationSeconds: nonNegativeNumber,
+  }),
+  files: z.object({
+    "lstm_ae.npz": modelTrainingFileSchema,
+    "gru_fore.npz": modelTrainingFileSchema,
+  }),
+});
+
+const modelTrainingJobSchema = z.object({
+  schemaVersion: z.literal(1),
+  jobId: z.string().regex(/^[0-9a-f]{32}$/),
+  name: serverName,
+  status: z.enum(["queued", "processing", "complete", "failed"]),
+  stage: z.string().min(1),
+  progress: percentage,
+  detail: z.string().min(1),
+  createdAt: z.string().min(1),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  error: z.string().nullable(),
+  dataset: z.object({
+    importIds: z.array(z.string().regex(/^[0-9a-f]{32}$/)).min(1).max(24),
+    fileCount: nonNegativeInteger,
+    normalFileCount: nonNegativeInteger,
+    faultFileCount: nonNegativeInteger,
+    excludedFileCount: nonNegativeInteger,
+  }),
+  config: z.object({
+    epochs: z.number().int().min(1).max(100),
+    mode: z.literal("safe_fine_tune"),
+  }),
+  baseArtifactVersion: z.string().min(1),
+  candidate: modelTrainingCandidateSchema.nullable(),
+});
+
+const modelTrainingSummarySchema = z.object({
+  schemaVersion: z.literal(1),
+  engine: modelTrainingEngineSchema,
+  eligibleImports: z.array(trainingDatasetImportSchema),
+  jobs: z.array(modelTrainingJobSchema),
+});
+
+const modelTrainingPreviewSchema = z.object({
+  schemaVersion: z.literal(1),
+  importIds: z.array(z.string().regex(/^[0-9a-f]{32}$/)).min(1),
+  fileCount: nonNegativeInteger,
+  normalFileCount: nonNegativeInteger,
+  faultFileCount: nonNegativeInteger,
+  excludedFileCount: nonNegativeInteger,
+  uniqueCaptureCount: nonNegativeInteger,
+  captureBytes: nonNegativeInteger,
+  maxCaptureBytes: nonNegativeInteger,
+  withinLimit: z.boolean(),
+  hasNormal: z.boolean(),
+});
+
+const trainingDatasetDiscardSchema = z.object({
+  schemaVersion: z.literal(1),
+  importId: z.string().regex(/^[0-9a-f]{32}$/),
+  discarded: z.literal(true),
+  removedContentFiles: nonNegativeInteger,
+});
+
 export type PcapAnalysisJob = z.infer<typeof pcapAnalysisJobSchema>;
 export type PcapInferenceResult = z.infer<typeof inferenceResultSchema>;
+export type TrainingDatasetImport = z.infer<typeof trainingDatasetImportSchema>;
+export type TrainingDatasetSummary = z.infer<typeof trainingDatasetSummarySchema>;
+export type TrainingDatasetSourceType = TrainingDatasetImport["sourceType"];
+export type GroundTruthLabel = z.infer<typeof groundTruthLabelSchema>;
+export type GroundTruthFile = z.infer<typeof groundTruthFileSchema>;
+export type GroundTruthBatch = z.infer<typeof groundTruthBatchSchema>;
+export type GroundTruthClassification = GroundTruthLabel["classification"];
+export type GroundTruthFaultFamily = z.infer<typeof groundTruthFaultFamilySchema>;
+export type GroundTruthLabelInput = {
+  sha256: string;
+  classification: GroundTruthClassification;
+  faultFamily: GroundTruthFaultFamily | null;
+  reviewer: string;
+  notes: string;
+  expectedRevision: number;
+};
+export type ModelTrainingEngine = z.infer<typeof modelTrainingEngineSchema>;
+export type ModelTrainingCandidate = z.infer<typeof modelTrainingCandidateSchema>;
+export type ModelTrainingJob = z.infer<typeof modelTrainingJobSchema>;
+export type ModelTrainingSummary = z.infer<typeof modelTrainingSummarySchema>;
+export type ModelTrainingRequirement = z.infer<typeof modelTrainingRequirementSchema>;
+export type ModelTrainingPreview = z.infer<typeof modelTrainingPreviewSchema>;
+export type TrainingDatasetDiscard = z.infer<typeof trainingDatasetDiscardSchema>;
 
 export type FaultDetectionApiErrorKind = "http" | "network" | "invalid_response";
 
@@ -535,6 +824,94 @@ export function parsePcapAnalysisJob(payload: unknown): PcapAnalysisJob {
   return result.data;
 }
 
+export function parseTrainingDatasetImport(payload: unknown): TrainingDatasetImport {
+  const result = trainingDatasetImportSchema.safeParse(payload);
+  if (!result.success) {
+    throw new FaultDetectionApiError(
+      `Dataset import API returned an invalid response: ${describeValidationIssues(result.error)}`,
+      { kind: "invalid_response", details: result.error.issues }
+    );
+  }
+  return result.data;
+}
+
+export function parseTrainingDatasetSummary(payload: unknown): TrainingDatasetSummary {
+  const result = trainingDatasetSummarySchema.safeParse(payload);
+  if (!result.success) {
+    throw new FaultDetectionApiError(
+      `Dataset API returned an invalid response: ${describeValidationIssues(result.error)}`,
+      { kind: "invalid_response", details: result.error.issues }
+    );
+  }
+  return result.data;
+}
+
+export function parseGroundTruthLabel(payload: unknown): GroundTruthLabel {
+  const result = groundTruthLabelSchema.safeParse(payload);
+  if (!result.success) {
+    throw new FaultDetectionApiError(
+      `Ground-truth API returned an invalid label: ${describeValidationIssues(result.error)}`,
+      { kind: "invalid_response", details: result.error.issues }
+    );
+  }
+  return result.data;
+}
+
+export function parseGroundTruthBatch(payload: unknown): GroundTruthBatch {
+  const result = groundTruthBatchSchema.safeParse(payload);
+  if (!result.success) {
+    throw new FaultDetectionApiError(
+      `Ground-truth API returned an invalid batch: ${describeValidationIssues(result.error)}`,
+      { kind: "invalid_response", details: result.error.issues }
+    );
+  }
+  return result.data;
+}
+
+export function parseModelTrainingJob(payload: unknown): ModelTrainingJob {
+  const result = modelTrainingJobSchema.safeParse(payload);
+  if (!result.success) {
+    throw new FaultDetectionApiError(
+      `Training API returned an invalid job: ${describeValidationIssues(result.error)}`,
+      { kind: "invalid_response", details: result.error.issues }
+    );
+  }
+  return result.data;
+}
+
+export function parseModelTrainingSummary(payload: unknown): ModelTrainingSummary {
+  const result = modelTrainingSummarySchema.safeParse(payload);
+  if (!result.success) {
+    throw new FaultDetectionApiError(
+      `Training API returned an invalid response: ${describeValidationIssues(result.error)}`,
+      { kind: "invalid_response", details: result.error.issues }
+    );
+  }
+  return result.data;
+}
+
+export function parseModelTrainingPreview(payload: unknown): ModelTrainingPreview {
+  const result = modelTrainingPreviewSchema.safeParse(payload);
+  if (!result.success) {
+    throw new FaultDetectionApiError(
+      `Training API returned an invalid preview: ${describeValidationIssues(result.error)}`,
+      { kind: "invalid_response", details: result.error.issues }
+    );
+  }
+  return result.data;
+}
+
+export function parseTrainingDatasetDiscard(payload: unknown): TrainingDatasetDiscard {
+  const result = trainingDatasetDiscardSchema.safeParse(payload);
+  if (!result.success) {
+    throw new FaultDetectionApiError(
+      `Dataset API returned an invalid discard response: ${describeValidationIssues(result.error)}`,
+      { kind: "invalid_response", details: result.error.issues }
+    );
+  }
+  return result.data;
+}
+
 async function readJsonResponse(response: Response, label: string): Promise<unknown> {
   const body = await response.text();
   if (!response.ok) {
@@ -572,6 +949,11 @@ const desktopRuntimeStatusSchema = z.object({
   modelCreatedAt: optionalText,
   summarySnapshotAt: optionalText,
   detectionPolicy: detectionPolicySchema.nullable().optional().catch(null),
+  // dataset import, ground truth and training; inference runs without them
+  retraining: z.object({
+    available: z.boolean(),
+    reason: z.string().nullable(),
+  }).optional().catch(undefined),
 });
 
 export type DesktopRuntimeStatus = z.infer<typeof desktopRuntimeStatusSchema>;
@@ -593,7 +975,7 @@ export async function getDesktopRuntimeStatus(options: { signal?: AbortSignal } 
   try {
     response = await fetch(`${resolveFaultDetectionApiBase()}${FAULT_DETECTION_HEALTH_PATH}`, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: faultDetectionApiHeaders({ Accept: "application/json" }),
       cache: "no-store",
       signal: options.signal,
     });
@@ -625,7 +1007,7 @@ export async function getFaultDetectionSummary(options: { signal?: AbortSignal }
   try {
     response = await fetch(`${resolveFaultDetectionApiBase()}${FAULT_DETECTION_SUMMARY_PATH}`, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: faultDetectionApiHeaders({ Accept: "application/json" }),
       credentials: "include",
       cache: "no-store",
       signal: options.signal,
@@ -668,11 +1050,11 @@ export async function createPcapAnalysisJob(
   try {
     response = await fetch(`${resolveFaultDetectionApiBase()}${FAULT_DETECTION_JOBS_PATH}`, {
       method: "POST",
-      headers: {
+      headers: faultDetectionApiHeaders({
         Accept: "application/json",
         "Content-Type": "application/octet-stream",
         "X-Filename": encodeURIComponent(file.name),
-      },
+      }),
       body: file,
       credentials: "include",
       cache: "no-store",
@@ -705,7 +1087,7 @@ export async function getPcapAnalysisJob(
       `${resolveFaultDetectionApiBase()}${FAULT_DETECTION_JOBS_PATH}/${jobId}`,
       {
         method: "GET",
-        headers: { Accept: "application/json" },
+        headers: faultDetectionApiHeaders({ Accept: "application/json" }),
         credentials: "include",
         cache: "no-store",
         signal: options.signal,
@@ -720,4 +1102,316 @@ export async function getPcapAnalysisJob(
   }
 
   return parsePcapAnalysisJob(await readJsonResponse(response, "PCAP analysis API"));
+}
+
+export async function getTrainingDatasetSummary(
+  options: { signal?: AbortSignal } = {}
+): Promise<TrainingDatasetSummary> {
+  let response: Response;
+  try {
+    response = await fetch(`${resolveFaultDetectionApiBase()}${FAULT_DETECTION_DATASETS_PATH}`, {
+      method: "GET",
+      headers: faultDetectionApiHeaders({ Accept: "application/json" }),
+      credentials: "include",
+      cache: "no-store",
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to read the training dataset inbox.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseTrainingDatasetSummary(await readJsonResponse(response, "Dataset API"));
+}
+
+export async function createTrainingDatasetImport(
+  name: string,
+  sourceType: TrainingDatasetSourceType,
+  options: { signal?: AbortSignal } = {}
+): Promise<TrainingDatasetImport> {
+  let response: Response;
+  try {
+    response = await fetch(`${resolveFaultDetectionApiBase()}${FAULT_DETECTION_DATASETS_PATH}/imports`, {
+      method: "POST",
+      headers: faultDetectionApiHeaders({ Accept: "application/json", "Content-Type": "application/json" }),
+      body: JSON.stringify({ name, sourceType }),
+      credentials: "include",
+      cache: "no-store",
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to create the dataset import.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseTrainingDatasetImport(await readJsonResponse(response, "Dataset API"));
+}
+
+export async function uploadTrainingDatasetFile(
+  importId: string,
+  file: File,
+  relativePath: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<TrainingDatasetImport> {
+  if (!/^[0-9a-f]{32}$/.test(importId)) {
+    throw new FaultDetectionApiError("Invalid dataset import id.", { kind: "invalid_response" });
+  }
+  let response: Response;
+  try {
+    response = await fetch(
+      `${resolveFaultDetectionApiBase()}${FAULT_DETECTION_DATASETS_PATH}/imports/${importId}/files`,
+      {
+        method: "POST",
+        headers: faultDetectionApiHeaders({
+          Accept: "application/json",
+          "Content-Type": "application/octet-stream",
+          "X-Filename": encodeURIComponent(file.name),
+          "X-Relative-Path": encodeURIComponent(relativePath || file.name),
+        }),
+        body: file,
+        credentials: "include",
+        cache: "no-store",
+        signal: options.signal,
+      }
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to upload a dataset file.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseTrainingDatasetImport(await readJsonResponse(response, "Dataset API"));
+}
+
+export async function completeTrainingDatasetImport(
+  importId: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<TrainingDatasetImport> {
+  if (!/^[0-9a-f]{32}$/.test(importId)) {
+    throw new FaultDetectionApiError("Invalid dataset import id.", { kind: "invalid_response" });
+  }
+  let response: Response;
+  try {
+    response = await fetch(
+      `${resolveFaultDetectionApiBase()}${FAULT_DETECTION_DATASETS_PATH}/imports/${importId}/complete`,
+      {
+        method: "POST",
+        headers: faultDetectionApiHeaders({ Accept: "application/json" }),
+        credentials: "include",
+        cache: "no-store",
+        signal: options.signal,
+      }
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to finalise the dataset import.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseTrainingDatasetImport(await readJsonResponse(response, "Dataset API"));
+}
+
+export async function getGroundTruthBatch(
+  importId: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<GroundTruthBatch> {
+  if (!/^[0-9a-f]{32}$/.test(importId)) {
+    throw new FaultDetectionApiError("Invalid dataset import id.", { kind: "invalid_response" });
+  }
+  let response: Response;
+  try {
+    response = await fetch(
+      `${resolveFaultDetectionApiBase()}${FAULT_DETECTION_DATASETS_PATH}/imports/${importId}/labels`,
+      {
+        method: "GET",
+        headers: faultDetectionApiHeaders({ Accept: "application/json" }),
+        credentials: "include",
+        cache: "no-store",
+        signal: options.signal,
+      }
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to read the ground-truth batch.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseGroundTruthBatch(await readJsonResponse(response, "Ground-truth API"));
+}
+
+export async function saveGroundTruthLabel(
+  importId: string,
+  input: GroundTruthLabelInput,
+  options: { signal?: AbortSignal } = {}
+): Promise<GroundTruthLabel> {
+  if (!/^[0-9a-f]{32}$/.test(importId)) {
+    throw new FaultDetectionApiError("Invalid dataset import id.", { kind: "invalid_response" });
+  }
+  let response: Response;
+  try {
+    response = await fetch(
+      `${resolveFaultDetectionApiBase()}${FAULT_DETECTION_DATASETS_PATH}/imports/${importId}/labels`,
+      {
+        method: "POST",
+        headers: faultDetectionApiHeaders({ Accept: "application/json", "Content-Type": "application/json" }),
+        body: JSON.stringify(input),
+        credentials: "include",
+        cache: "no-store",
+        signal: options.signal,
+      }
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to save the ground-truth label.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseGroundTruthLabel(await readJsonResponse(response, "Ground-truth API"));
+}
+
+export async function getModelTrainingSummary(
+  options: { signal?: AbortSignal } = {}
+): Promise<ModelTrainingSummary> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${resolveFaultDetectionApiBase()}${FAULT_DETECTION_TRAINING_PATH}`,
+      {
+        method: "GET",
+        headers: faultDetectionApiHeaders({ Accept: "application/json" }),
+        credentials: "include",
+        cache: "no-store",
+        signal: options.signal,
+      }
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to read the model-training workspace.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseModelTrainingSummary(await readJsonResponse(response, "Training API"));
+}
+
+export async function createModelTrainingJob(
+  input: { name: string; importIds: string[]; epochs: number },
+  options: { signal?: AbortSignal } = {}
+): Promise<ModelTrainingJob> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${resolveFaultDetectionApiBase()}${FAULT_DETECTION_TRAINING_PATH}/jobs`,
+      {
+        method: "POST",
+        headers: faultDetectionApiHeaders({ Accept: "application/json", "Content-Type": "application/json" }),
+        body: JSON.stringify(input),
+        credentials: "include",
+        cache: "no-store",
+        signal: options.signal,
+      }
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to start model training.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseModelTrainingJob(await readJsonResponse(response, "Training API"));
+}
+
+/** What a run on these batches would use, with captures shared between batches counted once. */
+export async function previewModelTraining(
+  importIds: string[],
+  options: { signal?: AbortSignal } = {}
+): Promise<ModelTrainingPreview> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${resolveFaultDetectionApiBase()}${FAULT_DETECTION_TRAINING_PATH}/preview`,
+      {
+        method: "POST",
+        headers: faultDetectionApiHeaders({ Accept: "application/json", "Content-Type": "application/json" }),
+        body: JSON.stringify({ importIds }),
+        credentials: "include",
+        cache: "no-store",
+        signal: options.signal,
+      }
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to count the selected training data.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseModelTrainingPreview(await readJsonResponse(response, "Training API"));
+}
+
+/** Deletes a batch that never finished (interrupted or empty). Completed batches cannot be discarded. */
+export async function discardTrainingDatasetImport(
+  importId: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<TrainingDatasetDiscard> {
+  if (!/^[0-9a-f]{32}$/.test(importId)) {
+    throw new FaultDetectionApiError("Invalid dataset import id.", { kind: "invalid_response" });
+  }
+  let response: Response;
+  try {
+    response = await fetch(
+      `${resolveFaultDetectionApiBase()}${FAULT_DETECTION_DATASETS_PATH}/imports/${importId}/discard`,
+      {
+        method: "POST",
+        headers: faultDetectionApiHeaders({ Accept: "application/json" }),
+        credentials: "include",
+        cache: "no-store",
+        signal: options.signal,
+      }
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to discard the dataset import.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseTrainingDatasetDiscard(await readJsonResponse(response, "Dataset API"));
+}
+
+export async function getModelTrainingJob(
+  jobId: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<ModelTrainingJob> {
+  if (!/^[0-9a-f]{32}$/.test(jobId)) {
+    throw new FaultDetectionApiError("Invalid training job id.", { kind: "invalid_response" });
+  }
+  let response: Response;
+  try {
+    response = await fetch(
+      `${resolveFaultDetectionApiBase()}${FAULT_DETECTION_TRAINING_PATH}/jobs/${jobId}`,
+      {
+        method: "GET",
+        headers: faultDetectionApiHeaders({ Accept: "application/json" }),
+        credentials: "include",
+        cache: "no-store",
+        signal: options.signal,
+      }
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new FaultDetectionApiError("Unable to read the model-training job.", {
+      kind: "network",
+      details: error,
+    });
+  }
+  return parseModelTrainingJob(await readJsonResponse(response, "Training API"));
 }
