@@ -19,7 +19,7 @@
 - **Built and benchmarked on a real fleet.** The detectors come from the EGAT charging fleet: **212 stations, 40,542 charging sessions, 44,198 captures**. Five detector architectures were trained and scored on the same held-out split: 8,820 sessions from 45 stations the models never saw.
 - **Fleet view and monthly retraining.** The Stations tab scores each of the 212 stations in the bundled EGAT data set, and three optional tabs run a monthly retraining cycle that a person reviews and approves.
 
-[Quick start](#quick-start-windows-x64) · [What the result tells you](#what-the-result-tells-you) · [Tour](#a-quick-tour) · [Editions](#editions) · [Report a problem](#report-a-problem--แจ้งปัญหา) · [Research](#for-researchers-and-developers) · [License](#license)
+[Quick start](#quick-start-windows-x64) · [How it works](#how-it-works) · [What the result tells you](#what-the-result-tells-you) · [Tour](#a-quick-tour) · [Editions](#editions) · [Report a problem](#report-a-problem--แจ้งปัญหา) · [Research](#for-researchers-and-developers) · [License](#license)
 
 ## Quick start (Windows x64)
 
@@ -58,9 +58,20 @@ On any other machine Windows SmartScreen still shows *More info → Run anyway*,
 2. ติดตั้ง ตัวติดตั้งลงนามด้วยใบรับรองภายในแบบ self-signed ดังนั้น Windows SmartScreen จะแจ้งเตือน ให้กด *More info → Run anyway* การเปิดโปรแกรมครั้งแรกหลังติดตั้งอาจใช้เวลาสองสามนาทีระหว่างที่โปรแกรมป้องกันไวรัสตรวจไฟล์ใหม่
 3. เปิดโปรแกรม เลือก **วิเคราะห์ PCAP** แล้วเลือกไฟล์ `.pcap` หรือ `.pcapng` (ไม่เกิน 256 MiB) โปรแกรมจะแสดงผลการตรวจ กลุ่มความผิดปกติ (fault family) หลักฐานจากแพ็กเก็ต และฝ่ายที่หยุดการชาร์จ (รถหรือเครื่องชาร์จ)
 
+ภาพรวมการทำงานของระบบ ตั้งแต่เลือกไฟล์จนถึงผลการตรวจ และรอบฝึกโมเดลใหม่รายเดือน ดูได้ที่แผนภาพใน [How it works](#how-it-works)
+
 ในรุ่นปัจจุบัน แท็บ ผลรายสถานี (Stations) แสดงผลและคะแนนสุขภาพ (PCAP Health) ของ 212 สถานีจากชุดข้อมูลของ กฟผ. ที่มากับโปรแกรม ไม่ใช่ข้อมูลสดจากเครื่องชาร์จ และไม่ได้คำนวณจากไฟล์ที่คุณนำมาวิเคราะห์
 
 แจ้งปัญหาหรือขอฟีเจอร์ได้ทั้งภาษาไทยและภาษาอังกฤษ ([Bug report][bug] · [Feature request][feature]) **ห้ามแนบไฟล์ capture หรือ log ที่มีข้อมูลระบุตัวรถ (EVCCID, MAC address) ชื่อสถานี หรือตำแหน่งที่ตั้ง ใน issue สาธารณะ** ให้อธิบายลักษณะของไฟล์แทน หรือขอช่องทางส่งแบบส่วนตัวใน issue
+
+## How it works
+
+<p align="center">
+  <img src="docs/images/system-workflow.png" width="860" alt="Workflow diagram. A, on your PC: pick a capture, upload it only to the local engine on 127.0.0.1, decode it with the bundled TShark and dsV2Gshark, split it into sessions, check it with Agentic AI, and show the verdict: fault detected, no fault detected or inconclusive. B, optional monthly retraining: import captures, a reviewer labels the ground truth and the app trains a candidate model; held-out validation, manual approval and the release are done by people outside the app, and only a new release changes the model that Agentic AI uses.">
+</p>
+
+- **A · Analyze a capture.** Every step runs on your PC. The capture goes only to the bundled engine on 127.0.0.1, TShark with the dsV2Gshark dissector decodes it, the events are split into charging sessions and Agentic AI checks each one. The uploaded capture and its extracted telemetry are deleted when the job finishes or fails; a small result record is removed at the first app start after 30 days. Analyzing a capture never adds it to training data and never changes the bundled benchmark.
+- **B · Monthly retraining (optional).** Steps 1–3 are the Dataset & Retrain, Ground Truth Label and Train Model tabs ([more](#monthly-retraining-optional)). Steps 4–6 are the release process that people run outside the app ([`DATASET_RETRAIN.md`](imps_platform/desktop/DATASET_RETRAIN.md)). The model that Agentic AI uses changes only when you install a new release.
 
 ## What the result tells you
 
@@ -85,7 +96,7 @@ On any other machine Windows SmartScreen still shows *More info → Run anyway*,
 </tr>
 </table>
 
-The result is packet-evidence attribution, not a standards-conformance certification. The analysis runs on your PC and never changes the benchmark bundled with the app. The uploaded capture and its extracted telemetry are deleted when the job finishes or fails; a small result record is kept for traceability and expires after 30 days.
+The result is packet-evidence attribution, not a standards-conformance certification. The analysis runs on your PC and never changes the benchmark bundled with the app. The uploaded capture and its extracted telemetry are deleted when the job finishes or fails; a small result record is kept for traceability and removed at the first app start after 30 days.
 
 ## A quick tour
 
@@ -221,7 +232,7 @@ The rest of this page covers the research behind the app and how to rebuild it.
 |---|---|
 | `ev_charger_ai/` | Research code: packet → session pipeline, ground truth, 33-feature tracker, the five detectors, benchmark harness, ISO 15118-2 / SLAC rule layers, analysis scripts, results (`results/*.json`) and trained weights (`artifacts*/`). The 41 GB session/feature data is **not** in the repo. |
 | `imps_platform/` | The fault-detection module of the iMPS platform: dashboard page (`src/app/dashboard/ai/fault-detection/`), PCAP job API (`backend/routers/fault_detection.py`, `backend/services/fault_detection_jobs.py`), Windows desktop packaging (`desktop/`), and the commits as `patches/*.patch` for applying onto an iMPS checkout. |
-| `docs/` | Hand-off notes, the v1.1 ↔ v1.2 feature-comparison PDF and the screenshots used on this page (`docs/images/`). |
+| `docs/` | Hand-off notes, the v1.1 ↔ v1.2 feature-comparison PDF and the screenshots and the workflow diagram used on this page (`docs/images/`; `system-workflow.svg` is the diagram's editable source). |
 
 Deep-dive documents live in `ev_charger_ai/docs/`:
 
