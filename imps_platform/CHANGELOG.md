@@ -1,3 +1,13 @@
+## [1.7.1] 2026-10-06
+
+### Fixed
+
+- Buttons and highlights in the new tabs were invisible: Material Tailwind replaces Tailwind's colour palette and has no slate, emerald, violet, sky or rose, so no CSS was generated for those classes. The Ground Truth "Save & next file" button and the Train Model "Train candidate" button rendered white on white, the Train Model icon, progress bars and the selected Normal card had no colour, and a few research-panel accents were missing. The five families are now added to the Tailwind theme, and a test fails if a dashboard file uses a colour family the theme does not generate.
+
+### Editions
+
+- Snapshot 2026-09-12 1.1.8 and ISO 15118 1.3.6 carry the same fix.
+
 ## [1.7.0] 2026-10-06
 
 First public release of the 1.3.5–1.7.0 work (fault pie chart, Dataset & Retrain,

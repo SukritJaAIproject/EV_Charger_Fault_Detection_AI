@@ -1,0 +1,142 @@
+From af25b9812492e2cad7d91c229666dd08945163ba Mon Sep 17 00:00:00 2001
+From: Sukrit Jaidee <45908411+SukritJaAIproject@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 14:05:14 +0700
+Subject: [PATCH] fix(desktop): generate the colours the new tabs use (1.7.1)
+
+withMT replaces Tailwind's palette with Material Tailwind's, which has no
+slate, emerald, violet, sky or rose; no CSS was generated for those classes.
+In 1.7.0 the Ground Truth "Save & next file" and Train Model "Train
+candidate" buttons rendered white on white. Add the five families to the
+theme and a test that fails when a dashboard file uses a colour family the
+resolved Tailwind theme does not generate. Version 1.7.1.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ iMPS_platform/CHANGELOG.md                    | 10 ++++++
+ iMPS_platform/package-lock.json               |  4 +--
+ iMPS_platform/package.json                    |  2 +-
+ .../fault-detection/tailwind-colors.test.ts   | 36 +++++++++++++++++++
+ iMPS_platform/tailwind.config.js              |  8 +++++
+ 5 files changed, 57 insertions(+), 3 deletions(-)
+ create mode 100644 iMPS_platform/src/app/dashboard/ai/fault-detection/tailwind-colors.test.ts
+
+diff --git a/iMPS_platform/CHANGELOG.md b/iMPS_platform/CHANGELOG.md
+index a25b0c8b..876244da 100644
+--- a/iMPS_platform/CHANGELOG.md
++++ b/iMPS_platform/CHANGELOG.md
+@@ -1,3 +1,13 @@
++## [1.7.1] 2026-10-06
++
++### Fixed
++
++- Buttons and highlights in the new tabs were invisible: Material Tailwind replaces Tailwind's colour palette and has no slate, emerald, violet, sky or rose, so no CSS was generated for those classes. The Ground Truth "Save & next file" button and the Train Model "Train candidate" button rendered white on white, the Train Model icon, progress bars and the selected Normal card had no colour, and a few research-panel accents were missing. The five families are now added to the Tailwind theme, and a test fails if a dashboard file uses a colour family the theme does not generate.
++
++### Editions
++
++- Snapshot 2026-09-12 1.1.8 and ISO 15118 1.3.6 carry the same fix.
++
+ ## [1.7.0] 2026-10-06
+ 
+ First public release of the 1.3.5–1.7.0 work (fault pie chart, Dataset & Retrain,
+diff --git a/iMPS_platform/package-lock.json b/iMPS_platform/package-lock.json
+index a945a639..29b4ae7e 100644
+--- a/iMPS_platform/package-lock.json
++++ b/iMPS_platform/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "material-tailwind-dashboard-nextjs-pro",
+-  "version": "1.7.0",
++  "version": "1.7.1",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "material-tailwind-dashboard-nextjs-pro",
+-      "version": "1.7.0",
++      "version": "1.7.1",
+       "dependencies": {
+         "@fortawesome/fontawesome-free": "^7.0.1",
+         "@fullcalendar/core": "6.1.10",
+diff --git a/iMPS_platform/package.json b/iMPS_platform/package.json
+index f294da6c..a544ccc4 100644
+--- a/iMPS_platform/package.json
++++ b/iMPS_platform/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "material-tailwind-dashboard-nextjs-pro",
+-  "version": "1.7.0",
++  "version": "1.7.1",
+   "description": "Offline Windows desktop application for EV charger fault detection and PCAP analysis.",
+   "author": "iMPS Project",
+   "private": true,
+diff --git a/iMPS_platform/src/app/dashboard/ai/fault-detection/tailwind-colors.test.ts b/iMPS_platform/src/app/dashboard/ai/fault-detection/tailwind-colors.test.ts
+new file mode 100644
+index 00000000..b3224e0e
+--- /dev/null
++++ b/iMPS_platform/src/app/dashboard/ai/fault-detection/tailwind-colors.test.ts
+@@ -0,0 +1,36 @@
++import { readdirSync, readFileSync } from "node:fs";
++import { createRequire } from "node:module";
++import path from "node:path";
++import { describe, expect, it } from "vitest";
++
++const require = createRequire(import.meta.url);
++const projectRoot = path.resolve(__dirname, "../../../../..");
++const resolveConfig = require("tailwindcss/resolveConfig");
++const theme = resolveConfig(require(path.join(projectRoot, "tailwind.config.js"))).theme as {
++  colors: Record<string, unknown>;
++};
++
++// tw-<utility>-<family>-<shade>, e.g. tw-bg-violet-700, tw-ring-emerald-100, tw-border-t-blue-600
++const COLOR_CLASS = /tw-(?:[a-z-]+:)*(?:tw-)?(?:bg|text|border(?:-[xytrbl])?|ring|from|via|to|fill|stroke|shadow|divide|outline|accent|decoration|placeholder)-([a-z]+(?:-[a-z]+)?)-(\d{2,3})\b/g;
++
++describe("Tailwind palette", () => {
++  it("generates every colour family the fault-detection screens use", () => {
++    // withMT swaps Tailwind's palette for Material Tailwind's; a family missing
++    // there produces no CSS at all (1.7.0 shipped invisible violet buttons)
++    const missing = new Map<string, Set<string>>();
++    for (const file of readdirSync(__dirname).filter((name) => /\.tsx?$/.test(name) && !name.includes(".test."))) {
++      const source = readFileSync(path.join(__dirname, file), "utf-8");
++      for (const match of source.matchAll(COLOR_CLASS)) {
++        const family = match[1];
++        if (!(family in theme.colors)) missing.set(family, (missing.get(family) ?? new Set()).add(file));
++      }
++    }
++    expect(Object.fromEntries([...missing].map(([family, files]) => [family, [...files]]))).toEqual({});
++  });
++
++  it("keeps the Material Tailwind palette the rest of iMPS relies on", () => {
++    for (const family of ["blue-gray", "gray", "blue", "amber", "red", "green", "deep-purple"]) {
++      expect(theme.colors, family).toHaveProperty(family);
++    }
++  });
++});
+diff --git a/iMPS_platform/tailwind.config.js b/iMPS_platform/tailwind.config.js
+index 3eb34497..6abffa55 100644
+--- a/iMPS_platform/tailwind.config.js
++++ b/iMPS_platform/tailwind.config.js
+@@ -1,6 +1,13 @@
+ /** @type {import('tailwindcss').Config} */
+ 
+ const withMT = require("@material-tailwind/react/utils/withMT");
++const tailwindColors = require("tailwindcss/colors");
++
++// withMT replaces Tailwind's palette with Material Tailwind's, which has no
++// slate, emerald, violet, sky or rose. Classes in those families were never
++// generated, so the 1.7.0 Ground Truth and Train Model buttons rendered white
++// on white. Add them back on top of the Material Tailwind palette.
++const MISSING_FROM_MATERIAL_TAILWIND = ["slate", "emerald", "violet", "sky", "rose"];
+ 
+ module.exports = withMT({
+   content: [
+@@ -14,6 +21,7 @@ module.exports = withMT({
+   ],
+   theme: {
+     extend: {
++      colors: Object.fromEntries(MISSING_FROM_MATERIAL_TAILWIND.map((name) => [name, tailwindColors[name]])),
+       fontFamily: {
+         sans: [
+           "var(--font-kanit)",
+-- 
+2.45.1.windows.1
+
