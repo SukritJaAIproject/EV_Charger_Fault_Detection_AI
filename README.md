@@ -101,3 +101,10 @@ npm run desktop:build:online                        # Online bootstrapper + payl
 ## Provenance
 
 Research and packaging were carried out with Claude (Anthropic) and Codex (OpenAI) as coding agents between 2026-09-09 and 2026-09-22; every reported number is reproducible from the scripts and result files in this repository. ISO 15118-2:2014 was read from a licensed copy; ISO 15118-3 values come from public secondary sources only and are labelled as such.
+
+## License
+
+The code and documentation in this repository are released under the [MIT License](LICENSE). Two kinds of material keep their own licenses:
+
+- Software bundled in the installers: Wireshark/TShark (GPL-2.0-or-later), the dSPACE dsV2Gshark dissector and the Microsoft Visual C++ runtime. See [`imps_platform/desktop/licenses/THIRD_PARTY_NOTICES.md`](imps_platform/desktop/licenses/THIRD_PARTY_NOTICES.md).
+- Code that comes from the iMPS platform's dashboard template (`material-tailwind-dashboard-nextjs-pro`), which parts of `imps_platform/` build on.
