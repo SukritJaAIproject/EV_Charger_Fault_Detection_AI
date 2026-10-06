@@ -59,7 +59,7 @@ import { useEditionTabTitle } from "./edition-identity";
 import FaultGlossaryDialog from "./fault-glossary-dialog";
 import ResearchDashboard, { FaultDistributionChart } from "./research-dashboard";
 import StationDetailDialog from "./station-detail-dialog";
-import { calculateStationHealth, sortStationsByHealth } from "./station-health";
+import { calculateStationHealth, labelsOmitPowerDelivery, sortStationsByHealth } from "./station-health";
 import "../ai-theme.css";
 import "./fault-detection.css";
 
@@ -129,6 +129,7 @@ const COPY = {
         : "ผล Agentic AI จาก held-out test แสดงแยกทุกสถานี โดยใช้เกณฑ์เดียวกับ benchmark",
     stationNote: "กดที่สถานีเพื่อดูผลแยก Connector และ Fault · เป็นข้อมูล PCAP ทดสอบ ไม่ใช่สถานะสุขภาพแบบเรียลไทม์",
     stationHealthNote: "PCAP Health เป็นค่าประเมินจาก Fault ที่มีป้ายกำกับในชุดข้อมูล ไม่ใช่สถานะเรียลไทม์ · AI Score ยังคงเป็นคะแนนประสิทธิภาพการตรวจจับและแสดงแยกกัน",
+    stationHealthPowerCaveat: "ป้ายกำกับของชุดข้อมูลนี้ไม่มี NO_POWER_DELIVERED: session ที่ไม่ได้จ่ายไฟถูกนับเป็นปกติ PCAP Health จึงไม่สะท้อนความล้มเหลวในการจ่ายไฟ",
     stationsAnalyzed: "สถานีที่วิเคราะห์",
     testSessions: "Test sessions",
     knownFaults: "Known fault sessions",
@@ -164,8 +165,8 @@ const COPY = {
     openFaultGuide: (count: number) => `เปิดคู่มือ Fault ทั้ง ${count} ประเภท`,
     visibleStations: "สถานีที่แสดง",
     fleetFaultChartTitle: "สัดส่วน Fault ครบทุกสถานี",
-    fleetFaultChartSub: (stations: string, faults: string) =>
-      `รวม ${faults} fault sessions จาก ${stations} สถานี · ไม่เปลี่ยนตามการค้นหาและตัวกรองชุดข้อมูล`,
+    fleetFaultChartSub: (stations: string, faults: string, hasSplitFilter: boolean) =>
+      `รวม ${faults} fault sessions จาก ${stations} สถานี · ${hasSplitFilter ? "ไม่เปลี่ยนตามการค้นหาและตัวกรองชุดข้อมูล" : "ไม่เปลี่ยนตามการค้นหา"}`,
     fleetFaultChartEyebrow: "FAULT MIX · ALL STATIONS",
     fleetFaultTypeCount: (count: number) => `${count} ประเภท`,
     fleetFaultEmpty: "ยังไม่มีข้อมูลประเภท Fault สำหรับสถานีชุดนี้",
@@ -259,6 +260,7 @@ const COPY = {
         : "Agentic AI results on the held-out sessions, broken down by station using the benchmark's exact scoring rules.",
     stationNote: "Select a station for connector and fault details · These are held-out PCAP results, not real-time station health.",
     stationHealthNote: "PCAP Health is estimated from labelled faults in this dataset, not live telemetry · AI Score remains a separate measure of detection performance.",
+    stationHealthPowerCaveat: "These labels have no NO_POWER_DELIVERED family: sessions that delivered no power count as normal, so PCAP Health does not reflect power-delivery failures.",
     stationsAnalyzed: "Stations analyzed",
     testSessions: "Test sessions",
     knownFaults: "Known fault sessions",
@@ -294,8 +296,8 @@ const COPY = {
     openFaultGuide: (count: number) => `Open the guide to all ${count} fault families`,
     visibleStations: "Stations shown",
     fleetFaultChartTitle: "Fault distribution across all stations",
-    fleetFaultChartSub: (stations: string, faults: string) =>
-      `${faults} fault sessions across ${stations} stations · unaffected by search and data-split filters`,
+    fleetFaultChartSub: (stations: string, faults: string, hasSplitFilter: boolean) =>
+      `${faults} fault sessions across ${stations} stations · ${hasSplitFilter ? "unaffected by search and data-split filters" : "unaffected by search"}`,
     fleetFaultChartEyebrow: "FAULT MIX · ALL STATIONS",
     fleetFaultTypeCount: (count: number) => `${count} types`,
     fleetFaultEmpty: "No fault-family data is available for these stations.",
@@ -635,6 +637,8 @@ export default function FaultDetectionPage() {
         ? c.noFaultDetected
         : c.inconclusive;
   const hasTrainStations = useMemo(() => stations.some((row) => stationSplitOf(row) === "train"), [stations]);
+  // the 2026-09-12 labels have no power-delivery family; say so wherever health is shown
+  const healthOmitsPowerDelivery = labelsOmitPowerDelivery(bundled?.faultFamilies);
   const splitStations = useMemo(
     () => (!hasTrainStations || stationSplitFilter === "all"
       ? stations
@@ -1272,7 +1276,7 @@ export default function FaultDetectionPage() {
                   : stationSplitFilter === "train"
                     ? c.stationSubTrain(trainTotals.stations, formatInt(trainTotals.sessions))
                     : c.stationSubAll(heldOutTotals.stations + trainTotals.stations, heldOutTotals.stations, formatInt(heldOutTotals.sessions), trainTotals.stations)}
-                note={c.stationHealthNote}
+                note={healthOmitsPowerDelivery ? `${c.stationHealthNote} · ${c.stationHealthPowerCaveat}` : c.stationHealthNote}
                 actions={(
                   <>
                   {stationSnapshotLabel && (
@@ -1359,7 +1363,7 @@ export default function FaultDetectionPage() {
                           {c.fleetFaultChartTitle}
                         </h3>
                         <p className="tw-mt-1 tw-max-w-3xl tw-text-[12px] tw-font-medium tw-leading-5 tw-text-slate-500 sm:tw-text-[13px]">
-                          {c.fleetFaultChartSub(formatInt(stations.length), formatInt(fleetFaultTotal))}
+                          {c.fleetFaultChartSub(formatInt(stations.length), formatInt(fleetFaultTotal), hasTrainStations)}
                         </p>
                       </div>
                     </div>
@@ -1670,7 +1674,11 @@ export default function FaultDetectionPage() {
         )}
       </div>
       <FaultGlossaryDialog open={faultGlossaryOpen} onClose={() => setFaultGlossaryOpen(false)} />
-      <StationDetailDialog station={selectedStation} onClose={() => setSelectedStationId(null)} />
+      <StationDetailDialog
+        station={selectedStation}
+        onClose={() => setSelectedStationId(null)}
+        powerDeliveryUnlabelled={healthOmitsPowerDelivery}
+      />
     </main>
   );
 }

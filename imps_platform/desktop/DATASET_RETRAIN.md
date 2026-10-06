@@ -215,6 +215,17 @@ The file is read on every status check, so a refresh in Train Model picks up an
 edit without restarting. Train Model lists each requirement with its resolved
 path, where it came from, and whether it is present.
 
+`<product>` is the edition's product name, so each edition has its own
+`engine.json`. The baseline checkpoints must reproduce the edition's installed
+model artifact (the "Baseline checkpoints match the installed model"
+requirement). The current line and the ISO 15118 edition ship the v4 weights
+(`53b6f14244c2e633`), which the default `G:\ev_charger_ai_data_v4\artifacts`
+matches. The Snapshot 2026-09-12 edition ships `41ded2cdd5c2ba3f`; point its
+`%APPDATA%\iMPS Fault Detection Snapshot 2026-09-12\model-training\engine.json`
+`baselineArtifacts` at the matching checkpoints (`G:\ev_charger_ai_data\artifacts`
+on the research workstation). Both model sets have 33 input features, which the
+worker checks before training.
+
 ## Forecaster windows (research item)
 
 Inference calls the GRU forecaster only for delivery-phase events that carry an

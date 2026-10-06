@@ -66,6 +66,17 @@ const clamp = (value: number, minimum = 0, maximum = 100) =>
 
 const oneDecimal = (value: number) => Number(value.toFixed(1));
 
+/**
+ * True when a benchmark's labels have no NO_POWER_DELIVERED family, as in the
+ * 2026-09-12 published labels: sessions that delivered no power were labelled
+ * normal there, so Station Health cannot see power-delivery failures and reads
+ * better than it would on the strict labels. Unknown families (not loaded yet)
+ * report false.
+ */
+export function labelsOmitPowerDelivery(faultFamilies: readonly string[] | null | undefined): boolean {
+  return Array.isArray(faultFamilies) && faultFamilies.length > 0 && !faultFamilies.includes("NO_POWER_DELIVERED");
+}
+
 export function stationHealthBand(score: number | null): StationHealthBand {
   if (score === null) return "no_data";
   if (score >= 85) return "healthy";

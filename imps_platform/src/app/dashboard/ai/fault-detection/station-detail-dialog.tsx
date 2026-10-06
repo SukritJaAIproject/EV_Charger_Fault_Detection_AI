@@ -26,6 +26,8 @@ import { calculateStationHealth, type StationHealthReason } from "./station-heal
 type Props = {
   station: StationAnalysis | null;
   onClose: () => void;
+  /** The edition's labels have no NO_POWER_DELIVERED family (2026-09-12 published labels). */
+  powerDeliveryUnlabelled?: boolean;
 };
 
 const COPY = {
@@ -40,6 +42,7 @@ const COPY = {
     healthScore: "PCAP Health",
     healthEstimated: "ค่าประเมินจากข้อมูลย้อนหลัง",
     healthMethod: "คำนวณจาก Fault จริงใน PCAP เท่านั้น โดยไม่ใช้ Recall, False Alarm หรือ Score ของ AI",
+    healthPowerCaveat: "ป้ายกำกับของชุดข้อมูลนี้ไม่มี NO_POWER_DELIVERED: session ที่ไม่ได้จ่ายไฟถูกนับเป็นปกติ คะแนนนี้จึงไม่สะท้อนความล้มเหลวในการจ่ายไฟ",
     healthConfidence: "ความมั่นใจ",
     healthHealthy: "สุขภาพดี",
     healthWatch: "เฝ้าระวัง",
@@ -113,6 +116,7 @@ const COPY = {
     healthScore: "PCAP Health",
     healthEstimated: "Historical-data estimate",
     healthMethod: "Calculated only from labelled PCAP faults; AI recall, false alarms and benchmark score are excluded.",
+    healthPowerCaveat: "These labels have no NO_POWER_DELIVERED family: sessions that delivered no power count as normal, so this score does not reflect power-delivery failures.",
     healthConfidence: "Confidence",
     healthHealthy: "Healthy",
     healthWatch: "Watch",
@@ -239,7 +243,7 @@ function MetricCard({
   );
 }
 
-export default function StationDetailDialog({ station, onClose }: Props) {
+export default function StationDetailDialog({ station, onClose, powerDeliveryUnlabelled = false }: Props) {
   const { lang } = useLanguage();
   const c = COPY[lang];
 
@@ -391,6 +395,9 @@ export default function StationDetailDialog({ station, onClose }: Props) {
           <section className="tw-rounded-2xl tw-border tw-border-emerald-100 tw-bg-emerald-50/50 tw-p-4 sm:tw-p-5">
             <SectionTitle icon={<HeartPulse className="tw-h-4 tw-w-4" />}>{c.healthTitle}</SectionTitle>
             <p className="tw-text-[12px] tw-font-semibold tw-leading-5 tw-text-slate-600">{c.healthMethod}</p>
+            {powerDeliveryUnlabelled && (
+              <p className="tw-mt-2 tw-rounded-xl tw-bg-amber-50 tw-p-2.5 tw-text-[11px] tw-font-semibold tw-leading-5 tw-text-amber-900 tw-ring-1 tw-ring-amber-200">{c.healthPowerCaveat}</p>
+            )}
             <div className="tw-mt-3 tw-grid tw-grid-cols-2 tw-gap-2.5 lg:tw-grid-cols-4">
               <MetricCard label={c.healthReliability} value={formatPercent(health.components.reliability)} tone="emerald" />
               <MetricCard label={c.healthSeverity} value={formatPercent(health.components.severity)} tone="amber" />

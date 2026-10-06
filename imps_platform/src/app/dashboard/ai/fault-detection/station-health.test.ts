@@ -6,6 +6,7 @@ import {
   MIN_CONNECTOR_SESSIONS,
   STATION_FAULT_SEVERITY,
   calculateStationHealth,
+  labelsOmitPowerDelivery,
   sortStationsByHealth,
   stationHealthBand,
 } from "./station-health";
@@ -120,6 +121,14 @@ describe("PCAP-derived station health", () => {
     expect(calculateStationHealth(enough).reasons).toContainEqual(
       expect.objectContaining({ code: "connector_hotspot", connector: "connector2" }),
     );
+  });
+
+  it("flags label sets without NO_POWER_DELIVERED, such as the 2026-09-12 published labels", () => {
+    const published = ["PROTOCOL_FAILED", "SESSION_ABORT", "SLAC_FAILURE", "EVSE_FAULT", "EV_ERROR", "COMM_FREEZE"];
+    expect(labelsOmitPowerDelivery(published)).toBe(true);
+    expect(labelsOmitPowerDelivery([...published, "NO_POWER_DELIVERED"])).toBe(false);
+    expect(labelsOmitPowerDelivery(undefined)).toBe(false);
+    expect(labelsOmitPowerDelivery([])).toBe(false);
   });
 
   it("reports low confidence when only a few sessions are available", () => {

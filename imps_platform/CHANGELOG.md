@@ -36,6 +36,11 @@ Ground Truth Label, Train Model, Station Health), reviewed and fixed before rele
 - PCAP analysis no longer fails at random when its progress file is being read for a status update at the moment the analysis writes it (Windows refuses the replace); progress writes retry and can never end an analysis.
 - The desktop runtime's Python tests (now 63, including crafted-archive, recovery and concurrency tests) run in every `desktop:prepare` build.
 
+### Editions
+
+- Snapshot 2026-09-12 1.1.7 and ISO 15118 1.3.5 are built from this code. Where an edition's labels have no NO_POWER_DELIVERED family (the 2026-09-12 published labels of the Snapshot edition), the Stations tab and the station dialog say that PCAP Health cannot reflect power-delivery failures, and the fault chart caption mentions the data-split filter only in editions that have one.
+- Train Model needs baseline checkpoints that reproduce the edition's own model: the Snapshot edition needs the `41ded2cdd5c2ba3f` checkpoints in its own `%APPDATA%\iMPS Fault Detection Snapshot 2026-09-12\model-training\engine.json`.
+
 ## [1.6.0] 2026-10-01
 
 ### Added
