@@ -1,0 +1,31 @@
+name: Feature request / ขอความสามารถใหม่
+description: An idea that would make the app or the research more useful.
+title: "[Idea] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Thai or English are both fine. / เขียนเป็นภาษาไทยหรืออังกฤษก็ได้
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do? / ต้องการทำอะไร
+      description: The task or the problem behind the idea. / งานหรือปัญหาที่อยากแก้
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help? / อยากให้มีอะไร
+    validations:
+      required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition you use / รุ่นที่ใช้
+      options:
+        - iMPS Fault Detection (current line)
+        - Snapshot 2026-09-12
+        - ISO 15118
+        - Research code
+        - Not using it yet / ยังไม่ได้ใช้

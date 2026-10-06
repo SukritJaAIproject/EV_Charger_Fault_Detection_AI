@@ -2,15 +2,33 @@
 
 Fault detection for DC EV chargers from raw PLC/V2G packet captures (DIN 70121 / ISO 15118-2), built on the EGAT charging fleet: **212 stations, 40,542 charging sessions, 44,198 captures**. Five detector architectures are trained and scored on the same held-out split; a Windows desktop application ships the winning detectors with a bundled Wireshark/TShark so a technician can analyse a `.pcap` offline.
 
-**Installers (Windows x64):** see [Releases](../../releases) — three editions that install side by side, each as an Offline installer (self-contained, ~231 MB) and an Online installer (700 KB bootstrapper + payload):
+## Try it (Windows x64)
 
-| Edition | Release | App ID | Contents |
+1. Download the installer from the **[latest release](../../releases/latest)**:
+   - `iMPS-Fault-Detection-Offline-Setup-<version>.exe` (about 231 MB) installs everything and works without internet;
+   - `iMPS-Fault-Detection-Online-Setup-<version>.exe` (about 0.7 MB) downloads the same app from the release and checks its hash.
+2. Run it. The installers are signed with an **internal self-signed certificate**, so Windows SmartScreen warns: choose *More info → Run anyway*. The certificate is attached to every release as `iMPS-Fault-Detection-internal-codesign.cer` if you prefer to trust it.
+3. Open **iMPS Fault Detection** from the Desktop or Start menu, select **วิเคราะห์ PCAP / Analyze PCAP** and choose a `.pcap` or `.pcapng` capture of a DC charging session (up to 256 MiB). The app shows the verdict, fault family, packet evidence and per-session details. The Overview and Stations tabs hold the benchmark and the per-station results of the 212-station fleet.
+
+Nothing else needs installing: Wireshark/TShark, the Python runtime and the models are bundled. The first start after installing can take a few minutes while antivirus software scans the new files.
+
+| Edition | Latest | App ID | Contents |
 |---|---|---|---|
-| `iMPS Fault Detection` 1.3.4 (current line, blue icon) | `imps-fault-detection-v1.3.4` | `th.co.imps.faultdetection` | benchmark v4 weights, artifact `53b6f14244c2e633`. The Stations tab opens on all 212 stations: 45 held-out + in-sample results for the 167 training stations |
-| `iMPS Fault Detection Snapshot 2026-09-12` 1.1.6 (amber icon) | `imps-fault-detection-v1.1.6` | `th.co.imps.faultdetection.snapshot20260912` | frozen 12 Sep 2026 snapshot, artifact `41ded2cdd5c2ba3f` |
-| `iMPS Fault Detection ISO 15118` 1.3.4 (green icon) | `imps-fault-detection-iso15118-v1.3.4` | `th.co.imps.faultdetection.iso15118` | v4 weights run under detection policy `iso15118-standard` (ISO 15118-2 rule layer + ISO 15118-3 SLAC timers, normative). The 8,820-session held-out benchmark was replayed under that policy: Agentic AI 66.9 → 70.9 (recall 85.1% → 92.1%) and Traditional AI 69.6 → 77.3. From 1.3.2 its Stations tab also lists all 212 stations; the 167 training stations were replayed under the same policy (in-sample) |
+| `iMPS Fault Detection` (current line, blue icon) | [1.7.0](../../releases/tag/imps-fault-detection-v1.7.0) | `th.co.imps.faultdetection` | benchmark v4 weights, artifact `53b6f14244c2e633`; Stations tab with all 212 stations (45 held-out + in-sample results for the 167 training stations), Station Health and the fault-distribution chart; Dataset & Retrain, Ground Truth Label and Train Model tabs |
+| `iMPS Fault Detection Snapshot 2026-09-12` (amber icon) | [1.1.7](../../releases/tag/imps-fault-detection-v1.1.7) | `th.co.imps.faultdetection.snapshot20260912` | the frozen 12 Sep 2026 snapshot, artifact `41ded2cdd5c2ba3f`, with the current dashboard |
+| `iMPS Fault Detection ISO 15118` (green icon) | [1.3.5](../../releases/tag/imps-fault-detection-iso15118-v1.3.5) | `th.co.imps.faultdetection.iso15118` | v4 weights run under detection policy `iso15118-standard` (ISO 15118-2 rule layer + ISO 15118-3 SLAC timers, normative); 212 stations replayed under that policy |
 
-Since 1.2.1 / 1.1.1 the dashboard names the running edition (product, version, model artifact, snapshot date) in its header and opens the Overview with the benchmark bundled in that build. Since 1.2.2 / 1.1.2 each edition also has its own icon (exe, installer, taskbar, browser tab) and a browser-tab title naming the edition. Since 1.3.0 the Stations tab of the current line covers all 212 stations, and from 1.3.1 it opens on them. From 1.3.2 the ISO 15118 edition has them too, replayed under its own policy, and the research panel has the replayed ISO-2 + SLAC arm for the v4 models. 1.3.3 / 1.1.5 fix PCAP analysis when the app is started from another packaged (MSIX) app. 1.3.4 / 1.1.6 add the replayed ISO 15118-2-only arm to the research panel (`ev_charger_ai/results/v4_iso2_research`). The 167 training stations are badged *in-sample* and kept out of every benchmark number, and the Overview's numbers and research grid come from the model set the edition ships. Earlier releases stay available.
+The three editions install side by side and keep separate data. Release notes list what changed in each version; [`imps_platform/CHANGELOG.md`](imps_platform/CHANGELOG.md) has the full history. Earlier releases stay available.
+
+## Report a problem / แจ้งปัญหา
+
+Please open an issue: **[Bug report](../../issues/new?template=bug_report.yml)** or **[Feature request](../../issues/new?template=feature_request.yml)** (Thai or English are both fine). It helps to include:
+
+- the edition and version, shown in the dashboard header (e.g. `iMPS Fault Detection v1.7.0`), and your Windows version;
+- what you did, what happened and what you expected;
+- the end of the log `%APPDATA%\<product name>\logs\desktop-runtime.log`.
+
+**Do not attach captures or logs with sensitive data to a public issue.** Charging captures can contain vehicle identifiers (EVCCID, MAC addresses), station names and locations. Describe the capture instead, or ask in the issue for a private way to share it.
 
 ## Repository layout
 

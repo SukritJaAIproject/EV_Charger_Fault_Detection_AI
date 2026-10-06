@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Download the latest installers / ดาวน์โหลดตัวติดตั้งล่าสุด
+    url: https://github.com/SukritJaAIproject/EV_Charger_Fault_Detection_AI/releases/latest
+    about: Windows x64 installers for the three editions, with release notes.
